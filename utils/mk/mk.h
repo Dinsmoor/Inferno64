@@ -1,3 +1,4 @@
+#include	<stdint.h>
 #include	<lib9.h>
 #include	<bio.h>
 #include	<regexp.h>

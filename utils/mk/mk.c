@@ -213,11 +213,11 @@ outofdate(Node *node, Arc *arc, int eval)
 				str = strdup(buf);
 			ret = pcmp(arc->prog, node->name, arc->n->name);
 			if(sym)
-				sym->value = (void *)ret;
+				sym->value = (void *)(uintptr_t)ret;
 			else
-				symlook(str, S_OUTOFDATE, (void *)ret);
+				symlook(str, S_OUTOFDATE, (void *)(uintptr_t)ret);
 		} else
-			ret = (int)sym->value;
+			ret = (int)(uintptr_t)sym->value;
 		return(ret-1);
 	} else if(strchr(arc->n->name, '(') && arc->n->time == 0)  /* missing archive member */
 		return 1;

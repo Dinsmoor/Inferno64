@@ -26,7 +26,7 @@ sprint(char *buf, char *fmt, ...)
 	 * we must be sure not to overflow a 32-bit pointer.
 	 */
 	if((uintptr)buf+len < (uintptr)buf)
-		len = -(uint)buf-1;
+		len = -(uint)(uintptr)buf-1;
 
 	va_start(args, fmt);
 	n = vsnprint(buf, len, fmt, args);

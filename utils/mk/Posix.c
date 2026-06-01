@@ -2,6 +2,7 @@
 #include	<dirent.h>
 #include	<signal.h>
 #include	<sys/wait.h>
+#include	<time.h>
 #include	<utime.h>
 #include	<stdio.h>
 
@@ -250,9 +251,9 @@ catchnotes()
 char*
 maketmp(void)
 {
-	static char temp[L_tmpnam];
-
-	return tmpnam(temp);
+	static char temp[] = "/tmp/mk-XXXXXX";
+	mkstemp(temp);
+	return temp;
 }
 
 int

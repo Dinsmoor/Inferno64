@@ -1,0 +1,28 @@
+TARGMODEL=	Posix
+TARGSHTYPE=	sh
+CPUS=		aarch64
+
+O=		o
+OS=		o
+
+AR=		ar
+ARFLAGS=	ruvs
+
+AS=		gcc -c -march=armv8-a
+ASFLAGS=
+
+CC=		gcc -c -march=armv8-a
+CFLAGS=		-O\
+		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
+		-I$ROOT/Linux/aarch64/include\
+		-I$ROOT/include\
+		-DLINUX_AARCH64
+
+ANSICPP=
+LD=		gcc -march=armv8-a
+LDFLAGS=
+
+SYSLIBS=
+
+YACC=		iyacc
+YFLAGS=		-d

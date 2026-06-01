@@ -1,0 +1,2 @@
+ARCHFILES=\
+	aarch64-tas.$O\

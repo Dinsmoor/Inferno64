@@ -1,4 +1,5 @@
 #include	"mk.h"
+#include	<time.h>
 
 /* table-driven version in bootes dump of 12/31/96 */
 
@@ -23,13 +24,13 @@ timeof(char *name, int force)
 
 	sym = symlook(name, S_TIME, 0);
 	if (sym)
-		return (long) sym->value;		/* uggh */
+		return (long)(uintptr_t) sym->value;		/* uggh */
 
 	t = mtime(name);
 	if(t == 0)
 		return 0;
 
-	symlook(name, S_TIME, (void*)t);		/* install time in cache */
+	symlook(name, S_TIME, (void*)(uintptr_t)t);		/* install time in cache */
 	return t;
 }
 
@@ -77,7 +78,7 @@ timeinit(char *s)
 		} while(*s);
 		c = *s;
 		*s = 0;
-		symlook(strdup(cp), S_TIME, (void *)t)->value = (void *)t;
+		symlook(strdup(cp), S_TIME, (void *)(uintptr_t)t)->value = (void *)(uintptr_t)t;
 		if (c)
 			*s++ = c;
 		while(*s){

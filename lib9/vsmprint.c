@@ -22,9 +22,9 @@ fmtStrFlush(Fmt *f)
 
 	if(f->start == nil)
 		return 0;
-	n = (int)f->farg;
+	n = (int)(uintptr)f->farg;
 	n += 256;
-	f->farg = (void*)n;
+	f->farg = (void*)(uintptr)n;
 	s = f->start;
 	f->start = realloc(s, n);
 	if(f->start == nil){
@@ -51,7 +51,7 @@ fmtstrinit(Fmt *f)
 	f->to = f->start;
 	f->stop = (char*)f->start + n - 1;
 	f->flush = fmtStrFlush;
-	f->farg = (void*)n;
+	f->farg = (void*)(uintptr)n;
 	f->nfmt = 0;
 	return 0;
 }

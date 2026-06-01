@@ -1,4 +1,5 @@
 #include	"mk.h"
+#include	<time.h>
 
 typedef struct Event
 {
