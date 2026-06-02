@@ -31,6 +31,7 @@ appl/lib/ecmascript/— ECMAscript engine (separate from charon/)
 | `http.b` | `Transport` (HTTP) | HTTP/1.0, HTTP/1.1, HTTPS; SSL 2/3 via `ssl3.dis`; pipelining; proxy |
 | `ftp.b` | `Transport` (FTP) | FTP plain-text retrieval |
 | `file.b` | `Transport` (FILE) | Local file access with MIME sniffing |
+| `gzipfilter.b` | `Gzipfilter` | HTTP `Content-Encoding: gzip`/`deflate` decoder; wraps the inflate `Filter` (`/dis/lib/inflate.dis`) |
 | `img.b` | `Img` | GIF87a/89a (with animation), JPEG, XBitmap, Inferno BIT decoder |
 | `gui.b` | `Gui` | Tk/tkclient wrapper: toolbar, URL bar, status line, progress panel, popups |
 | `event.b` | `Events` | `Event` pick ADT (Ekey, Emouse, Ego, Esubmit, …); `ScriptEvent` for JS |
@@ -265,6 +266,7 @@ Each transport implements the `Transport` interface (`transport.m`): `connect`, 
 - Pipelining: `nc.pipeline` is true when multiple requests are queued on one connection; the header reader advances `nc.gocur`.
 - Redirections: handled inside `CU->hdraction`; up to `Maxredir = 10` hops before giving up.
 - Authentication: HTTP Basic only; credentials are base64-encoded in `charon.b:tobase64`.
+- Content-Encoding: `writereq` sends `Accept-Encoding: gzip, deflate`. `hdrconv` records the response `Content-Encoding` into `Header.encoding`; gzip/deflate bodies are decoded transparently on the producer side (`chutils.b:decodepump`/`rawfeeder`) using `gzipfilter.b`, so consumers still see a plain decoded `ByteSource`. Any other encoding falls back to a save-as prompt.
 
 ### Transport state machine
 
@@ -343,7 +345,7 @@ Mouse-over anchor events are tracked via `mouseover`/`mouseoverfr` globals and r
 
 ## JavaScript Support (`jscript.b`)
 
-The `Script` module bridges Charon to `appl/lib/ecmascript/` (loaded as `ecmascript.dis`). It is **not loaded by default**; `config.doscripts` must be non-zero.
+The `Script` module bridges Charon to `appl/lib/ecmascript/` (loaded as `ecmascript.dis`). `config.doscripts` defaults to **1 (on)**, so JS is loaded when the engine is available (a failed load is non-fatal — `J` is set to nil and scripting is silently disabled); set `doscripts = 0` to force it off.
 
 ```limbo
 Script: module {
@@ -376,11 +378,13 @@ Known JS limitations: `Window.open()` never creates a new window (replaces curre
 ```limbo
 Client: adt {
     set:        fn(c: self ref Client, host, path, cookie: string);
-    getcookies: fn(c: self ref Client, host, path: string, secure: int): string;
+    getcookies: fn(c: self ref Client, host, path: string, secure, fromjs: int): string;
 };
 ```
 
-Cookie handling is **off by default** (`config.docookies = 0`). Only HTTP Basic auth is supported; there is no cookie-domain scoping beyond exact host match.
+Cookie handling is **on by default** (`config.docookies = 1`). Domains are scoped by a Netscape-style match (`getdoms`/`ckcookie`: suffix match plus a TLD dot-count check), not bare exact-host match.
+
+Attribute parsing (`parsecookie`) covers `Domain`, `Path`, `Expires`, `Secure`, plus the RFC 6265 additions `Max-Age` (takes precedence over `Expires`), `HttpOnly`, and `SameSite` (`Strict`/`Lax`/`None`, stored but not yet enforced on cross-site requests). `getcookies` takes a `fromjs` flag: HTTP requests pass `0`, `document.cookie` (`jscript.b`) passes `1`, and `HttpOnly` cookies are withheld when `fromjs` is set. The on-disk format gained two columns (`httponly`, `samesite`); the loader still reads the old 5-column files.
 
 ---
 
@@ -417,22 +421,23 @@ Key options and defaults:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `userdir` | `/usr/<user>/charon/` | bookmarks, cookies, config |
-| `starturl` | `file://localhost/services/webget/start.html` | |
+| `starturl` | `file:/services/webget/start.html` | |
 | `homeurl` | same as starturl | |
 | `helpurl` | `file://localhost/services/webget/help.html` | |
 | `httpproxy` | (empty) | `host:port` URL |
 | `noproxydoms` | (empty) | semicolon/comma-separated |
-| `usessl` | off | `v2`, `v3`, or both |
-| `defaultwidth` | 630 | pixels |
-| `defaultheight` | 450 | main panel height |
+| `usessl` | `v3` | `v2`, `v3`, or both (default SSLV3) |
+| `charset` | `utf-8` | default when no charset is declared (was `windows-1252`) |
+| `defaultwidth` | 640 | pixels |
+| `defaultheight` | 480 | main panel height |
 | `imagelvl` | `ImgFull` | 0=none, 1=no-anim, 2+=full |
-| `imagecachenum` | 60 | max cached images |
+| `imagecachenum` | 120 | max cached images |
 | `imagecachemem` | 80% of system image mem | bytes |
-| `docookies` | 0 (off) | |
-| `doscripts` | 0 (off) | |
+| `docookies` | 1 (on) | |
+| `doscripts` | 1 (on) | |
 | `http` | 1.0 | set to 1.1 for pipelining |
 | `nthreads` | 4 | concurrent downloads |
-| `offersave` | 0 | prompt to save unsupported MIME types |
+| `offersave` | 1 | prompt to save unsupported MIME types |
 | `plumbport` | `web` | plumbing port name |
 
 `CU->saveconfig()` writes the current config back to the user file.
@@ -579,33 +584,33 @@ A note on what Inferno already provides that is relevant here:
 
 ---
 
-#### P0.2 · HTTP Content-Encoding: gzip / deflate
+#### P0.2 · HTTP Content-Encoding: gzip / deflate — ✅ DONE (charon-modernization, 72e82422)
 
-**Why it is blocking.** Virtually every HTTP/1.1 server compresses responses with gzip or deflate (`Content-Encoding: gzip`). Without decompression, the `ByteSource` consumer receives raw compressed bytes and `lex.b` sees garbage. This single omission makes most pages unreadable even when connectivity works.
+**Why it is blocking.** Virtually every HTTP/1.1 server compresses responses with gzip or deflate (`Content-Encoding: gzip`). Before this change Charon advertised no `Accept-Encoding`, and any response that still arrived compressed was routed to a *save-as* dialog by `hdrconv` (it set `mtype = UnknownType`), so the page never rendered.
 
-**What needs to change.** The infrastructure already exists — this is the lowest-effort P0 item:
+**What was done.**
 
-1. **Send `Accept-Encoding: gzip, deflate`** in `http.b:writereq`. One line change.
+1. **`http.b:writereq` sends `Accept-Encoding: gzip, deflate`.** `hdrconv` records the response `Content-Encoding` into the new `Header.encoding` field for gzip/x-gzip/deflate (other encodings still get the save-as fallback).
 
-2. **After `gethdr`, wrap `ByteSource` in a decompressing filter** if `Content-Encoding: gzip` or `deflate` is present. The `Filter` module (`module/filter.m`) provides exactly the right abstraction: `Filter->start(INFLATEPATH)` returns a `chan of ref Rq`; the wrapper goroutine reads raw bytes from the network `ByteSource`, sends `Fill` messages through the filter, and writes decompressed bytes back into the same `ByteSource.data` buffer.
+2. **New `gzipfilter.{m,b}` codec** wraps the existing inflate `Filter` (`/dis/lib/inflate.dis`). `inflate.b` already implements the gzip 10-byte header + CRC32 trailer (`"h"`) and zlib header (`"z"`) framing, so *no manual envelope stripping is needed* — `gzipfilter` just maps the HTTP token to the right framing param. It exposes a streaming `Decoder` (`write`/`eof`/`out`) plus a one-shot `inflate(enc, in)`.
 
-3. **gzip envelope stripping.** `appl/cmd/gzip.b` already strips the gzip 10-byte header and CRC32 trailer. Reuse that logic as a library call before feeding bytes to `inflate.b`.
+3. **`chutils.b:decodepump`/`rawfeeder`** splice the decoder into the **producer** side of the `ByteSource` pump: a feeder proc reads the compressed body into a private raw `ByteSource` and `write`s it to the `Decoder`; the draining proc appends decoded bytes into the visible `bs`, guesses the media type from the *decoded* bytes, and signals consumers via `ngchan` — so the consumer still sees a plain decoded, incrementally-growing stream.
 
-The change is entirely in `http.b` and a new `gzipfilter.b` helper; no other module needs to change. Add a `zstd` entry to the plan once a zstd decoder exists (it is the newest Content-Encoding).
+Contrary to the original estimate, this also touched `chutils.{b,m}` (new `Header.encoding`, the pump) — not just `http.b`. Add a `zstd`/`br` entry once such a decoder exists.
 
-**Effort:** Small. Two days of work including testing.
+**Effort:** Small (as predicted).
 
 ---
 
-#### P0.3 · UTF-8 as default charset everywhere
+#### P0.3 · UTF-8 as default charset everywhere — ✅ DONE (charon-modernization, 72e82422)
 
-**Why it is blocking.** HTML5 mandates UTF-8 as the document default when no charset declaration is present. Charon's tokeniser falls back to Latin-1 (`ISO_8859_1`) — the HTML 3.2 default — when no `<meta charset>` is found. The result is Mojibake for any page without an explicit charset declaration (i.e., most modern pages, since they rely on the browser defaulting to UTF-8).
+**Why it is blocking.** HTML5 mandates UTF-8 as the document default when no charset declaration is present. Charon defaulted to `config.charset = "windows-1252"` (with a hard fall-back to Latin-1 in `build.b` if the converter fails to load) — close to legacy-browser behaviour but Mojibake for the UTF-8 pages that dominate the modern web.
 
-**What needs to change.**
+**What was done.**
 
-1. In `lex.b:TokenSource.new`, default `chset` to `"utf-8"` instead of `"ISO_8859_1"`. One-line change.
-2. Add `<meta charset="utf-8">` short-form parsing (HTML5 syntax) alongside the existing `<meta http-equiv="content-type">` path in `build.b`. The short form is `<meta charset="...">` — the existing parser only recognises the verbose form.
-3. Handle the BOM (`0xEF 0xBB 0xBF`) at the start of a UTF-8 stream by stripping it.
+1. `chutils.b` default `config.charset` changed `"windows-1252"` → `"utf-8"`. (The per-document charset still comes from `Docinfo.chset`, fed into `TokenSource.new` via `ItemSource.new`.)
+2. `build.b` now parses the HTML5 short form `<meta charset="…">` alongside the existing `<meta http-equiv="content-type">` path.
+3. `lex.b:getchar` strips a leading UTF-8 BOM (`EF BB BF`).
 
 **Effort:** Trivial.
 
@@ -613,7 +618,7 @@ The change is entirely in `http.b` and a new `gzipfilter.b` helper; no other mod
 
 ### P1 — Most modern pages are broken or unreadable without these
 
-#### P1.1 · Tolerant HTML5 parsing
+#### P1.1 · Tolerant HTML5 parsing — 🟡 PARTIAL (item 3 done: charon-modernization, 72e82422)
 
 **Why it is blocking.** Modern HTML is authored against HTML5 error-recovery rules — omitted end tags, mis-nested elements, implicit `<tbody>`, unclosed `<p>` before block elements, etc. The HTML5 tokeniser and tree-construction algorithm (WHATWG Living Standard) define a precise error-recovery state machine. Charon's current `lex.b` follows HTML 3.2 rules and silently drops or mis-parses most real-world pages.
 
@@ -623,7 +628,7 @@ The change is entirely in `http.b` and a new `gzipfilter.b` helper; no other mod
 
 2. **Tree construction** — `build.b` needs adoption agency algorithm for mis-nested formatting elements (e.g., `<b><i></b></i>`), automatic `<tbody>` insertion, implicit `<p>` closing before block elements. The full 8-phase insertion mode machine is specified in the WHATWG standard.
 
-3. **New semantic elements** — `<article>`, `<section>`, `<nav>`, `<header>`, `<footer>`, `<main>`, `<aside>`, `<figure>`, `<figcaption>`, `<template>`, `<picture>`, `<source>` — treat unknown/new block elements as `<div>` and new inline elements as `<span>` at minimum, so they degrade gracefully rather than being dropped.
+3. **New semantic elements** — ✅ done for the common set. `article/section/nav/header/footer/main/aside/figure/figcaption`, `mark/time`, and `video/audio/picture/source` are now registered in `lex.{b,m}` (the `tagnames[]` array and the `T*` `iota` list must stay aligned and alphabetically sorted — `makestrinttab` binary-searches the tag table and *raises* if it is unsorted). The sectioning/grouping elements get block line-break behaviour via `blockbrk[]` in `build.b` (so their content is not run together inline); the rest are marked known-but-unimplemented. Still missing: `<template>`, and treating arbitrary unknown inline elements as `<span>`.
 
 4. **`<meta viewport>`** — respect `width=device-width` for initial layout width, rather than always defaulting to the window pixel width.
 
@@ -808,18 +813,19 @@ A full in-process video decoder (H.264, VP9, AV1) is not realistic in Limbo. The
 
 ---
 
-#### P2.5 · Modern cookie handling
+#### P2.5 · Modern cookie handling — 🟡 PARTIAL (charon-modernization, 72e82422)
 
-The current `cookiesrv.b` is RFC 2109 (1997). Modern cookies use RFC 6265 (2011) semantics:
+The original `cookiesrv.b` was RFC 2109 (1997) plus Netscape domain rules. RFC 6265 (2011) additions:
 
-- **`SameSite=Strict/Lax/None`** attribute — needed to avoid sending cookies on cross-site requests.
-- **`HttpOnly`** — prevents JS from reading the cookie; `cookiesrv.b` must not expose HttpOnly cookies to `jscript.b`.
-- **`Max-Age`** attribute (takes precedence over `Expires`).
-- **Cookie prefixes** (`__Secure-`, `__Host-`) — cookies with these prefixes must be on HTTPS-only paths.
-- **`SameSite=None; Secure`** — required for third-party cookies on HTTPS (if ever needed).
-- **Domain-scoping** — the current implementation lacks full subdomain matching per RFC 6265 §5.1.3.
+- **`Max-Age`** (takes precedence over `Expires`) — ✅ done (`parsecookie`).
+- **`HttpOnly`** — ✅ done; parsed and stored, and `getcookies(…, fromjs)` withholds HttpOnly cookies when called from `document.cookie` (`jscript.b` passes `fromjs = 1`; HTTP requests pass `0`).
+- **`SameSite=Strict/Lax/None`** — 🟡 parsed and stored, but **not yet enforced**: `getcookies` has no cross-site/initiator context, so enforcement needs a same-site signal threaded in from the navigation/request site.
+- **Cookie prefixes** (`__Secure-`, `__Host-`) — ⬜ not done.
+- **Domain-scoping** — the existing code already does Netscape-style suffix matching with a TLD dot-count check (`getdoms`/`ckcookie`); it is not the exact RFC 6265 §5.1.3 algorithm but it is not bare exact-host either.
 
-**Effort:** Small to Medium. Mostly additive changes to `cookiesrv.b`; new attributes need parser extension and storage fields.
+Persistence now stores `httponly` and `samesite` as two extra tab columns; the loader still accepts the old 5-column files.
+
+**Effort:** Small to Medium (remaining: SameSite enforcement, prefixes).
 
 ---
 
@@ -922,9 +928,9 @@ AVIF decoding requires:
 | Priority | Item | Prerequisite | Effort |
 |----------|------|-------------|--------|
 | **P0.1** | TLS 1.2 + SNI + ECDHE + AES-GCM | — | Large |
-| **P0.2** | gzip/deflate Content-Encoding | — | Small |
-| **P0.3** | UTF-8 default charset | — | Trivial |
-| **P1.1** | HTML5 tolerant parser | — | Large |
+| **P0.2** ✅ | gzip/deflate Content-Encoding | — | Small |
+| **P0.3** ✅ | UTF-8 default charset | — | Trivial |
+| **P1.1** 🟡 | HTML5 tolerant parser (semantic tags done) | — | Large |
 | **P1.2** | CSS 2.1 engine | P1.1 | Very Large |
 | **P1.3** | ECMAScript 5.1 + modern DOM | — | Large |
 | **P1.4** | XMLHttpRequest | P1.3 | Medium |
@@ -933,7 +939,7 @@ AVIF decoding requires:
 | **P2.2** | WebP (VP8L then VP8) | — | Medium–Large |
 | **P2.3** | WebSockets | P0.1 | Medium |
 | **P2.4** | `<video>`/`<audio>` placeholder + plumb | — | Small |
-| **P2.5** | Modern cookie RFC 6265 | — | Small–Medium |
+| **P2.5** 🟡 | Modern cookie RFC 6265 (Max-Age/HttpOnly done; SameSite parsed) | — | Small–Medium |
 | **P2.6** | localStorage / sessionStorage | P1.3 | Small |
 | **P3.1** | CSS Flexbox subset | P1.2 | Large |
 | **P3.2** | Promises + async/await | P1.3 | Medium |
@@ -944,11 +950,11 @@ AVIF decoding requires:
 
 **Recommended execution order** for maximum impact per unit effort:
 
-1. P0.3 (UTF-8 default) — trivial, do it immediately.
-2. P0.2 (gzip Content-Encoding) — infrastructure exists, small effort.
+1. ✅ P0.3 (UTF-8 default) — done (charon-modernization, 72e82422).
+2. ✅ P0.2 (gzip Content-Encoding) — done (charon-modernization, 72e82422).
 3. P0.1 (TLS 1.2) — the biggest single unlocker; do as early as possible.
-4. P2.4 (`<video>` placeholder) — small effort, prevents crashes/hangs.
-5. P2.5 (cookies RFC 6265) — small, improves login compatibility.
+4. P2.4 (`<video>` placeholder) — small effort, prevents crashes/hangs. (Tags now parse; placeholder rendering + plumb hand-off still TODO.)
+5. 🟡 P2.5 (cookies RFC 6265) — Max-Age/HttpOnly done, SameSite parsed (charon-modernization, 72e82422); SameSite enforcement + prefixes remain.
 6. P2.6 (localStorage) — small, unblocks many SPAs.
 7. P1.5 (parallel loading) — medium, dramatic perceived speed improvement.
 8. P1.3 (JS ES5) — large, but enables all JS-dependent features.
