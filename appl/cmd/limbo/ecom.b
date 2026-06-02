@@ -1760,7 +1760,9 @@ arraydefault(a, elem: ref Node)
 	t = mkbin(Oas, mkunary(Oind, t), elem);
 	t.ty = elem.ty;
 	t.left.ty = elem.ty;
-	t.left.left.ty = tint;
+	# the Oindx node is the element ADDRESS: pointer-width (tbig) on LP64,
+	# not tint, else the 8-byte address overruns its temp during the fill
+	t.left.left.ty = tbig;
 	sumark(t);
 	ecom(t.src, nil, t);
 

@@ -1966,7 +1966,13 @@ arraydefault(Node *a, Node *elem)
 	t = mkbin(Oas, mkunary(Oind, t), elem);
 	t->ty = elem->ty;
 	t->left->ty = elem->ty;
-	t->left->left->ty = tint;
+	/*
+	 * The Oindx node computes the element ADDRESS; it must be pointer-width
+	 * (tbig: 8 bytes, 8-aligned, untraced) on LP64, not tint (IBY2WD), or the
+	 * materialised element address overruns its 4-byte temp and corrupts the
+	 * fill (same fix as rewrite()'s Oindex and arraycom's tmp).
+	 */
+	t->left->left->ty = tbig;
 	sumark(t);
 	ecom(&t->src, nil, t);
 
