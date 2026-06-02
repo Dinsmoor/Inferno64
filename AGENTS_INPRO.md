@@ -7,7 +7,7 @@
 > magic guard + a few LP64-safety one-liners — **do not apply further changes to
 > master.** This is the durable project record (it travels with the repo); update
 > the relevant `AGENTS_*.md` rather than relying on external notes.
-> **Next steps, in order: (1) `$Loader` LP64 fix; (2) graphical session (GUI).**
+> **Next step: graphical session (GUI).** (`$Loader` LP64 fix is done — see below.)
 > The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
 > arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
 > audited — see below). `github.com/caerwynj/inferno-lab` is the test battery.
@@ -375,12 +375,23 @@ bug. After fixes, 1 residual fault: `toy0`, `IMFRAME` on a nil modlink from an
 uninstalled `load` with no nil-check — a program bug, not codegen. Not yet wired as
 a standing harness.
 
+### `$Loader` LP64 fix (done) — runtime module reflect/rebuild
+`$Loader` (`libinterp/loader.c`, the `Loader->ifetch`/`newmod`/`link`/`tdesc`
+reflective interface) round-trips a module's instructions to/from Limbo. Three
+LP64 bugs, all fixed (VM-only, no `.dis` change); verified `ifetch`→`newmod`
+round-trips echo/cat/wc/ls/tee and the 1967-instruction `sh/std.dis`, and the
+rebuilt module frees cleanly:
+1. **brunpatch** read a branch target from the truncating 4-byte `i->d.imm`; the
+   core stores it as a full `Inst*` in `i->d.ins` (8 bytes), so the recovered
+   instruction index was garbage and `newmod`'s `brpatch` rejected it. Now passes
+   the `Inst*` and computes the index from `i->d.ins`.
+2. **`Loader_newmod`** `malloc`'d the Module and set only some fields, leaving
+   `ldt`/`htab`/`ext`/`link`/`dlm` as garbage 8-byte pointers that the teardown
+   (`freemod`/`destroylinks`) walks → crash. Now `memset(m,0,sizeof(Module))`.
+3. **`destroylinks`** (`link.c`) walked `m->ext` with no nil check; a `newmod`'d
+   module has `ext==nil`. Guarded (as `freemod` already guards `ldt`/`htab`).
+
 ### Deferred LP64 items (compile fine; off the emuinit/sh boot path)
-- **`$Loader` module** (`libinterp/loader.c`) — **NEXT TASK.** Its
-  `brpatch`/`brunpatch` round-trip branch targets through `Inst.d.imm` and a 4-byte
-  `Loader_Inst.dst`; the core now uses `d.ins`. Rework to compute indices from
-  `d.ins` for dynamic module load/build (the runtime compile/assemble path used by
-  `Loader->*`). After this: the GUI/graphical session (see below).
 - **`asm.c` `-S` listing**: the textual assembly listing's `Tcasec` case was not
   updated for pointer-sized entries (the binary `dis.c` path was). Listing/debug
   only; does not affect execution.
