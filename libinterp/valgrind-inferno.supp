@@ -1,0 +1,95 @@
+# Valgrind/Memcheck suppressions for the Inferno emu pool allocator.
+#
+# Use with the -DVALGRIND build (see ref/AGENTS_DEBUGGING.md):
+#   valgrind --suppressions=libinterp/valgrind-inferno.supp \
+#            --error-limit=no emu -g1024x768 wm/wm /dis/<app>.dis
+#
+# WHY: emu's tree allocator (emu/port/alloc.c) keeps its free-list metadata
+# IN-BAND -- a free block's tree node (Bhdr.u.s) and its Btail overlay the same
+# bytes a Dis-heap object occupied, which VGHEAP_FREE (VALGRIND_FREELIKE_BLOCK)
+# poisons.  VG_POOL_META() in pooladd/poolfree re-marks the node+tail
+# accessible, which removes the bulk (e.g. pooldel goes to zero), but the
+# coalescer and tree walks still legitimately read a few payload-adjacent bytes
+# of neighbouring free blocks to decide merges.  Those reads are allocator
+# bookkeeping, never a consumer use-after-free, so suppress them BY TOP FRAME.
+#
+# IMPORTANT -- what is deliberately NOT here:  rungc, destroy, freeptrs and any
+# VM frame (Sys_*, xec, font/string ops).  A real dangling-pointer / use-after-
+# free of a Dis object -- the exact hazard the isptr=0 untraced tptr/tbig slots
+# create -- surfaces in one of THOSE frames, so they must stay visible.  Only
+# the pure allocator-internal functions below are suppressed.
+#
+# smalloc is included for its own reason: under Valgrind, libc malloc is
+# intercepted (emu's pool malloc is bypassed), so emu's Bhdr-header arithmetic
+# writes into Valgrind's redzone ahead of a malloc block.  That is a
+# Valgrind-only interposition artifact (production uses emu's pool), benign.
+#
+# Regenerate/extend with `valgrind --gen-suppressions=all` if new allocator
+# frames appear.
+
+{
+   inferno-poolfree-addr
+   Memcheck:Addr8
+   fun:poolfree
+}
+{
+   inferno-poolfree-addr4
+   Memcheck:Addr4
+   fun:poolfree
+}
+{
+   inferno-pooladd-addr
+   Memcheck:Addr8
+   fun:pooladd
+}
+{
+   inferno-pooldel-addr
+   Memcheck:Addr8
+   fun:pooldel
+}
+{
+   inferno-dopoolalloc-addr
+   Memcheck:Addr8
+   fun:dopoolalloc
+}
+{
+   inferno-dopoolalloc-addr4
+   Memcheck:Addr4
+   fun:dopoolalloc
+}
+{
+   inferno-poolcompact-addr
+   Memcheck:Addr8
+   fun:poolcompact
+}
+{
+   inferno-poolrealloc-addr
+   Memcheck:Addr8
+   fun:poolrealloc
+}
+{
+   inferno-poolmsize-addr
+   Memcheck:Addr8
+   fun:poolmsize
+}
+{
+   inferno-poolread-addr
+   Memcheck:Addr8
+   fun:poolread
+}
+{
+   inferno-poolalloc-memmove
+   Memcheck:Addr8
+   fun:__GI_memmove
+   fun:poolcompact
+}
+{
+   inferno-smalloc-redzone-write
+   Memcheck:Addr8
+   fun:smalloc
+}
+{
+   inferno-smalloc-redzone-write4
+   Memcheck:Addr4
+   fun:smalloc
+}

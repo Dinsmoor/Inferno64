@@ -249,24 +249,38 @@ interceptor already breaks emu at boot), so this is Valgrind-only — the right 
 since wiring ASan would require renaming emu's allocator across every hosted
 platform.
 
-**Reality check (verified 2026-06): the basic patch reports real UAF with full
-alloc/free/GC stacks, but is NOISY because Inferno's memory model legitimately
-touches freed memory in three places, all of which trip a naive `FREELIKE`
-poison:** (1) the pool stores its **free-tree node in-band** inside freed blocks
-(`Bhdr.u.s` overlays `B2D` = the object region), so `pooldel`/`pooladd`/
-`dopoolalloc`/`smalloc` read/write poisoned bytes during normal allocation; (2) the
-**mark-sweep GC walks the whole arena**, reading every block's `Heap` header/color
-*including free ones* (`rungc`); (3) `poolcompact` `memmove`s free blocks. Plus the
-Dis-proc C stacks (run via `tramp`/`kproc-pthreads`) throw ~1000 false "Invalid
-write" reports. So today you must filter: a *genuine* Dis-object UAF is an `Invalid
-read/write` whose **top frame is VM/Limbo code** (a `Sys_*` builtin, `xec`, font/
-string ops) — *not* `pooldel`/`pooladd`/`dopoolalloc`/`poolfree`/`smalloc`/`rungc`/
-`destroy`/`memmove`. Making it genuinely clean is a bounded follow-up: wrap those
-pool/GC free-block accesses with `VALGRIND_MAKE_MEM_DEFINED`/re-poison, and
-`VALGRIND_STACK_REGISTER` the Dis proc stacks. Until then it is best used to
-confirm/deny a *specific* suspected UAF, not as a zero-noise sweep. (Caveat for
-intermittent races: Valgrind's ~30× slowdown perturbs timing — the brutus/charon
-`Tkclient[$Sys]` intermittent did **not** fire under it.)
+**Accuracy to Inferno's memory model (the part that makes it usable).** A naive
+`FREELIKE` poison is very noisy because Inferno legitimately touches freed memory:
+the pool keeps its **free-tree node in-band** (`Bhdr.u.s` overlays `B2D`, the
+object region) and a **`Btail`** back-pointer at the block end, so
+`pooladd`/`pooldel`/`dopoolalloc`/`poolfree` read/write those bytes during normal
+allocation/coalescing; the **mark-sweep GC walks the whole arena** including
+recently-freed blocks (`rungc`); and under Valgrind `smalloc`→libc-`malloc`
+trips redzones (emu's `Bhdr` arithmetic on an intercepted `malloc` block — a
+Valgrind-only interposition artifact). Two pieces tame this:
+1. **`VG_POOL_META()` in `emu/port/alloc.c`** (`pooladd` + `poolfree` entry)
+   re-marks the in-band node + tail `DEFINED` right after a `FREELIKE`, so the
+   allocator's own structural accesses don't trip the poison while the **object
+   payload between them stays poisoned** (UAF still caught, provenance kept).
+2. **`libinterp/valgrind-inferno.supp`** suppresses, *by top frame only*, the
+   residual pure-allocator functions (`poolfree`/`pooladd`/`pooldel`/
+   `dopoolalloc`/`poolcompact`/`poolrealloc`/`poolmsize`/`poolread`/`smalloc`).
+   Run with `--suppressions=libinterp/valgrind-inferno.supp`.
+
+Measured on a charon launch: **389 → 56** Invalid read/write reports (~86% gone).
+Crucially, the suppressions deliberately do **NOT** cover `rungc`, `destroy`,
+`freeptrs`, or any VM frame (`Sys_*`, `xec`, font/string ops) — a real dangling-
+pointer / use-after-free of a Dis object (the `isptr=0` `tptr`/`tbig` untraced-slot
+hazard) surfaces in exactly those frames, so they stay visible. The ~56 residual
+are: the GC/refcount free-walk reading not-yet-reused object content
+(`destroy`/`rungc`, benign-by-design but kept visible since real UAF looks the
+same), and string-boundary artifacts (`string2c`/`indc`/… writing a terminator
+"N bytes after a re-allocated block" — the redzone-0 limit, since `sizeof(Heap)+n`
+doesn't always match a String's exact extent). A genuinely new UAF stands out as a
+report reading *inside* a freed block from a VM frame. (Caveat for intermittent
+races: Valgrind's ~30× slowdown perturbs timing — the brutus/charon
+`Tkclient[$Sys]` intermittent did **not** fire under it; chase that one via the
+deterministic `0xa8c2…` address with `/prog`/gdb instead.)
 
 **Triage note (what's a real bug vs benign):** a left-shift/overflow finding is a
 real LP64 bug only when the value **sign-extends into a wider (64-bit) field used

@@ -14,6 +14,26 @@
  * the pool's own Bhdr/free-tree metadata must remain writable.
  */
 #include <sys/mman.h>
+#include <valgrind/memcheck.h>
+/*
+ * A free block carries the allocator's structural metadata IN-BAND, overlaying
+ * the user region that a Dis-heap VGHEAP_FREE (VALGRIND_FREELIKE_BLOCK)
+ * poisons: the free-tree node (Bhdr.u.s: left/right/parent/fwd/prev) sits at
+ * B2D(b), and the Btail (back-pointer) at the block end.  VG_POOL_META re-marks
+ * exactly those two regions accessible so the pool's own tree walks and
+ * coalescing reads/writes (pooladd/pooldel/dopoolalloc/poolfree) don't trip the
+ * poison.  The object payload BETWEEN node and tail stays poisoned, so a
+ * use-after-free of a Dis object is still caught and the FREELIKE provenance is
+ * kept; and reads from outside the allocator (the GC mark walk, freeptrs) are
+ * left visible on purpose -- that is exactly where a real dangling-pointer UAF
+ * would surface.
+ */
+#define VG_POOL_META(b) do { \
+		VALGRIND_MAKE_MEM_DEFINED(B2D(b), sizeof(((Bhdr*)0)->u)); \
+		VALGRIND_MAKE_MEM_DEFINED(B2T(b), sizeof(Btail)); \
+	} while(0)
+#else
+#define VG_POOL_META(b) do { } while(0)
 #endif
 
 enum
@@ -266,6 +286,8 @@ pooladd(Pool *p, Bhdr *q)
 
 	q->magic = MAGIC_F;
 
+	VG_POOL_META(q);	/* let the pool use this free block's in-band node + tail */
+
 	q->left = nil;
 	q->right = nil;
 	q->parent = nil;
@@ -494,6 +516,7 @@ poolfree(Pool *p, void *v)
 	extern Bhdr *ptr;
 
 	D2B(b, v);
+	VG_POOL_META(b);	/* b is about to become a free block; let coalescing touch its node+tail */
 	if(p->monitor)
 		MM(p->pnum|(1<<8), getcallerpc(&p), (ulong)v, b->size);
 
