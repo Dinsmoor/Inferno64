@@ -312,12 +312,25 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
   instruction is typically `pc-1` (account for this when matching a `limbo -S`
   listing). `limbo -S file.b` writes the Dis assembly listing to `file.s`.
 
+### Hardening fixes (found by an exceptions/big/tuple/pick/channel test sweep)
+- **Big (64-bit) constants** (`libinterp/load.c` DEFL): `(LONG)hi<<32 |
+  (LONG)(ulong)lo` sign-extended a low word with bit 31 set on LP64 (`ulong` is
+  8 bytes), so e.g. `big 123456789012` loaded as `-1097262572` (constants whose
+  low word's bit 31 was clear, like `9000000000`, were fine by luck). Now
+  `(u32int)lo` (zero-extend); high word keeps the sign. VM-only; also on master.
+- **Exception value layout (EXLP64, was deferred — now fixed):** the exbasetype
+  `{string name; tag; args}` header is now IBY2LG-aligned (tag is `tbig` on LP64
+  → `{string(8),tag(8)}=16`) so the user args sit at an 8-aligned offset and line
+  up whether accessed (laid out from 0) or constructed (from the header); the
+  skip is `align(IBY2PTR+IBY2WD, IBY2LG)`. A non-8-aligned `{string,int}=12`
+  header desynced the two once args of mixed alignment appeared
+  (`exception(int,string,big)` corrupted/crashed). Fixed in both compilers
+  (`limbo/{ecom.c,types.c}`, `appl/cmd/limbo/{ecom.b,types.b}`); 32-bit unchanged;
+  runtime reads only the offset-0 name string so the wider tag is invisible.
+  Verified incl. `fibonacci` (computes via `FIB(int,int)` exceptions) and the
+  in-emu `/dis/limbo`.
+
 ### Deferred LP64 items (compile fine; off the emuinit/sh boot path)
-- **Exceptions** (`limbo/ecom.c:191`, tracked as task EXLP64): the bare-exception
-  value rewrite still uses `2*IBY2WD` to skip the exception object's `{string,int}`
-  header, which on LP64 is `{IBY2PTR,IBY2WD}` (12, possibly padded), not 8. Needs
-  the computed exbasetype args offset; audit raise construction + handler `eoff`
-  delivery in `emu/port/exception.c`.
 - **`$Loader` module** (`libinterp/loader.c`): its `brpatch`/`brunpatch` round-trip
   branch targets through `Inst.d.imm` and a 4-byte `Loader_Inst.dst`; the core now
   uses `d.ins`. Rework to compute indices from `d.ins` for dynamic module load/build.
