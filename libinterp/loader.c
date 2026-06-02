@@ -24,7 +24,7 @@ loadermodinit(void)
 }
 
 static void
-brunpatch(Loader_Inst *ip, Module *m)
+brunpatch(Loader_Inst *ip, Inst *i, Module *m)
 {
 	switch(ip->op) {
 	case ICALL:
@@ -60,7 +60,14 @@ brunpatch(Loader_Inst *ip, Module *m)
 	case IBGTL:
 	case IBGEL:
 	case ISPAWN:
-		ip->dst = (Inst*)ip->dst - m->prog;
+		/*
+		 * The core stores a branch/spawn target as an absolute Inst* in
+		 * the d.ins union member (8 bytes on LP64), so recover the
+		 * instruction index from the full pointer.  ip->dst was copied
+		 * from the truncating 4-byte d.imm, which on LP64 holds only the
+		 * low half of that pointer — using it here gave a garbage index.
+		 */
+		ip->dst = i->d.ins - m->prog;
 		break;
 	}
 }
@@ -109,7 +116,7 @@ Loader_ifetch(void *a)
 		li->dst = i->d.imm;
 		li->mid = i->reg;
 		if(UDST(i->add) == AIMM)
-			brunpatch(li, m);
+			brunpatch(li, i, m);
 		li++;
 		i++;
 	}
@@ -245,6 +252,14 @@ Loader_newmod(void *a)
 		kwerrstr(exNomem);
 		return;
 	}
+	/*
+	 * Zero the whole Module: this builder sets only some fields, and
+	 * freemod()/GC later walk m->ldt and m->htab (`if(m->ldt != nil) for(...)`).
+	 * Left as malloc garbage those are bogus 8-byte pointers on LP64 and the
+	 * teardown of a newmod'd module dereferences them. (parsemod sets every
+	 * field, so it never needed this.)
+	 */
+	memset(m, 0, sizeof(Module));
 	m->origmp = H;
 	m->ref = 1;
 	m->ss = f->ss;

@@ -126,7 +126,15 @@ destroylinks(Module *m)
 {
 	Link *l;
 
-	for(l = m->ext; l->name; l++)
-		free(l->name);
-	free(m->ext);
+	/*
+	 * A module built by $Loader's newmod (or any module with no external
+	 * link table) has m->ext == nil; guard before walking it, as freemod()
+	 * already does for m->ldt/m->htab.  (parsemod always allocates ext, so
+	 * the unguarded loop happened to be safe for file-loaded modules.)
+	 */
+	if(m->ext != nil){
+		for(l = m->ext; l->name; l++)
+			free(l->name);
+		free(m->ext);
+	}
 }
