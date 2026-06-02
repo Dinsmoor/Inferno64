@@ -60,7 +60,14 @@ disw(uchar **p)
 double
 canontod(ulong v[2])
 {
-	union { double d; unsigned long ul[2]; } a;
+	/*
+	 * Reassemble an IEEE double from its two 32-bit halves.  The element type
+	 * MUST be 32-bit: on LP64 "unsigned long" is 8 bytes, so ul[0]/ul[1] would
+	 * no longer pack into the 8-byte double and every real constant in the
+	 * .dis data section would load as garbage.  "unsigned int" is 32-bit on
+	 * both ILP32 and LP64 (cf. dtocanon, libmath/dtoa.c).  Harmless on 32-bit.
+	 */
+	union { double d; unsigned int ul[2]; } a;
 	a.d = 1.;
 	if(a.ul[0]) {
 		a.ul[0] = v[0];
