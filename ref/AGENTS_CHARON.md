@@ -32,6 +32,7 @@ appl/lib/ecmascript/— ECMAscript engine (separate from charon/)
 | `ftp.b` | `Transport` (FTP) | FTP plain-text retrieval |
 | `file.b` | `Transport` (FILE) | Local file access with MIME sniffing |
 | `gzipfilter.b` | `Gzipfilter` | HTTP `Content-Encoding: gzip`/`deflate` decoder; wraps the inflate `Filter` (`/dis/lib/inflate.dis`) |
+| `dechunk.b` | `Dechunk` | HTTP/1.1 `Transfer-Encoding: chunked` decoder (synchronous state machine) |
 | `img.b` | `Img` | GIF87a/89a (with animation), JPEG, XBitmap, Inferno BIT decoder |
 | `gui.b` | `Gui` | Tk/tkclient wrapper: toolbar, URL bar, status line, progress panel, popups |
 | `event.b` | `Events` | `Event` pick ADT (Ekey, Emouse, Ego, Esubmit, …); `ScriptEvent` for JS |
@@ -267,6 +268,7 @@ Each transport implements the `Transport` interface (`transport.m`): `connect`, 
 - Redirections: handled inside `CU->hdraction`; up to `Maxredir = 10` hops before giving up.
 - Authentication: HTTP Basic only; credentials are base64-encoded in `charon.b:tobase64`.
 - Content-Encoding: `writereq` sends `Accept-Encoding: gzip, deflate`. `hdrconv` records the response `Content-Encoding` into `Header.encoding`; gzip/deflate bodies are decoded transparently on the producer side (`chutils.b:decodepump`/`rawfeeder`) using `gzipfilter.b`, so consumers still see a plain decoded `ByteSource`. Any other encoding falls back to a save-as prompt.
+- Transfer-Encoding: `hdrconv` sets `Header.chunked` when the response is `chunked`. The producer-side pump strips chunked framing first (`dechunk.b`), so the full body pipeline is `network → dechunk → gunzip → consumer`. `dechunk` stops at the terminating zero-length chunk, which matters on keep-alive connections that do not close after the body. (Pipelining is not preserved across a chunked body — bytes past the terminator in the same read are dropped; harmless with the default HTTP/1.0.)
 
 ### Transport state machine
 
@@ -616,6 +618,26 @@ Contrary to the original estimate, this also touched `chutils.{b,m}` (new `Heade
 
 ---
 
+#### P0.4 · HTTP/1.1 chunked Transfer-Encoding — ✅ DONE (charon-modernization, 1717dbfb)
+
+**Why it is blocking.** Not in the original plan, but a real gap: Charon never
+acted on `Transfer-Encoding: chunked`. Most HTTP/1.1 responses (and the usual
+carrier for gzip) are chunked with no `Content-Length`, so the chunk-size hex
+lines and CRLFs were read straight into `bs.data` and parsed as HTML, and
+chunked+gzip corrupted the compressed stream.
+
+**What was done.** New `dechunk.{m,b}` — a synchronous, incremental state
+machine (no goroutine): `feed(raw) -> body`, `done()` reports the terminating
+zero-length chunk. `http.b:hdrconv` sets `Header.chunked`; `chutils.b:decodepump`
+runs `network → dechunk → gunzip → consumer` (chunked-only is dechunked
+synchronously in `getproc`; chunked+gzip dechunks in `rawfeeder` before the
+inflate Decoder). `done()` is essential on keep-alive connections, which do not
+close after the body.
+
+**Effort:** Small–Medium.
+
+---
+
 ### P1 — Most modern pages are broken or unreadable without these
 
 #### P1.1 · Tolerant HTML5 parsing — 🟡 PARTIAL (item 3 done: charon-modernization, 72e82422)
@@ -628,7 +650,7 @@ Contrary to the original estimate, this also touched `chutils.{b,m}` (new `Heade
 
 2. **Tree construction** — `build.b` needs adoption agency algorithm for mis-nested formatting elements (e.g., `<b><i></b></i>`), automatic `<tbody>` insertion, implicit `<p>` closing before block elements. The full 8-phase insertion mode machine is specified in the WHATWG standard.
 
-3. **New semantic elements** — ✅ done for the common set. `article/section/nav/header/footer/main/aside/figure/figcaption`, `mark/time`, and `video/audio/picture/source` are now registered in `lex.{b,m}` (the `tagnames[]` array and the `T*` `iota` list must stay aligned and alphabetically sorted — `makestrinttab` binary-searches the tag table and *raises* if it is unsorted). The sectioning/grouping elements get block line-break behaviour via `blockbrk[]` in `build.b` (so their content is not run together inline); the rest are marked known-but-unimplemented. Still missing: `<template>`, and treating arbitrary unknown inline elements as `<span>`.
+3. **New semantic elements** — ✅ done for the common set. `article/section/nav/header/footer/main/aside/figure/figcaption`, `mark/time`, and `video/audio/picture/source` are now registered in `lex.{b,m}` (the `tagnames[]` array and the `T*` `iota` list must stay aligned and alphabetically sorted — `makestrinttab` binary-searches the tag table and *raises* if it is unsorted). The sectioning/grouping elements get block line-break behaviour via `blockbrk[]` in `build.b` (so their content is not run together inline); the rest are marked known-but-unimplemented. The `<img>` handler also falls back to the first `<img srcset>` candidate when no `src` is present (charon-modernization, 335e6292), so srcset-only responsive images load; `<picture>` degrades through its inner `<img>`. Still missing: `<template>`, treating arbitrary unknown inline elements as `<span>`, drawable `<video>`/`<audio>` placeholders + plumb-to-player, and `<source>`/`<picture>` source selection.
 
 4. **`<meta viewport>`** — respect `width=device-width` for initial layout width, rather than always defaulting to the window pixel width.
 
@@ -820,7 +842,7 @@ The original `cookiesrv.b` was RFC 2109 (1997) plus Netscape domain rules. RFC 6
 - **`Max-Age`** (takes precedence over `Expires`) — ✅ done (`parsecookie`).
 - **`HttpOnly`** — ✅ done; parsed and stored, and `getcookies(…, fromjs)` withholds HttpOnly cookies when called from `document.cookie` (`jscript.b` passes `fromjs = 1`; HTTP requests pass `0`).
 - **`SameSite=Strict/Lax/None`** — 🟡 parsed and stored, but **not yet enforced**: `getcookies` has no cross-site/initiator context, so enforcement needs a same-site signal threaded in from the navigation/request site.
-- **Cookie prefixes** (`__Secure-`, `__Host-`) — ⬜ not done.
+- **Cookie prefixes** (`__Secure-`, `__Host-`) — ✅ done (charon-modernization, d5a0f2fe). `parsecookie` rejects a prefixed cookie that breaks its structural rules (`__Secure-` needs the Secure attribute; `__Host-` needs Secure, `Path=/`, and host-only/no Domain). The "set over a secure connection" check is omitted — cookiesrv is not told the request scheme.
 - **Domain-scoping** — the existing code already does Netscape-style suffix matching with a TLD dot-count check (`getdoms`/`ckcookie`); it is not the exact RFC 6265 §5.1.3 algorithm but it is not bare exact-host either.
 
 Persistence now stores `httponly` and `samesite` as two extra tab columns; the loader still accepts the old 5-column files.
@@ -829,18 +851,17 @@ Persistence now stores `httponly` and `samesite` as two extra tab columns; the l
 
 ---
 
-#### P2.6 · localStorage / sessionStorage
+#### P2.6 · localStorage / sessionStorage — 🟡 PARTIAL (charon-modernization, b7167f72)
 
 Many sites use `localStorage` as a simple key-value store (preferences, cached state, auth tokens). Without it, sites that depend on it may fail to initialise or lose state between visits.
 
-**Implementation:**
-- Two host objects in `jscript.b`: `window.localStorage` and `window.sessionStorage`.
-- `localStorage` — backed by a file in `config.userdir + "/localstorage/<origin-hash>"` (keyed by scheme+host+port). `getItem`, `setItem`, `removeItem`, `clear`, `key(n)`, `length`.
-- `sessionStorage` — same API but backed by an in-memory hash table, discarded on tab close.
-- Storage quota: enforce a per-origin limit (e.g., 5 MB).
-- `StorageEvent` — raised on `localStorage` changes in other Charon windows via plumbing.
+**What was done.** A `Storage` host object (`jscript.b`) installed on `window` as both `localStorage` and `sessionStorage`:
+- Method API `getItem`/`setItem`/`removeItem`/`clear`/`key` (dispatched in `call()`) plus a live `length` (in `get()`). Each object carries private `@PRIVstoragekind`/`@PRIVorigin` props; origin is `scheme://host:port` of the frame document.
+- `sessionStorage` is in-memory per origin (dropped on exit); `localStorage` persists under `config.userdir + "/localstorage/<sanitized-origin>"` as escaped `key<TAB>value` lines.
 
-**Effort:** Small. ~300 lines of Limbo for the host objects and file backend.
+**Still missing:** dot/bracket key access (`storage.foo` — would shadow method resolution on the host object, so only the method API works), a per-origin quota, and `StorageEvent`.
+
+**Effort:** Small (done).
 
 ---
 
@@ -930,6 +951,7 @@ AVIF decoding requires:
 | **P0.1** | TLS 1.2 + SNI + ECDHE + AES-GCM | — | Large |
 | **P0.2** ✅ | gzip/deflate Content-Encoding | — | Small |
 | **P0.3** ✅ | UTF-8 default charset | — | Trivial |
+| **P0.4** ✅ | chunked Transfer-Encoding (not in original plan) | — | Small–Med |
 | **P1.1** 🟡 | HTML5 tolerant parser (semantic tags done) | — | Large |
 | **P1.2** | CSS 2.1 engine | P1.1 | Very Large |
 | **P1.3** | ECMAScript 5.1 + modern DOM | — | Large |
@@ -939,8 +961,8 @@ AVIF decoding requires:
 | **P2.2** | WebP (VP8L then VP8) | — | Medium–Large |
 | **P2.3** | WebSockets | P0.1 | Medium |
 | **P2.4** | `<video>`/`<audio>` placeholder + plumb | — | Small |
-| **P2.5** 🟡 | Modern cookie RFC 6265 (Max-Age/HttpOnly done; SameSite parsed) | — | Small–Medium |
-| **P2.6** | localStorage / sessionStorage | P1.3 | Small |
+| **P2.5** 🟡 | Modern cookie RFC 6265 (Max-Age/HttpOnly/prefixes done; SameSite parsed) | — | Small–Medium |
+| **P2.6** 🟡 | localStorage / sessionStorage (method API done) | P1.3 | Small |
 | **P3.1** | CSS Flexbox subset | P1.2 | Large |
 | **P3.2** | Promises + async/await | P1.3 | Medium |
 | **P3.3** | Fetch API | P1.4, P3.2 | Small |
@@ -952,10 +974,11 @@ AVIF decoding requires:
 
 1. ✅ P0.3 (UTF-8 default) — done (charon-modernization, 72e82422).
 2. ✅ P0.2 (gzip Content-Encoding) — done (charon-modernization, 72e82422).
+2a. ✅ P0.4 (chunked Transfer-Encoding) — done (charon-modernization, 1717dbfb); prerequisite for gzip to work on real HTTP/1.1 servers.
 3. P0.1 (TLS 1.2) — the biggest single unlocker; do as early as possible.
-4. P2.4 (`<video>` placeholder) — small effort, prevents crashes/hangs. (Tags now parse; placeholder rendering + plumb hand-off still TODO.)
-5. 🟡 P2.5 (cookies RFC 6265) — Max-Age/HttpOnly done, SameSite parsed (charon-modernization, 72e82422); SameSite enforcement + prefixes remain.
-6. P2.6 (localStorage) — small, unblocks many SPAs.
+4. P2.4 (`<video>` placeholder) — `<img srcset>` now loads (335e6292); drawable `<video>`/`<audio>` placeholder + plumb hand-off still TODO.
+5. 🟡 P2.5 (cookies RFC 6265) — Max-Age/HttpOnly/prefixes done, SameSite parsed (72e82422, d5a0f2fe); SameSite enforcement remains.
+6. ✅ P2.6 (localStorage) — method API + persistence done (b7167f72).
 7. P1.5 (parallel loading) — medium, dramatic perceived speed improvement.
 8. P1.3 (JS ES5) — large, but enables all JS-dependent features.
 9. P1.4 (XHR) — medium, follows from P1.3.
