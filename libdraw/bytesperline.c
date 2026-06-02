@@ -20,7 +20,13 @@ unitsperline(Rectangle r, int d, int bitsperunit)
 int
 wordsperline(Rectangle r, int d)
 {
-	return unitsperline(r, d, 8*sizeof(ulong));
+	/*
+	 * LP64: a draw "word" is fixed at 32 bits (u32int), matching the
+	 * packed image layout used by the draw protocol, image files, fonts
+	 * and the X11 backend.  It must NOT track sizeof(ulong), which is 8
+	 * on LP64 and would double every scan-line stride.
+	 */
+	return unitsperline(r, d, 8*sizeof(u32int));
 }
 
 int

@@ -14,10 +14,12 @@ SYSTARG := Linux
 OBJTYPE ?= aarch64
 OBJDIR  := $(SYSTARG)/$(OBJTYPE)
 MK      := $(ROOT)/$(OBJDIR)/bin/mk
-# emu-g is the graphics-less emu configuration.  The full GUI emu config pulls
-# in libfreetype, whose upstream sources are not vendored in this tree, so the
-# CLI/headless build is the reliable target for running Limbo.
-CONF    := emu-g
+# emu is the full GUI configuration (X11 + libfreetype + libtk + libdraw).
+# FreeType 2.13.2 is now vendored under libfreetype/libfreetype, the LP64
+# graphics path (libmemdraw/libdraw word width) is fixed, and the desktop
+# (wm/wm) runs, so the GUI build is the default.  Use CONF=emu-g for a
+# graphics-less headless build (faster; what the tests/lp64 suite runs under).
+CONF    := emu
 MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE)
 EMUARGS := $(MKARGS) CONF=$(CONF)
 
@@ -40,6 +42,7 @@ EMUDIRS := \
 	libdraw     \
 	libprefab   \
 	libtk       \
+	libfreetype \
 	libmemdraw  \
 	libmemlayer \
 	utils/data2c \

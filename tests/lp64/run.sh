@@ -27,15 +27,20 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/lib"
 
 compile() {  # src.b -> out.dis ; echoes errors, returns limbo rc
-	"$LIMBO" -I "$ROOT/module" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
+	"$LIMBO" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
 }
 
-# Build the shared helper first; every test loads it by absolute inferno path.
-if ! out=$(compile "$ROOT/tests/lp64/lib/testing.b" "$BUILD/lib/testing.dis"); then
-	echo "FATAL: testing.b failed to compile:" >&2
-	echo "$out" >&2
-	exit 2
-fi
+# Build the shared helpers first; suites load them by absolute inferno path
+# (/tests/lp64/_build/lib/NAME.dis).  testing.b must exist; others are optional.
+for libsrc in "$ROOT"/tests/lp64/lib/*.b; do
+	[ -e "$libsrc" ] || continue
+	libbase=$(basename "$libsrc" .b)
+	if ! out=$(compile "$libsrc" "$BUILD/lib/$libbase.dis"); then
+		echo "FATAL: lib/$libbase.b failed to compile:" >&2
+		echo "$out" >&2
+		exit 2
+	fi
+done
 
 glob="${1:-}"
 total_ok=0 total_notok=0 total_err=0 suites=0
@@ -71,9 +76,18 @@ for src in "$ROOT"/tests/lp64/suites/*.b; do
 	#   1   a command in the script raised "fail:..." (logic failure -> TAP shows it)
 	#   137 SIGKILL on emu teardown — pre-existing benign emu-g shutdown behaviour
 	#       (reproduces for a bare `echo hi`; all output completes first).
+	# A completed suite always prints summary()'s "1..N" TAP plan line.  If it
+	# is missing, the suite broke mid-run (e.g. a VM fault returned a tolerated
+	# exit code) and must NOT be mistaken for a pass.  Also catch explicit VM
+	# break/fault messages.
+	plan=$(printf '%s\n' "$log" | grep -c '^1\.\.')
+	broke=$(printf '%s\n' "$log" | grep -cE 'Broken:|illegal dis|[Pp]anic|[Ss]egmentation')
+
 	flag=""
-	if [ $rc -eq 124 ]; then flag="TIMEOUT"; total_err=$((total_err+1)); fi
-	if [ $rc -ne 0 ] && [ $rc -ne 124 ] && [ $rc -ne 1 ] && [ $rc -ne 137 ]; then
+	if [ $rc -eq 124 ]; then flag="TIMEOUT"; total_err=$((total_err+1));
+	elif [ "$broke" -ne 0 ]; then flag="BROKE"; total_err=$((total_err+1));
+	elif [ "$plan" -eq 0 ]; then flag="NOPLAN"; total_err=$((total_err+1));
+	elif [ $rc -ne 0 ] && [ $rc -ne 1 ] && [ $rc -ne 137 ]; then
 		flag="rc=$rc"; total_err=$((total_err+1));
 	fi
 

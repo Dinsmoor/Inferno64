@@ -40,7 +40,7 @@ allocmemimaged(Rectangle r, ulong chan, Memdata *md)
 		return nil;
 
 	i->data = md;
-	i->zero = sizeof(ulong)*l*r.min.y;
+	i->zero = sizeof(u32int)*l*r.min.y;	/* LP64: draw word is 32 bits */
 	
 	if(r.min.x >= 0)
 		i->zero += (r.min.x*d)/8;
@@ -80,7 +80,11 @@ allocmemimage(Rectangle r, ulong chan)
 		return nil;
 
 	md->ref = 1;
-	md->base = poolalloc(imagmem, (2+nw)*sizeof(ulong));
+	/*
+	 * LP64: the 2-word header (base[0]=Memdata*, base[1]=pc) stays
+	 * pointer-sized (2 ulongs), but the nw pixel words are 32 bits each.
+	 */
+	md->base = poolalloc(imagmem, 2*sizeof(ulong) + nw*sizeof(u32int));
 	if(md->base == nil){
 		free(md);
 		return nil;
@@ -123,7 +127,7 @@ freememimage(Memimage *i)
 ulong*
 wordaddr(Memimage *i, Point p)
 {
-	return (ulong*) ((ulong)byteaddr(i, p) & ~(sizeof(ulong)-1));
+	return (ulong*) ((uintptr)byteaddr(i, p) & ~(uintptr)(sizeof(u32int)-1));
 }
 
 uchar*
@@ -131,7 +135,7 @@ byteaddr(Memimage *i, Point p)
 {
 	uchar *a;
 
-	a = i->data->bdata+i->zero+sizeof(ulong)*p.y*i->width;
+	a = i->data->bdata+i->zero+sizeof(u32int)*p.y*i->width;	/* LP64: 32-bit draw word */
 
 	if(i->depth < 8){
 		/*

@@ -48,7 +48,7 @@ getmemdefont(void)
 		return nil;
 	}
 
-	hdr = p+Dy(r)*i->width*sizeof(ulong);
+	hdr = p+Dy(r)*i->width*sizeof(u32int);
 	n = atoi(hdr);
 	p = hdr+3*12;
 	fc = malloc(sizeof(Fontchar)*(n+1));

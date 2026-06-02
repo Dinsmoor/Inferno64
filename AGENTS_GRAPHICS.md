@@ -1,14 +1,28 @@
 # Graphics in Inferno OS: Draw, Tk, and Prefab
 
-> **LP64-port note (2026-06):** the current build is `CONF=emu-g` (graphics-less)
-> because the upstream `libfreetype` sources were never vendored into this tree, so
-> `freetype`/`tk`/`draw` cannot link. A **graphical session is a planned roadmap
-> item** (after the `$Loader` LP64 fix). To revive the GUI: vendor the FreeType
-> `src/` + `ft2build.h`, build `CONF=emu` (restores `libfreetype`/`libtk`/`libdraw`
-> and the X11 backend `win-x11a.c`), and re-verify the draw/Tk path under LP64 (the
-> `Image`/`Display`/`Memimage` structs and `devdraw` command marshalling are the
-> places to audit for pointer-width assumptions). See AGENTS_INPRO.md
-> ("GUI stack" and the roadmap) for the disabled-components detail.
+> **LP64-port note (2026-06): the GUI works.** `CONF=emu` is now the default
+> build and `wm/wm` runs under X11 (verified headless via Xvfb + screenshot:
+> desktop, taskbar, FreeType-rendered menus, mouse input). Two things made it
+> work on LP64:
+>
+> 1. **FreeType 2.13.2 is vendored** under `libfreetype/libfreetype/` (the exact
+>    version the old git submodule pinned). `libfreetype/mkfile` builds the
+>    upstream `src/` against the small Inferno glue (`libfreetype/freetype.c`).
+> 2. **The draw "word" was pinned to 32 bits.** libmemdraw/libdraw modelled an
+>    image scan line as an array of `ulong` words and computed every stride as
+>    `sizeof(ulong)`. On LP64 that silently became 8, so strides doubled and the
+>    compositor walked off the screen image (segfault in `boolcalc*`). A draw
+>    word must be 32 bits, matching the packed layout used by the draw protocol,
+>    image files, fonts and `win-x11a.c`. Fixed by using `sizeof(u32int)` (and a
+>    32-bit unit in `wordsperline`) and making the pixel pointers `u32int*`
+>    across `libdraw/bytesperline.c`, `libmemdraw/{alloc,draw,defont,load,unload,
+>    line}.c`. **If you touch pixel/scan-line code, never use `sizeof(ulong)` for
+>    a draw word — it is 4 bytes (`u32int`).**
+>
+> A second, non-graphics LP64 bug also blocked the desktop in practice: the
+> exception unwinder's `NOPC` sentinel (`emu/port/exception.c`) was 32-bit, so a
+> `raise` that fell through a non-matching handler jumped to `prog-1`
+> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See AGENTS_INPRO.md.
 
 ## Architecture Overview
 

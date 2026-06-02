@@ -62,7 +62,14 @@ newestring(char *estr)
 	return s;
 }
 
-#define NOPC	0xffffffff
+/*
+ * LP64: the "no handler" terminator stores e->pc = operand() = -1, which
+ * sign-extends into the 64-bit ulong field as 0xffffffffffffffff.  NOPC must
+ * therefore be all-ones at the native ulong width, not a fixed 32-bit
+ * 0xffffffff (which no longer matches on LP64 and made handler() jump to
+ * prog-1 -> "illegal dis instruction" when an exception fell through).
+ */
+#define NOPC	(~(ulong)0)
 
 #define FRTYPE(f)	((f)->t == nil ? SEXTYPE(f)->reg.TR : (f)->t)
 

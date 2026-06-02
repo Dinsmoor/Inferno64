@@ -7,10 +7,17 @@
 > magic guard + a few LP64-safety one-liners — **do not apply further changes to
 > master.** This is the durable project record (it travels with the repo); update
 > the relevant `AGENTS_*.md` rather than relying on external notes.
-> **Next step: graphical session (GUI).** (`$Loader` LP64 fix is done — see below.)
+> **The GUI works (2026-06).** `CONF=emu` is the default build and `wm/wm` runs
+> the desktop under X11 (verified headless via Xvfb + screenshot: taskbar,
+> FreeType menus, mouse input). Getting there fixed two LP64 bugs — the draw
+> scan-line word width (libmemdraw/libdraw) and the exception-unwind `NOPC`
+> sentinel — and vendored FreeType 2.13.2. See the "GUI stack" and "Fixes"
+> sections below, and AGENTS_GRAPHICS.md. (`$Loader` LP64 fix is also done.)
 > The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
 > arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
-> audited — see below). `github.com/caerwynj/inferno-lab` is the test battery.
+> audited — see below). `github.com/caerwynj/inferno-lab` is the test battery;
+> the in-repo `tests/lp64/` harness (166 assertions, 8 suites) is the standing
+> regression net.
 
 Status as of this work: the aarch64 host toolchain (`limbo`, `mk`, `iyacc`) and the
 emulator (`emu-g`) **build and link**, the **LP64 Dis pointer-model port is
@@ -48,7 +55,8 @@ Build with the top-level `Makefile` (wraps `mk`, which has unreliable incrementa
 dependency tracking — the Makefile nukes objects between components):
 
 ```
-make all          # builds Linux/aarch64/bin/emu-g
+make all              # builds Linux/aarch64/bin/emu (full GUI; the default)
+make all CONF=emu-g   # graphics-less headless build (faster; tests run under this)
 ```
 
 ---
@@ -82,6 +90,35 @@ These are genuine 64-bit correctness fixes, not shortcuts:
 - **`Linux/aarch64/include/lib9.h`** — `#define READ 4` should have been
   `#define AREAD 4` (the `access(2)` mode used by `libdraw/subfontname.c`). Typo
   fix.
+- **Draw scan-line word width — `libdraw/bytesperline.c`, `libmemdraw/{alloc,draw,
+  defont,load,unload,line}.c`** (the GUI-enabling graphics fix). libmemdraw models
+  an image scan line as an array of `ulong` "words" and computed every stride as
+  `sizeof(ulong)` and the per-line word count via `8*sizeof(ulong)`. On classic
+  Inferno `ulong` is 32 bits = the pixel word; on LP64 it is 64 bits, so allocation
+  *and* stride doubled. libmemdraw was internally self-consistent (it just used 2×
+  memory), but it collided with everything that uses the real packed 32-bit-word
+  layout — the draw protocol, image files, fonts, and the X11 backend `win-x11a.c`
+  (which strides by `Xsize*4`). Result: the screen image (`width=1024`, depth 32)
+  got stride `8*1024=8192` instead of `4096`, so the compositor walked off the end
+  of the X buffer → SIGSEGV in `boolcalc1011`/`memimagedraw` on the first window.
+  Fixed by pinning the draw word to 32 bits: `sizeof(u32int)` for strides,
+  `8*sizeof(u32int)` in `wordsperline`, and `u32int*` (not `ulong*`) for the pixel
+  pointers (`Buffer.rgba`, `boolcopy32`, `memsetl`, `chardraw`). **Rule: a draw
+  word is 4 bytes — never `sizeof(ulong)`.** Found via gdb backtrace
+  (`boolcalc1011` ← `memimagedraw`) then inspecting `dst->width`/`bwidth`.
+- **Exception unwind `NOPC` sentinel — `emu/port/exception.c`, `os/port/exception.c`.**
+  `handler()` walks frames; the "no handler here, keep unwinding" terminator is
+  stored in `Except.pc` (a `ulong`) as the loader's `operand()` value `-1`, which
+  **sign-extends to `0xffffffffffffffff` on LP64**. `NOPC` was `0xffffffff`
+  (32-bit), so `newpc != NOPC` was wrongly true and the unwinder jumped to
+  `R.PC = prog + (-1) = prog-1` → "illegal dis instruction". This fired whenever an
+  exception fell through a non-matching handler — e.g. `kill 99999` doing
+  `raise "fail:nothing killed"` back into the shell, which broke `wm/wm`'s
+  `wmsetup`/`plumber`. Fixed: `#define NOPC (~(ulong)0)` (all-ones at native width;
+  correct on ILP32 and LP64). Regression: `tests/lp64/suites/70_except.b`. Found
+  the native way (per AGENTS_DEBUGGING.md): the broken proc parks in `Broken` and
+  `/prog/<pid>/{exception,stack}` give the Dis-level trace — reach for `/prog`
+  before gdb.
 
 ---
 
@@ -110,18 +147,28 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   during normal execution. It only needs to compile/link. Not worth making the
   heuristics correct while the JIT is stubbed out.
 
-### GUI stack — built with the `emu-g` (graphics-less) config, not `emu`
-- **What:** The top-level `Makefile` builds `CONF=emu-g` and drops `libfreetype`
-  (and the unused `libdynld`) from the component list.
-- **Why:** `libfreetype` cannot build — the upstream FreeType `src/` tree
-  (`libfreetype/libfreetype/`) and `ft2build.h` were never vendored into this
-  repository, so `freetype.c` fails on any architecture, not just aarch64. The full
-  `emu` config links `freetype`/`tk`/`draw`, so it can't link either. `emu-g` is the
-  stock graphics-less configuration; it runs the Dis VM, namespace, networking, and
-  CLI without the windowing system. `libdynld` lacks a `dynld-aarch64.c` and is not
-  linked by either `emu` or `emu-g`, so it was simply removed from the build list.
-- **Consequence:** No GUI (wm, acme, Tk programs). CLI Limbo is unaffected. To
-  restore the GUI, vendor the FreeType sources and build `CONF=emu`.
+### GUI stack — RESOLVED (2026-06): `CONF=emu` is now the default and the desktop runs
+- **Was:** the build was `CONF=emu-g` (graphics-less) because `libfreetype` could
+  not build — the upstream FreeType `src/`/`include/` tree (`libfreetype/libfreetype/`)
+  was an *unpopulated git submodule*, so `freetype.c` had no headers to compile
+  against and the full `emu` config could not link `freetype`/`tk`/`draw`.
+- **Fixed by:**
+  1. **Vendoring FreeType 2.13.2** into `libfreetype/libfreetype/` — the exact
+     commit (`546237e1…`) the old `freetype2` submodule pinned, checked out as
+     plain files (submodule de-registered, `.gitmodules` removed). `libfreetype/
+     mkfile` compiles the upstream `src/` against the Inferno glue
+     (`libfreetype/freetype.c`, `ftsystem_inf.c`); it builds clean.
+  2. **The LP64 draw word-width fix** (see Fixes) — without it `CONF=emu` linked
+     but `wm/wm` segfaulted in the libmemdraw compositor on the first window.
+  3. **The LP64 `NOPC` exception-unwind fix** (see Fixes) — without it the desktop
+     came up but `wmsetup`/`plumber` broke with "illegal dis instruction".
+- **Now:** `make all` builds `CONF=emu` (libfreetype/libtk/libdraw/win-x11a),
+  `wm/wm` renders and is interactive (Xvfb-verified). `make all CONF=emu-g` still
+  gives the fast headless build. `libdynld` remains dropped (no `dynld-aarch64.c`,
+  linked by neither config).
+- **Debugging the GUI headless:** `Xvfb :99 … & DISPLAY=:99 emu -g1024x768 wm/wm`,
+  then screenshot with ImageMagick `import -window root out.png`; drive input with
+  `xdotool`.
 
 ### `gkscanid` — stubbed in the `emu-g` config
 - **What:** Added `char* gkscanid;` to the `code` section of `emu/Linux/emu-g`.
@@ -379,9 +426,11 @@ a standing harness.
 A self-contained TAP suite that exercises the Dis VM + Limbo end-to-end through
 `emu-g`, no display needed. `tests/lp64/run.sh` compiles each `suites/*.b` with the
 C `limbo`, runs it under `emu-g`, and aggregates `ok`/`not ok` (via the shared
-`lib/testing.{m,b}` helper). **109 assertions, all green, ~0.2 s total.** Exits
+`lib/testing.{m,b}` helper). **166 assertions across 8 suites, all green.** Exits
 non-zero on any failure/crash; tolerates the benign teardown SIGKILL (rc 137; see
-below). The six suites map to the five "headless avenues" + a foundation:
+below) but flags a mid-run VM break (`BROKE`/`NOPLAN` — a suite that never reaches
+summary()'s `1..N` plan line). `run.sh` compiles every `lib/*.b` helper first, with
+`-I module -I appl/lib -I tests/lp64/lib`. The suites:
 - `00_vm` — big/real constants+math, strings, lists/tuples/arrays incl. replicate
   fill, pick-ADTs, data-carrying exceptions, and the modern features (`**`,
   `fixed()`, function refs). Regression-guards every pointer-width fix above.
@@ -399,6 +448,15 @@ below). The six suites map to the five "headless avenues" + a foundation:
 - `50_loader` — `$Loader` `ifetch`/`tdesc`/`link` → `newmod`/`tnew`/`dnew`/`ext`
   round-trip with a byte-for-byte instruction match + forced-GC teardown; the
   Limbo-level guard for the three `loader.c` fixes.
+- `60_plumb` — the plumber stack (never exercised before): `Regex` compile/execute/
+  executese incl. multi-range classes and submatch capture, `Plumbmsg` pack/unpack
+  + attribute parsing, and the `Plumbing` rule parser (regex-backed `matches`). 48
+  assertions; loads `Plumbing` from `appl/lib`.
+- `70_except` — exception unwinding across **non-matching** handlers (the `NOPC`
+  fix's regression): single/stacked fall-through, catch-all, the `fail:` command
+  convention, and **cross-module** raise/catch via the helper `lib/exraise.{m,b}`.
+  Reintroducing the old 32-bit `NOPC` drops it from 9 → 1 assertions (the proc
+  breaks mid-run), which the `BROKE`/`NOPLAN` guard now flags.
 
 **Gotchas baked into the suite (read before extending):** (1) tests live in the
 repo tree and reference inferno paths under the emu root (`/tests/lp64/...`,
@@ -409,7 +467,9 @@ terminate** (sentinel/bounded) or `emu-g` hangs until the timeout — a leaked
 infinite producer cost a 65 s-per-run stall before the sieve was made
 sentinel-terminated. (4) the post-run rc 137 SIGKILL is the pre-existing benign
 emu-g teardown (repro: bare `echo hi`), output always completes first — the harness
-treats 0/1/137 as non-error.
+treats 0/1/137 as non-error **but** still requires summary()'s `1..N` plan line and
+the absence of `Broken:`/`illegal dis`/panic, so a tolerated exit code can no longer
+hide a mid-run VM fault (this is how `70_except` catches the `NOPC` regression).
 
 ### `$Loader` LP64 fix (done) — runtime module reflect/rebuild
 `$Loader` (`libinterp/loader.c`, the `Loader->ifetch`/`newmod`/`link`/`tdesc`
