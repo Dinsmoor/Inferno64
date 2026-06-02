@@ -307,7 +307,13 @@ if(debug['v']) print("fncom: %s %d %p\n", d->sym->name, d->refs, d);
 	excs = reve(excs);
 
 	if(gendis){
-		discon(XMAGIC);
+		/*
+		 * Stamp the magic for the pointer width this compiler targets, so
+		 * a 64-bit Dis and a 32-bit Dis reject each other's binaries.  This
+		 * compiler is built with the same isa.h (hence IBY2PTR) as the VM
+		 * that will run its output, so the two always agree.
+		 */
+		discon(IBY2PTR == 8 ? XMAGIC8 : XMAGIC);
 		hints = 0;
 		if(mustcompile)
 			hints |= MUSTCOMPILE;

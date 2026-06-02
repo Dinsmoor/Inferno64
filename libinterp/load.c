@@ -136,6 +136,7 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 	ulong ul[2];
 	WORD lo, hi;
 	int lsize, id, v, entry, entryt, tnp, tsz, siglen;
+	int mag, mymagic, mysmagic;
 	int de, pc, i, n, isize, dsize, hsize, dasp;
 	uchar *mod, sm, *istream, **isp, *si, *addr, *dastack[DADEPTH];
 	Link *l;
@@ -154,11 +155,17 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 	m->origmp = H;
 	m->pctab = nil;
 
-	switch(operand(isp)) {
-	default:
-		kwerrstr("bad magic");
-		goto bad;
-	case SMAGIC:
+	/*
+	 * Accept only the magic for this build's Dis pointer width (IBY2PTR).
+	 * A module compiled for the other width parses fine but its register/
+	 * pointer-slot layout would be wrong at run time, so reject it with a
+	 * distinct, catchable error (exDiswidth) that the shell uses to trigger
+	 * a recompile from source.  Genuine garbage still reports "bad magic".
+	 */
+	mymagic = (IBY2PTR == 8) ? XMAGIC8 : XMAGIC;
+	mysmagic = (IBY2PTR == 8) ? SMAGIC8 : SMAGIC;
+	mag = operand(isp);
+	if(mag == mysmagic){
 		siglen = operand(isp);
 		n = length-(*isp-code);
 		if(n < 0 || siglen > n){
@@ -170,13 +177,20 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 			goto bad;
 		}
 		*isp += siglen;
-		break;		
-	case XMAGIC:
+	}
+	else if(mag == mymagic){
 		if(mustbesigned(path, code, length, dir)){
 			kwerrstr("security violation: not signed");
 			goto bad;
 		}
-		break;
+	}
+	else if(mag == XMAGIC || mag == SMAGIC || mag == XMAGIC8 || mag == SMAGIC8){
+		kwerrstr(exDiswidth);
+		goto bad;
+	}
+	else {
+		kwerrstr("bad magic");
+		goto bad;
 	}
 
 	m->rt = operand(isp);

@@ -179,8 +179,10 @@
 	# add new operators here
 	MAXDIS: con iota;
 
-XMAGIC:		con 819248;	# Normal magic
-SMAGIC:		con 923426;	# Signed module
+XMAGIC:		con 819248;	# Normal magic, 32-bit pointer ABI
+SMAGIC:		con 923426;	# Signed module, 32-bit pointer ABI
+XMAGIC8:	con 1867824;	# XMAGIC|16r100000: normal magic, 64-bit pointer ABI
+SMAGIC8:	con 1972002;	# SMAGIC|16r100000: signed module, 64-bit pointer ABI
 
 AMP:		con 16r00;	# Src/Dst op addressing 
 AFP:		con 16r01;
@@ -219,6 +221,9 @@ NREG:		con 5;
 IBY2WD:		con 4;
 IBY2FT:		con 8;
 IBY2LG:		con 8;
+# IBY2PTR: size of a Dis pointer/register slot.  This 32-bit tree sets it to
+# IBY2WD; it selects the .dis magic this compiler stamps (see com.b).
+IBY2PTR:	con 4;
 
 MUSTCOMPILE:	con 1<<0;
 DONTCOMPILE:	con 1<<1;

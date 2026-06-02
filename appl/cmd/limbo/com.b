@@ -287,7 +287,13 @@ modcom(entry: ref Decl)
 
 	writet = sys->millisec();
 	if(gendis){
-		discon(XMAGIC);
+		# Stamp the magic for the pointer width this compiler targets, so a
+		# 64-bit Dis and a 32-bit Dis reject each other's binaries.  This
+		# build emits the layout selected by IBY2PTR (see isa.m).
+		mag := XMAGIC;
+		if(IBY2PTR == 8)
+			mag = XMAGIC8;
+		discon(mag);
 		hints := 0;
 		if(mustcompile)
 			hints |= MUSTCOMPILE;
