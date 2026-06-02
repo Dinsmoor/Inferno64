@@ -5,6 +5,7 @@ TARG=\
 	cookiesrv.dis\
 	chutils.dis\
 	ctype.dis\
+	dechunk.dis\
 	date.dis\
 	event.dis\
 	file.dis\
@@ -48,6 +49,7 @@ MODULES=\
 	cookiesrv.m\
 	ctype.m\
 	date.m\
+	dechunk.m\
 	event.m\
 	gui.m\
 	gzipfilter.m\

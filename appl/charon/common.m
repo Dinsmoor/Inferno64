@@ -13,6 +13,7 @@ include "sslsession.m";
 include "ssl3.m";
 include "convcs.m";
 include "gzipfilter.m";
+include "dechunk.m";
 include "cookiesrv.m";
 include "chutils.m";
 include "lex.m";

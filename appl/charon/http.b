@@ -633,6 +633,18 @@ getdata(nc: ref Netconn, bs: ref ByteSource): int
 #	}
 #}
 
+# does needle occur anywhere in hay?
+substr(hay, needle: string): int
+{
+	n := len needle;
+	if(n == 0)
+		return 1;
+	for(i := 0; i + n <= len hay; i++)
+		if(hay[i:i+n] == needle)
+			return 1;
+	return 0;
+}
+
 hdrconv(hh: ref HTTP_Header, u: ref Parsedurl) : ref Header
 {
 	hdr := Header.new();
@@ -657,6 +669,13 @@ hdrconv(hh: ref HTTP_Header, u: ref Parsedurl) : ref Header
 	hdr.msg = hh.reason;
 	hdr.refresh = hh.getval(HRefresh);
 	hdr.chal = hh.getval(HWWWAuthenticate);
+	s = hh.getval(HTransferEncoding);
+	if(s != "" && substr(S->tolower(s), "chunked")) {
+		# chunked is dechunked in the ByteSource pump (chutils.b); the
+		# framing carries the length, so any Content-Length is moot.
+		hdr.chunked = 1;
+		hdr.length = -1;
+	}
 	s = hh.getval(HContentEncoding);
 	if(s != "") {
 		# gzip/deflate are decoded transparently in the ByteSource pump

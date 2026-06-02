@@ -17,6 +17,7 @@ Font : import D;
 Parsedurl: import U;
 convcs : Convcs;
 gzipfilter : Gzipfilter;
+dechunk : Dechunk;
 trans : Translate;
 	Dict : import trans;
 dict : ref Dict;
@@ -266,6 +267,11 @@ init(ch: Charon, c: CharonUtils, argl: list of string, evc: chan of ref E->Event
 	gzipfilter = load Gzipfilter loadpath(Gzipfilter->PATH);
 	if (gzipfilter != nil)
 		gzipfilter->init();
+
+	# chunked Transfer-Encoding decoder; non-fatal if absent
+	dechunk = load Dechunk loadpath(Dechunk->PATH);
+	if (dechunk != nil)
+		dechunk->init();
 
 	# Intialize all modules after loading all, so that each
 	# may cache pointers to the other modules
@@ -735,10 +741,14 @@ eloop:
 
 		nc.state = NCgetdata;
 
-		if (bs.hdr.encoding != "" && gzipfilter != nil) {
-			# gzip/deflate response: decode on the producer side so the
-			# consumer still sees a plain decoded ByteSource.
-			decodepump(t, nc, bs, ach);
+		usegzip := bs.hdr.encoding != "" && gzipfilter != nil;
+		usechunk := bs.hdr.chunked && dechunk != nil;
+		if (usegzip || usechunk) {
+			# chunked and/or gzip/deflate response: strip the framing on the
+			# producer side so the consumer still sees a plain decoded
+			# ByteSource.  On the wire the order is
+			#   network -> dechunk -> gunzip -> consumer.
+			decodepump(t, nc, bs, ach, usegzip, usechunk);
 			if (bs.hdr.mtype == UnknownType) {
 				bs.hdr.mtype = TextPlain;
 				bs.hdr.chset = "utf8";
@@ -814,29 +824,25 @@ ncgetdata(t: Transport, nc: ref Netconn, bs: ref ByteSource): int
 	return 1;
 }
 
-# Transparently decode a gzip/deflate (Content-Encoding) response.
-# A spawned feeder pulls the compressed stream from the network into a private
-# raw ByteSource and writes it to the inflate Decoder; this proc drains the
-# decoded output into bs, growing bs.data, guessing the media type from the
-# decoded bytes, and signalling consumers via ngchan after each chunk — the
-# same contract as the plain data loop in runnetconn.
-decodepump(t: Transport, nc: ref Netconn, bs: ref ByteSource, ach: chan of ref ByteSource)
+# Transparently strip chunked Transfer-Encoding and/or gzip/deflate
+# Content-Encoding from a response.  On the wire the order is
+#   network -> dechunk -> gunzip -> consumer,
+# so we dechunk first and (when gzip is also present) feed the dechunked bytes
+# to the inflate Decoder.  The visible bs always ends up holding plain decoded
+# bytes; we grow bs.data ourselves, guess the media type from decoded bytes,
+# and signal consumers via ngchan — the same contract as the plain data loop.
+decodepump(t: Transport, nc: ref Netconn, bs: ref ByteSource, ach: chan of ref ByteSource, usegzip, usechunk: int)
 {
-	dec := gzipfilter->start(bs.hdr.encoding);
-	if (dec == nil) {
-		# codec unavailable: fall back to reading the raw (undecoded) stream
-		while (ncgetdata(t, nc, bs)) {
-			ngchan <-= (NGstatechg, nil, nc, ach);
-			<- ach;
-		}
-		return;
-	}
+	dechunker: ref Dechunk->Dechunker;
+	if (usechunk)
+		dechunker = dechunk->new();
 
-	# raw twin: holds the compressed body.  Its hdr.length is the (compressed)
-	# Content-Length so ncgetdata sizes and terminates correctly, which also
-	# matters for HTTP/1.1 keep-alive where the socket does not EOF.
+	# raw twin: holds the body exactly as it comes off the wire.  Its
+	# hdr.length is the Content-Length (when present) so ncgetdata sizes and
+	# terminates correctly on HTTP/1.1 keep-alive, where the socket does not EOF.
 	rawhdr := ref *bs.hdr;
 	rawhdr.encoding = "";
+	rawhdr.chunked = 0;
 	rawbs := ref ByteSource(
 		bs.id,		# share progress slot
 		bs.req, rawhdr,
@@ -854,43 +860,94 @@ decodepump(t: Transport, nc: ref Netconn, bs: ref ByteSource, ach: chan of ref B
 	bs.data = array[UBufsize] of byte;
 	bs.edata = 0;
 
-	spawn rawfeeder(t, nc, bs, rawbs, dec);
-
-	for (;;) {
-		(kind, buf, err) := <- dec.out;
-		case kind {
-		Gzipfilter->Ddata =>
-			appenddata(bs, buf);
-			if (bs.hdr.mtype == UnknownType)
-				bs.hdr.setmediatype(bs.hdr.actual.path, bs.data[:bs.edata]);
-			# only wake the consumer once the parser type is known
-			if (bs.hdr.mtype != UnknownType) {
-				G->progress <-= (bs.id, G->Phavedata, 0, "");
+	if (usegzip) {
+		dec := gzipfilter->start(bs.hdr.encoding);
+		if (dec == nil) {
+			# codec unavailable: fall back to the raw (undecoded) stream
+			while (ncgetdata(t, nc, bs)) {
 				ngchan <-= (NGstatechg, nil, nc, ach);
 				<- ach;
 			}
-		Gzipfilter->Ddone =>
-			return;
-		Gzipfilter->Derr =>
-			if (bs.err == "")
-				bs.err = "inflate: " + err;
 			return;
 		}
+		spawn rawfeeder(t, nc, bs, rawbs, dec, dechunker);
+		for (;;) {
+			(kind, buf, err) := <- dec.out;
+			case kind {
+			Gzipfilter->Ddata =>
+				deliver(bs, buf, nc, ach);
+			Gzipfilter->Ddone =>
+				return;
+			Gzipfilter->Derr =>
+				if (bs.err == "")
+					bs.err = "inflate: " + err;
+				return;
+			}
+		}
+	} else {
+		# chunked only: dechunk synchronously in this proc (no codec proc).
+		Dechunker: import dechunk;
+		fwd := 0;
+		for (;;) {
+			more := ncgetdata(t, nc, rawbs);
+			if (rawbs.edata > fwd) {
+				(body, err) := dechunker.feed(rawbs.data[fwd:rawbs.edata]);
+				fwd = rawbs.edata;
+				if (err != nil) {
+					if (bs.err == "")
+						bs.err = err;
+					break;
+				}
+				if (len body > 0)
+					deliver(bs, body, nc, ach);
+			}
+			if (!more || dechunker.done())
+				break;
+		}
+		if (rawbs.err != "" && bs.err == "")
+			bs.err = rawbs.err;
 	}
 }
 
-# Pull the compressed stream from the network and hand it to the decoder.
-rawfeeder(t: Transport, nc: ref Netconn, bs: ref ByteSource, rawbs: ref ByteSource, dec: ref Gzipfilter->Decoder)
+# Append decoded bytes to bs and, once the media type is known, wake consumers.
+deliver(bs: ref ByteSource, buf: array of byte, nc: ref Netconn, ach: chan of ref ByteSource)
+{
+	appenddata(bs, buf);
+	if (bs.hdr.mtype == UnknownType)
+		bs.hdr.setmediatype(bs.hdr.actual.path, bs.data[:bs.edata]);
+	if (bs.hdr.mtype != UnknownType) {
+		G->progress <-= (bs.id, G->Phavedata, 0, "");
+		ngchan <-= (NGstatechg, nil, nc, ach);
+		<- ach;
+	}
+}
+
+# Pull the body off the network (dechunking first if needed) and hand it to
+# the inflate Decoder.  Runs as its own proc so feeding and draining the
+# Decoder happen concurrently.
+rawfeeder(t: Transport, nc: ref Netconn, bs: ref ByteSource, rawbs: ref ByteSource, dec: ref Gzipfilter->Decoder, dechunker: ref Dechunk->Dechunker)
 {
 	Decoder: import gzipfilter;	# bind Decoder methods to the loaded instance
+	Dechunker: import dechunk;
 	fwd := 0;
 	for (;;) {
 		more := ncgetdata(t, nc, rawbs);
 		if (rawbs.edata > fwd) {
-			dec.write(rawbs.data[fwd:rawbs.edata]);
+			body := rawbs.data[fwd:rawbs.edata];
 			fwd = rawbs.edata;
+			if (dechunker != nil) {
+				(b, err) := dechunker.feed(body);
+				if (err != nil) {
+					if (bs.err == "")
+						bs.err = err;
+					break;
+				}
+				body = b;
+			}
+			if (len body > 0)
+				dec.write(body);
 		}
-		if (!more)
+		if (!more || (dechunker != nil && dechunker.done()))
 			break;
 	}
 	if (rawbs.err != "" && bs.err == "")
@@ -984,6 +1041,7 @@ ByteSource.stringsource(s: string) : ref ByteSource
 			TextHtml, 	# mtype
 			"utf8",		# chset
 			"",			# encoding
+			0,			# chunked
 			"",			# msg
 			"",			# refresh
 			"",			# chal
@@ -1230,6 +1288,7 @@ Header.new() : ref Header
 		UnknownType,	# mtype
 		nil,		# chset
 		"",		# encoding
+		0,		# chunked
 		"",		# msg
 		"",		# refresh
 		"",		# chal

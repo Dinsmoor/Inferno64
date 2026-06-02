@@ -266,6 +266,7 @@ CharonUtils: module
 		mtype:	int;			# TextHtml, etc.
 		chset:	string;		# charset encoding
 		encoding:	string;		# Content-Encoding (gzip/deflate); "" if none
+		chunked:	int;			# Transfer-Encoding: chunked
 		msg:	string;			# possible message explaining status
 		refresh:string;			# used for server push
 		chal:	string;			# used if code is HSneedauth
