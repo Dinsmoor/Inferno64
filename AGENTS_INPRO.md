@@ -119,6 +119,22 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   the native way (per AGENTS_DEBUGGING.md): the broken proc parks in `Broken` and
   `/prog/<pid>/{exception,stack}` give the Dis-level trace — reach for `/prog`
   before gdb.
+- **Byte→word sign-extension into 64-bit fields (UBSan-audit class).** A `uchar`
+  shifted `<< 24` promotes to `int`; for a high byte >= 0x80 (e.g. `0x80`=DMDIR,
+  `0xFF`=alpha) the result is a negative `int` that **sign-extends to
+  `0xFFFFFFFF…` when widened into a 64-bit `ulong`/`vlong`**. On 32-bit `ulong`
+  was 4 bytes so it never showed. Fixed across: the 9P field-unpack macros
+  `GBIT32`/`GBIT64` in `include/styx.h` + `include/fcall.h` (the big one — every
+  9P `mode`/length/qid/time unpack; `GBIT64` also zero-extended its low word);
+  `Dir.mode` assembly in `emu/port/dev.c`, `emu/port/devfs-posix.c`,
+  `lib9/dirstat-{Nt,posix}.c`; and `disw()`/the DEFL big-constant path in
+  `libinterp/load.c`. Also made `libinterp/load.c:operand()` (the bytecode operand
+  decoder) shift in `u32int` — behavior-identical, removes the UB. Found by the
+  UBSan sweep (see AGENTS_DEBUGGING.md "Sanitizer builds"); regression-covered by
+  `tests/lp64/suites/30_styxnet` (9P) and the suite at large. The remaining UBSan
+  findings (pixel-assembly shifts, crypto/bignum byte-assembly, the string hash,
+  `memmove(x,nil,0)`) are **benign** — results verified (correct render + crypto
+  vectors), values stay 32-bit/masked — and were left to avoid churn in hot paths.
 
 ---
 

@@ -30,14 +30,17 @@ operand(uchar **p)
 			c |= ~0x3F;
 		else
 			c &= 0x3F;
-		return (c<<8)|cp[1];		
+		/* shift in u32int: c is sign-extended (negative) here, and a
+		 * left shift of a negative int is UB.  The bit pattern is the
+		 * same; the (int) cast just makes it well-defined. */
+		return (int)(((u32int)c<<8)|cp[1]);
 	case 0xC0:
 		*p = cp+4;
 		if(c & 0x20)
 			c |= ~0x3F;
 		else
 			c &= 0x3F;
-		return (c<<24)|(cp[1]<<16)|(cp[2]<<8)|cp[3];		
+		return (int)(((u32int)c<<24)|((u32int)cp[1]<<16)|((u32int)cp[2]<<8)|cp[3]);
 	}
 	return 0;	
 }
@@ -49,10 +52,16 @@ disw(uchar **p)
 	uchar *c;
 
 	c = *p;
-	v  = c[0] << 24;
-	v |= c[1] << 16;
-	v |= c[2] << 8;
-	v |= c[3];
+	/*
+	 * Assemble as u32int: c[0]<<24 with c[0] promoted to int overflows on a
+	 * high byte >= 0x80 and (being UB) sign-extends into bits 32..63 of the
+	 * ulong on LP64.  Callers happen to truncate to 32-bit WORDs today, but
+	 * keep the returned value a clean 32-bit quantity regardless.
+	 */
+	v  = (ulong)((u32int)c[0] << 24);
+	v |= (u32int)c[1] << 16;
+	v |= (u32int)c[2] << 8;
+	v |= (u32int)c[3];
 	*p = c + 4;
 	return v;
 }
@@ -352,7 +361,9 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 				 * keeps its sign (it carries the big's sign).  On 32-bit
 				 * ulong was 4 bytes so this never sign-extended.
 				 */
-				*(LONG*)si = (LONG)hi << 32 | (LONG)(u32int)lo;
+				/* assemble in uvlong: shifting the (possibly negative)
+				 * (LONG)hi left is UB; the bit pattern is identical. */
+				*(LONG*)si = (LONG)(((uvlong)(u32int)hi << 32) | (u32int)lo);
 				si += sizeof(LONG);
 			}
 			break;

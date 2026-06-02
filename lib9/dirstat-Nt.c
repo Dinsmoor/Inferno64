@@ -28,7 +28,7 @@ statconv(struct stat *s, char *name)
 	dir->qid.type = ISTYPE(s, _S_IFDIR)? QTDIR: QTFILE;
 	dir->qid.path = s->st_ino;
 	dir->qid.vers = s->st_mtime;
-	dir->mode = (dir->qid.type<<24)|(s->st_mode&0777);
+	dir->mode = ((ulong)dir->qid.type<<24)|(s->st_mode&0777);
 	dir->atime = s->st_atime;
 	dir->mtime = s->st_mtime;
 	dir->length = s->st_size;
