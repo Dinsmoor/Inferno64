@@ -4,6 +4,8 @@ Testing: module
 
 	init:		fn();
 	ok:		fn(cond: int, name: string);
+	# TAP "ok N # SKIP reason": pass-but-skipped for inapplicable configs.
+	skip:		fn(name: string, reason: string);
 	eqi:		fn(got, want: big, name: string);
 	eqr:		fn(got, want, eps: real, name: string);
 	eqs:		fn(got, want: string, name: string);

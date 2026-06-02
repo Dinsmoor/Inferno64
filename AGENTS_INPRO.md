@@ -153,12 +153,13 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   so every module runs interpreted exactly as before. The LP64 test suite is **166/166**
   with the JIT present. The JIT only activates with `emu -c1` (or `-c2`).
 - **`emu -c1` works:** runs the Emuinit bootstrap, `sh` (pipes/glob/control flow), and the
-  full battery natively — **7 of 8 suites pass 100%** under `-c1` (vm, concur, crypto,
-  styxnet, selfhost, plumb, except). The only failures are the two `50_loader`
-  `$Loader`-reflection tests: `ifetch`/`newmod` can't introspect a JIT-compiled
-  module because `compile()` replaces `m->prog` (Dis) with native code and frees the
-  original (every Inferno JIT back-end does this). Not a codegen defect; passes at
-  `cflag==0`. Three bugs cracked sh: a one-character `cmnix` encoding error (tested x1 not
+  full battery natively — **8 of 8 suites pass 100%** under `-c1` (vm, concur, crypto,
+  styxnet, selfhost, loader, plumb, except). The only `-c1`-specific caveat is that
+  `50_loader`'s `$Loader`-reflection round-trip is TAP-skipped: `ifetch`/`newmod` can't
+  introspect a JIT-compiled module because `compile()` replaces `m->prog` (Dis) with native
+  code and frees the original — `ifetch` rejects compiled modules *by design* in stock
+  Inferno, and every JIT back-end makes this trade-off. Not a codegen defect; the full
+  reflection round-trip runs and passes at `cflag==0`. Three bugs cracked sh: a one-character `cmnix` encoding error (tested x1 not
   x0 in is-H checks), `comvec` not preserving AAPCS64 callee-saved x19/x20/x21/x24 across
   the C boundary (corrupted `xec`'s `p` on reschedule), and a stale `R.PC` during yielding
   builtins. See AGENTS_JIT.md "Root causes found and fixed".

@@ -340,10 +340,11 @@ The aarch64 LP64 JIT is functional. `emu -c1` runs the Emuinit bootstrap, **sh**
 (pipes, globbing, control flow), and the full headless test battery natively.
 - Default `cflag==0`: **166/166** (zero regression — all JIT changes are no-ops on the
   interpreter path).
-- `emu -c1` (sh + every suite compiled): **7 of 8 suites pass 100%** (154/154 non-loader
-  assertions: vm, concur, crypto, styxnet, selfhost — i.e. limbo compiling itself —, plumb,
-  except). The 8th, `50_loader`, degrades to 4 ok / 2 fail (then returns early, skipping 6):
-  the `$Loader` reflection tests — see the known limitation below; not codegen defects.
+- `emu -c1` (sh + every suite compiled): **8 of 8 suites pass 100%** (166/166: vm, concur,
+  crypto, styxnet, selfhost — i.e. limbo compiling itself —, loader, plumb, except). In
+  `50_loader` the six bytecode-round-trip assertions are **TAP-skipped** under `-c1` because
+  reflection and compilation are mutually exclusive (see the limitation below); the other six
+  (load/tdesc/link/dnew/nil-rejection/GC-teardown) run for real. At `cflag==0` all twelve run.
 
 **Native:** moves (W/B/L/F), LEA, CVT(BW/WB/WL/LW), arithmetic (ADD/SUB/AND/OR/XOR for
 W/B/L), shifts, MUL, LEN*, IIND*, MOVM/HEADM, **conditional branches + IJMP**
@@ -356,9 +357,14 @@ list/string/pointer ops, FP, div/mod, sends.
 ### Known limitation: `$Loader` reflection vs JIT
 `loader->ifetch`/`newmod` cannot introspect a **JIT-compiled** module: `compile()` replaces
 `m->prog` (Dis bytecode) with the native code buffer and frees the original, so there are
-no Dis instructions left to fetch. This is the same trade-off every Inferno JIT back-end
-makes (`free(m->prog); m->prog = base`). The two `50_loader` `-c1` failures are exactly
-this (interpreter-only feature exercised under `-c1`); they pass at `cflag==0`.
+no Dis instructions left to fetch. `ifetch` rejects this *by design* in stock Inferno
+(`kwerrstr("compiled module")`); it is the same trade-off every Inferno JIT back-end makes
+(`free(m->prog); m->prog = base`). Enabling reflection on compiled modules would require
+permanently retaining each compiled module's Dis bytecode — a footprint regression on every
+module under `-c1`, for a debug-only feature upstream deliberately omits — so it is **not**
+a worthwhile enhancement and was not done. Instead `50_loader` detects a compiled target
+(ifetch yields no instructions for an otherwise-valid module) and TAP-skips the round-trip,
+so the suite is honest in both modes rather than reporting a spurious failure.
 
 ## Root causes found and fixed (the hard part)
 

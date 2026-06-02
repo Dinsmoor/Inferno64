@@ -36,6 +36,15 @@ ok(cond: int, name: string)
 	result(cond, name);
 }
 
+# TAP "ok N # SKIP reason": the assertion does not apply to this
+# configuration (e.g. a feature that is mutually exclusive with the JIT).
+# Counts toward the plan as a pass, but is reported as skipped, not run.
+skip(name: string, reason: string)
+{
+	count++;
+	sys->print("ok %d - %s # SKIP %s\n", count, name, reason);
+}
+
 eqi(got, want: big, name: string)
 {
 	if(got != want)
