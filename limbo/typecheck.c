@@ -1059,6 +1059,23 @@ echeck(Node *n, int typeok, int isglobal, Node *par)
 	case Owild:
 		n->ty = tint;
 		break;
+	case Osizeof:
+		/*
+		 * Compile-time sizeof(type): the operand type rides in n->ty.
+		 * usetype() forces it to be fully sized, then we rewrite the
+		 * node in place into the integer constant (the type's byte
+		 * size, as this compiler computes it in IBY2PTR/IBY2WD units).
+		 * Folded here so the rest of the compiler only ever sees a
+		 * plain Oconst -- usable anywhere a constant is, e.g. `con`.
+		 */
+		t = usetype(n->ty);
+		n->op = Oconst;
+		n->ty = tint;
+		n->val = t->size;
+		n->left = nil;
+		n->right = nil;
+		n->decl = nil;
+		break;
 	case Ocast:
 		t = usetype(n->ty);
 		n->ty = t;

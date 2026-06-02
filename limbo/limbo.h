@@ -380,6 +380,9 @@ enum
 	Owild,
 	Oxor,
 	Oxoras,
+	Osizeof,	/* compile-time sizeof(type); appended out of alphabetical
+			 * order so the positional opname[]/disoptab[] tables need
+			 * only one trailing entry each (no index shifts) */
 
 	Oend
 };

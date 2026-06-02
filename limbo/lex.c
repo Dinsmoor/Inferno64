@@ -88,6 +88,7 @@ static	Keywd	keywords[] =
 	"ref",		Lref,
 	"return",	Lreturn,
 	"self",		Lself,
+	"sizeof",	Lsizeof,
 	"spawn",	Lspawn,
 	"string",	Ltid,
 	"tagof",	Ltagof,

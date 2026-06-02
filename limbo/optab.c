@@ -275,6 +275,7 @@ uchar disoptab[Oend+1][7] = {
 	/* Owild */	{0},
 	/* Oxor */	{0,	IXORB,	IXORW,	IXORL,	0,	0,	0,},
 	/* Oxoras */	{0,	IXORB,	IXORW,	IXORL,	0,	0,	0,},
+	/* Osizeof */	{0},	/* never reaches codegen: lowered to Oconst in echeck */
 
 	/* Oend	*/	{0}
 };
@@ -454,6 +455,7 @@ char *opname[Oend+1] = {
 	/* Owild */	"*",
 	/* Oxor */	"^",
 	/* Oxoras */	"^=",
+	/* Osizeof */	"sizeof",
 
 	/* Oend */	"unknown"
 };

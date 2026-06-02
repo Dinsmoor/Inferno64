@@ -224,14 +224,13 @@ IBY2LG:		con 8;
 # IBY2PTR: size of a Dis pointer/register slot in bytes; it selects the .dis
 # magic this compiler stamps (XMAGIC if 4, XMAGIC8 if 8 -- see com.b).
 #
-# NOTE: unlike the C compiler (include/isa.h), where IBY2PTR = sizeof(void*)
-# auto-tracks the build's pointer width, this self-hosting Limbo compiler has
-# no sizeof, so the value is a literal and MUST match the ABI of the emu this
-# limbo.dis runs on (i.e. the build host's pointer width): 8 on an LP64 build,
-# 4 on a 32-bit build.  It is the one place the target ABI is not auto-derived;
-# a 32-bit build of the dis tree must set this to 4 (candidate for build-time
-# generation as a follow-up).
-IBY2PTR:	con 8;
+# Derived with the compile-time `sizeof` operator from a reference type: every
+# heap reference (string, array, list, ref) occupies exactly one pointer slot,
+# so sizeof(string) == the Dis pointer width.  This auto-tracks the pointer
+# width of whichever compiler builds this source -- mirroring include/isa.h's
+# `IBY2PTR = sizeof(void*)` on the C side -- so no per-ABI edit is needed: a
+# 64-bit build folds it to 8 (XMAGIC8), a 32-bit build to 4 (XMAGIC).
+IBY2PTR:	con sizeof(string);
 
 MUSTCOMPILE:	con 1<<0;
 DONTCOMPILE:	con 1<<1;
