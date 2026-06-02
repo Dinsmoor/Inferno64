@@ -1,4 +1,16 @@
-# AArch64 Port — In-Progress Notes (what is stubbed / disabled, and why)
+# LP64 Port — In-Progress Notes (what is stubbed / disabled, and why)
+
+> **Branch / roadmap (read first).** Active branch: **`port-LP64`** (renamed from
+> `aarch64-port` — this is the LP64 data-model port, not aarch64-specific; the same
+> XMAGIC8 `.dis` tree runs on any LP64 host, and `Linux/amd64` x86-64 glue is in,
+> though unbuilt). **`master` is frozen** as 32-bit upstream + the pointer-width
+> magic guard + a few LP64-safety one-liners — **do not apply further changes to
+> master.** This is the durable project record (it travels with the repo); update
+> the relevant `AGENTS_*.md` rather than relying on external notes.
+> **Next steps, in order: (1) `$Loader` LP64 fix; (2) graphical session (GUI).**
+> The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
+> arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
+> audited — see below). `github.com/caerwynj/inferno-lab` is the test battery.
 
 Status as of this work: the aarch64 host toolchain (`limbo`, `mk`, `iyacc`) and the
 emulator (`emu-g`) **build and link**, the **LP64 Dis pointer-model port is
@@ -329,11 +341,46 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
   runtime reads only the offset-0 name string so the wider tag is invisible.
   Verified incl. `fibonacci` (computes via `FIB(int,int)` exceptions) and the
   in-emu `/dis/limbo`.
+- **Replicate array fill** (`limbo/ecom.c` + `appl/cmd/limbo/ecom.b`,
+  `arraydefault`): `array[n] of {* => v}` typed its `Oindx` element-address node
+  `tint`, so on LP64 the 8-byte element address overran its 4-byte temp and the
+  fill stored through a corrupt (duplicated-half) pointer — faulting for any
+  non-zero replicate of a real/big/pointer-element array (zero fills are optimised
+  away, which hid it). Now `tbig`, same as `rewrite()`'s `Oindex` and `arraycom`'s
+  temp. **101 modules use the pattern; recompiled.** Found by the inferno-lab
+  battery (`ffttest`, `puttar`).
+
+### The pointer-width `tint` bug class — audited (don't whack-a-mole)
+Every LP64 bug here is the same shape: a slot that holds/computes a **pointer or
+address** used `tint` (`IBY2WD`=4) where it needs `IBY2PTR`=8 (latent on 32-bit
+where pointer==word), or a 64-bit value reconstructed by extending a 32-bit half
+wrong. Audit conclusion (2026-06-02, both compilers): a `tint` node/temp is a bug
+**only when its own type drives the move width AND it holds an address/8-byte
+value** — i.e. a *materialised* address. Those sites are exactly the `Oindx`
+(element-address) nodes, and all three creations are covered (`rewrite` Oindex →
+`tbig`; `arraydefault` → `tbig`; `arraycom` → materialises into a `tbig` temp).
+`Oadr` nodes always fold into an `Oind` addressing mode (the compiler `fatal`s if
+they can't), so no truncating materialisation. `tint` temps used only as
+intermediates for explicitly-typed `genop`/`genmove` (verified: big/real
+`++`/`--`/`+=`, op-assign-in-expression, big-array-element `+=`) are safe — the op
+carries the operand type. So **most `tint` is correct; do not blanket-convert.**
+
+### Test battery
+`github.com/caerwynj/inferno-lab` (~281 real Limbo programs) is the repeatable
+battery. Compile sweep: 234/281 compile, 0 compiler crashes (misses = uninstalled
+lab-local modules; the 18 errors are source-level API drift, not LP64). Run sweep
+(headless, flag `segmentation violation`/`illegal dis`; ignore "module not loaded"
+= uninstalled deps and "dereference of nil" = missing args) found the replicate
+bug. After fixes, 1 residual fault: `toy0`, `IMFRAME` on a nil modlink from an
+uninstalled `load` with no nil-check — a program bug, not codegen. Not yet wired as
+a standing harness.
 
 ### Deferred LP64 items (compile fine; off the emuinit/sh boot path)
-- **`$Loader` module** (`libinterp/loader.c`): its `brpatch`/`brunpatch` round-trip
-  branch targets through `Inst.d.imm` and a 4-byte `Loader_Inst.dst`; the core now
-  uses `d.ins`. Rework to compute indices from `d.ins` for dynamic module load/build.
+- **`$Loader` module** (`libinterp/loader.c`) — **NEXT TASK.** Its
+  `brpatch`/`brunpatch` round-trip branch targets through `Inst.d.imm` and a 4-byte
+  `Loader_Inst.dst`; the core now uses `d.ins`. Rework to compute indices from
+  `d.ins` for dynamic module load/build (the runtime compile/assemble path used by
+  `Loader->*`). After this: the GUI/graphical session (see below).
 - **`asm.c` `-S` listing**: the textual assembly listing's `Tcasec` case was not
   updated for pointer-sized entries (the binary `dis.c` path was). Listing/debug
   only; does not affect execution.

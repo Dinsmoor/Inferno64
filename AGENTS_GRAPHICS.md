@@ -1,5 +1,15 @@
 # Graphics in Inferno OS: Draw, Tk, and Prefab
 
+> **LP64-port note (2026-06):** the current build is `CONF=emu-g` (graphics-less)
+> because the upstream `libfreetype` sources were never vendored into this tree, so
+> `freetype`/`tk`/`draw` cannot link. A **graphical session is a planned roadmap
+> item** (after the `$Loader` LP64 fix). To revive the GUI: vendor the FreeType
+> `src/` + `ft2build.h`, build `CONF=emu` (restores `libfreetype`/`libtk`/`libdraw`
+> and the X11 backend `win-x11a.c`), and re-verify the draw/Tk path under LP64 (the
+> `Image`/`Display`/`Memimage` structs and `devdraw` command marshalling are the
+> places to audit for pointer-width assumptions). See AGENTS_INPRO.md
+> ("GUI stack" and the roadmap) for the disabled-components detail.
+
 ## Architecture Overview
 
 ```
