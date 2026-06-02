@@ -475,6 +475,7 @@ parsecookie(dom, path, cookie: string): ref Cookie
 	value = trim(value);
 
 	ck := ref Cookie(name, value, dom, defpath, -1, 0, 0, SSunset, 0, nil);
+	hasdomain := 0;
 	for (; toks != nil; toks = tl toks) {
 		(name, value) = S->splitl(hd toks, "=");
 		if (value != nil && value[0] == '=')
@@ -484,6 +485,7 @@ parsecookie(dom, path, cookie: string): ref Cookie
 		case S->tolower(name) {
 		"domain" =>
 			ck.dom = value;
+			hasdomain = 1;
 		"expires" =>
 			# Max-Age takes precedence (RFC 6265 §5.3); don't clobber it
 			if (ck.expire == -1)
@@ -512,9 +514,33 @@ parsecookie(dom, path, cookie: string): ref Cookie
 			}
 		}
 	}
+	if (!checkprefix(ck, hasdomain))
+		return nil;
 	if (ckcookie(ck, dom, path))
 		return ck;
 	return nil;
+}
+
+# RFC 6265bis §4.1.3 cookie name prefixes.
+# NOTE: the "must be set over a secure connection" requirement is not checked
+# here because cookiesrv is not told the request scheme; the structural rules
+# (Secure attribute, Path=/, host-only) are enforced.
+checkprefix(ck: ref Cookie, hasdomain: int): int
+{
+	if (hasprefix(ck.name, "__Secure-")) {
+		if (!ck.secure)
+			return 0;
+	}
+	if (hasprefix(ck.name, "__Host-")) {
+		if (!ck.secure || ck.path != "/" || hasdomain)
+			return 0;
+	}
+	return 1;
+}
+
+hasprefix(s, p: string): int
+{
+	return len s >= len p && s[0:len p] == p;
 }
 
 # Top Level Domains as defined in Netscape cookie spec
