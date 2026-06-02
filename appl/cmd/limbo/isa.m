@@ -221,9 +221,16 @@ NREG:		con 5;
 IBY2WD:		con 4;
 IBY2FT:		con 8;
 IBY2LG:		con 8;
-# IBY2PTR: size of a Dis pointer/register slot in bytes.  This Limbo build
-# of the compiler targets LP64 hosts, so pointer slots are 8 bytes (== IBY2LG),
-# distinct from IBY2WD (the 4-byte Dis int).  Must match include/isa.h.
+# IBY2PTR: size of a Dis pointer/register slot in bytes; it selects the .dis
+# magic this compiler stamps (XMAGIC if 4, XMAGIC8 if 8 -- see com.b).
+#
+# NOTE: unlike the C compiler (include/isa.h), where IBY2PTR = sizeof(void*)
+# auto-tracks the build's pointer width, this self-hosting Limbo compiler has
+# no sizeof, so the value is a literal and MUST match the ABI of the emu this
+# limbo.dis runs on (i.e. the build host's pointer width): 8 on an LP64 build,
+# 4 on a 32-bit build.  It is the one place the target ABI is not auto-derived;
+# a 32-bit build of the dis tree must set this to 4 (candidate for build-time
+# generation as a follow-up).
 IBY2PTR:	con 8;
 
 MUSTCOMPILE:	con 1<<0;

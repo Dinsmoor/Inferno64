@@ -238,14 +238,18 @@ enum
 	IBY2FT	= 8,
 	IBY2LG	= 8,
 	/*
-	 * IBY2PTR is the size of a Dis pointer/register slot in bytes.
-	 * On a 32-bit Dis it equals IBY2WD (pointer == word); on an LP64
-	 * host emu it must equal sizeof(void*) (8) so that frame register
-	 * slots, pointer-typed fields, and the GC pointer-map granularity
-	 * agree with the interpreter, which stores native C pointers and
-	 * strides its maps by sizeof(WORD*).  This tree targets LP64 hosts.
+	 * IBY2PTR is the size of a Dis pointer/register slot in bytes.  It MUST
+	 * equal the host's sizeof(void*): the interpreter stores native C
+	 * pointers in frame register slots and pointer-typed fields and strides
+	 * its GC pointer-maps by sizeof(WORD*), so any mismatch corrupts memory
+	 * (enforced by a static assert in libinterp/xec.c).  The .dis ABI thus
+	 * follows the build's pointer width automatically: a 32-bit build gets
+	 * IBY2PTR==4 (== IBY2WD) and stamps/accepts XMAGIC; a 64-bit build gets
+	 * 8 and uses XMAGIC8.  See limbo/com.c (stamp) and libinterp/load.c
+	 * (accept).  sizeof() is an integer constant expression, so this is a
+	 * compile-time constant the magic-selection branches fold away.
 	 */
-	IBY2PTR	= 8,
+	IBY2PTR	= sizeof(void*),
 
 	MUSTCOMPILE	= (1<<0),
 	DONTCOMPILE	= (1<<1),
