@@ -45,12 +45,25 @@ The regression battery in `tests/lp64/` (8 suites, 166 assertions) passes 166/16
 both interpreted and JIT-compiled (`-c1`) on the AArch64 host, including the Limbo
 compiler compiling itself.
 
+Both the C compiler and the self-hosting Limbo compiler implement a compile-time
+`sizeof(type)` operator, so the Dis pointer width is auto-derived on both sides
+with no per-ABI source edits: `include/isa.h` uses `IBY2PTR = sizeof(void*)` and
+`appl/cmd/limbo/isa.m` uses `con sizeof(string)` (a heap reference is one pointer
+slot).  Each folds to the pointer width of whichever compiler builds it.
+
 For implementation detail and the durable engineering notes, see `ref/AGENTS_*.md`
 (start with `ref/AGENTS_INPRO.md`).
 
-> Note: the self-hosting Limbo compiler `appl/cmd/limbo/isa.m` carries `IBY2PTR`
-> as a literal constant (Limbo has no `sizeof`), so for a 32-bit build of the
-> in-tree `/dis` toolchain that value must be set to 4 to match the build ABI.
+## Credits
+
+This fork stands on others' work:
+
+- **Limbo by Example** (`ref/limbobyexample/`) is by Sean "henesy" Hinchee —
+  <https://github.com/henesy/limbobyexample> — included here as reference
+  material for learning the Limbo language (MIT licensed; see its `LICENSE`).
+- The LP64 regression suite under `tests/lp64/` draws on the test programs in
+  caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab> — which
+  we adapt and run as the standing correctness net for the 64-bit port.
 
 ---
 
