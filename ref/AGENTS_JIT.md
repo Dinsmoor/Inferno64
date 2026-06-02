@@ -291,8 +291,11 @@ Option A is sufficient to validate the port end-to-end; Option B can follow.
 
 `libinterp/comp-aarch64.c` is a real from-scratch LP64 JIT (the first for Inferno).
 It is **off by default** (`cflag==0` runs everything interpreted; suite is 166/166)
-and activates only with `emu -c1`/`-c2`, which is **work-in-progress** (one known bug,
-below). This section is the durable reference for finishing it.
+and activates with `emu -c1`/`-c2`, which is **working**: the full suite is also
+166/166 under `-c1` (sh plus all 8 suites run natively, including limbo self-host).
+The only `-c1` caveat is `$Loader` reflection, which is mutually exclusive with
+compilation by design (see below); it is TAP-skipped, not a codegen bug. This
+section is the durable reference for the implementation.
 
 ## What was solved (and how)
 

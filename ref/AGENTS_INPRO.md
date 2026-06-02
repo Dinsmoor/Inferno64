@@ -1,12 +1,23 @@
-# LP64 Port — In-Progress Notes (what is stubbed / disabled, and why)
+# Dual-ABI (32/64-bit) Notes — what the LP64 work added, and how a single tree builds either ABI
 
-> **Branch / roadmap (read first).** Active branch: **`port-LP64`** (renamed from
-> `aarch64-port` — this is the LP64 data-model port, not aarch64-specific; the same
-> XMAGIC8 `.dis` tree runs on any LP64 host, and `Linux/amd64` x86-64 glue is in,
-> though unbuilt). **`master` is frozen** as 32-bit upstream + the pointer-width
-> magic guard + a few LP64-safety one-liners — **do not apply further changes to
-> master.** This is the durable project record (it travels with the repo); update
-> the relevant `AGENTS_*.md` rather than relying on external notes.
+> **Branch / status (read first).** As of 2026-06-02 the LP64 work (`port-LP64`)
+> and `master` are **unified into one dual-ABI trunk** (`master` and `port-LP64`
+> point at the same merge commit; **`master` is the working trunk and is no longer
+> frozen**). The same source tree builds for **either** Dis ABI, selected
+> automatically by the host pointer width: `include/isa.h` sets
+> `IBY2PTR = sizeof(void*)`, all width logic is symbolic (`IBY2PTR` for pointer/
+> register slots vs `IBY2WD`=4 for the Dis word), and the `.dis` magic is stamped
+> (`limbo/com.c`) and accepted (`libinterp/load.c`) conditionally on `IBY2PTR` —
+> so a 32-bit build gets `IBY2PTR==4` and uses `XMAGIC`, a 64-bit build gets 8 and
+> uses `XMAGIC8`. A static assert in `libinterp/xec.c` (`sizeof(void*)==IBY2PTR`)
+> turns any mismatch into a compile error. The two ABIs' `.dis` binaries are not
+> interchangeable; a wrong-width module is rejected (`exDiswidth`) and the shell
+> recompiles it from source if available.
+> **One caveat:** the self-hosting Limbo compiler (`appl/cmd/limbo/isa.m`) has no
+> `sizeof`, so its `IBY2PTR` is a literal `con` (currently 8) that must match the
+> build ABI — the one value not auto-derived (candidate for build-time generation).
+> This is the durable project record (it travels with the repo); update the
+> relevant `AGENTS_*.md` rather than relying on external notes.
 > **The GUI works (2026-06).** `CONF=emu` is the default build and `wm/wm` runs
 > the desktop under X11 (verified headless via Xvfb + screenshot: taskbar,
 > FreeType menus, mouse input). Getting there fixed two LP64 bugs — the draw
