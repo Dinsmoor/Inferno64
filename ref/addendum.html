@@ -158,6 +158,12 @@ was last revised:
 </span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
 <p style="line-height: 1.2em; margin-left: 1.69in; text-indent: 0.35in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
 <span style="font-size: 10pt">•  fixed-point types
+</span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.69in; text-indent: 0.35in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">•  polymorphic types
+</span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.69in; text-indent: 0.35in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">•  array range initializers
 </span></p><p style="margin-top: 0; margin-bottom: 0.17in"></p>
 <p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
 <span style="font-size: 10pt"><b>2.
@@ -957,6 +963,184 @@ Z of scale s, t and u respectively, we can write
 integer to a fixed point type and casting a fixed point type to an integer. These
 are all examples of the multiplication law with t = y = 1 since an
 integer may be thought of as a fixed point type with a scale of 1.
+</span></p><p style="margin-top: 0; margin-bottom: 0.50in"></p>
+
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt"><b>8.
+Polymorphic types
+</b></span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">Limbo supports parameterized (polymorphic) ADTs and functions. This feature
+is implemented in the compiler but was not included in the original language
+specification; behaviour on edge cases should be treated as implementation-defined.
+</span></p><p style="margin-top: 0; margin-bottom: 0.17in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt"><b>8.1.
+Parameterized ADTs
+</b></span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">An ADT may declare a type parameter in brackets after the </span><span style="font-size: 10pt"><tt>adt</tt></span><span style="font-size: 10pt"> keyword:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>Rd: adt[T] {</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    t:   T;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    ws:  fn(rd: self ref Rd[T]): int;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>};</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">The type </span><span style="font-size: 10pt"><tt>T</tt></span><span style="font-size: 10pt">
+is a placeholder bound at instantiation time.
+Instances of parameterized ADTs must always be heap-allocated using </span><span style="font-size: 10pt"><tt>ref</tt></span><span style="font-size: 10pt">,
+with the concrete type supplied in brackets:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>rd := ref Rd[ref Iobuf](in);</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">Methods on a parameterized ADT are defined using the full parameterized name:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>Rd[T].ws(rd: self ref Rd[T]): int</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>{</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    # ...</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>}</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt"><b>8.2.
+Polymorphic functions
+</b></span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">A free function may also carry a type parameter.
+The concrete type is inferred from the argument types at the call site:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>rev[T](l: list of T): list of T</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>{</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    r: list of T;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    for(; l != nil; l = tl l)</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>        r = hd l :: r;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    return r;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>}</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">Multiple type parameters are written as a comma-separated list:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>pair[T1, T2](l1: list of T1, l2: list of T2): list of (T1, T2)</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>{</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    # ...</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>}</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt"><b>8.3.
+Interface constraints
+</b></span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">A polymorphic function may require that its type argument provide specific methods,
+using a </span><span style="font-size: 10pt"><tt>for</tt></span><span style="font-size: 10pt">
+clause placed between the parameter list and the function body:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>ismember[T](x: T, l: list of T): int</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    for {</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>        T =&gt;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>            eq: fn(a, b: T): int;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    }</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>{</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    for(; l != nil; l = tl l)</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>        if(T.eq(x, hd l))</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>            return 1;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    return 0;</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>}</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">The </span><span style="font-size: 10pt"><tt>for { T =&gt; }</tt></span><span style="font-size: 10pt">
+block names the methods the type argument must provide.
+Within the body, a required method is called as </span><span style="font-size: 10pt"><tt>T.methodname(args)</tt></span><span style="font-size: 10pt">.
+The type argument must be an ADT type that declares a matching method.
+</span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">The </span><span style="font-size: 10pt"><tt>for</tt></span><span style="font-size: 10pt">
+clause may also be attached to an ADT declaration to constrain the
+types with which it may be instantiated.
+</span></p><p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt"><b>9.
+Array range initializers
+</b></span></p><p style="margin-top: 0; margin-bottom: 0.05in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">The array initializer syntax described in the main specification lists
+two element forms: an indexed form (</span><span style="font-size: 10pt"><tt>expression =&gt; value</tt></span><span style="font-size: 10pt">)
+and a wildcard (</span><span style="font-size: 10pt"><tt>* =&gt; value</tt></span><span style="font-size: 10pt">).
+The compiler also supports a range form:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>expression to expression =&gt; value</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">This fills all indices from the first expression to the second, inclusive on both ends,
+with the given value.
+For example:
+</span></p><p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>buf := array[10] of {</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    0 to 2 =&gt; byte 4,</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>    * =&gt; byte 3</tt></span></p>
+<p style="line-height: 1.1em; margin-left: 1.40in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 9pt"><tt>};</tt></span></p>
+<p style="margin-top: 0; margin-bottom: 0.17in"></p>
+
+<p style="margin-top: 0; margin-bottom: 0.08in"></p>
+<p style="line-height: 1.2em; margin-left: 1.00in; text-indent: 0.00in; margin-right: 1.00in; margin-top: 0; margin-bottom: 0; text-align: justify;">
+<span style="font-size: 10pt">This produces a 10-element array where indices 0, 1, and 2 hold the value 4,
+and the remaining indices hold the value 3.
+The upper bound is inclusive: the generated code iterates while the index is
+</span><span style="font-size: 10pt"><tt>&lt;=</tt></span><span style="font-size: 10pt">
+the upper expression, unlike slice notation where the upper bound is exclusive.
+Range elements may be combined with single-index elements and the wildcard within
+the same initializer.
 </span></p><p style="margin-top: 0; margin-bottom: 0.50in"></p>
 
 
