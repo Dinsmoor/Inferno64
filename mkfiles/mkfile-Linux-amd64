@@ -1,0 +1,29 @@
+TARGMODEL=	Posix
+TARGSHTYPE=	sh
+CPUS=		amd64
+
+O=		o
+OS=		o
+
+AR=		ar
+ARFLAGS=	ruvs
+
+AS=		gcc -c -m64
+ASFLAGS=
+
+CC=		gcc -c -m64
+CFLAGS=		-O\
+		-fno-strict-aliasing\
+		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
+		-I$ROOT/Linux/amd64/include\
+		-I$ROOT/include\
+		-DLINUX_AMD64
+
+ANSICPP=
+LD=		gcc -m64
+LDFLAGS=
+
+SYSLIBS=
+
+YACC=		iyacc
+YFLAGS=		-d

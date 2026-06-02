@@ -7,7 +7,11 @@
 ROOT    := $(realpath $(dir $(firstword $(MAKEFILE_LIST))))
 SYSHOST := Linux
 SYSTARG := Linux
-OBJTYPE := aarch64
+# Target architecture (LP64).  Override on a native x86-64 host with
+#   make OBJTYPE=amd64 all
+# Both aarch64 and amd64 are LP64, so they share the entire Dis ABI / .dis tree;
+# only the per-arch glue (mkfiles, Linux/$OBJTYPE/include, emu asm) differs.
+OBJTYPE ?= aarch64
 OBJDIR  := $(SYSTARG)/$(OBJTYPE)
 MK      := $(ROOT)/$(OBJDIR)/bin/mk
 # emu-g is the graphics-less emu configuration.  The full GUI emu config pulls

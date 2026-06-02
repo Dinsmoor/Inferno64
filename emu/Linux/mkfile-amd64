@@ -1,0 +1,2 @@
+# _tas lives in asm-amd64.S (like the 386 build), so no extra ARCHFILES.
+ARCHFILES=

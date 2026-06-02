@@ -328,6 +328,41 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
   `/prof` filesystems expose VM pointers as text) warn under LP64; revisit if those
   devices are used.
 
+## Second LP64 target: Linux/amd64 (x86-64) — glue added, UNBUILT/UNTESTED
+amd64 Linux is also LP64, so it **reuses the entire shared LP64 model** (the
+`IBY2PTR=8` Dis ABI, the compilers, the interpreter, **the committed XMAGIC8 `.dis`
+tree** — which should run unchanged) and adds only thin arch glue. None of it is
+built or run yet (no x86-64 host/toolchain was available); the asm is written by
+hand from the 386 + aarch64 references and needs a real build + test pass.
+
+Files added (all amd64-specific; no shared code changed):
+- `mkfiles/mkfile-Linux-amd64` (`gcc -m64`, `-DLINUX_AMD64`), `emu/Linux/mkfile-amd64`
+  (empty `ARCHFILES`; `_tas` lives in `asm-amd64.S` as on 386).
+- `Linux/amd64/include/{lib9.h,emu.h,fpuctl.h}` — `lib9.h` is the aarch64 copy with
+  `getcallerpc` via `__builtin_return_address(0)`; `emu.h` `FPU env[64]` (x87 env +
+  MXCSR) and `getup` via `%rsp`.
+- `emu/Linux/asm-amd64.S` — `umult` (`mulq`), `FPsave`/`FPrestore` (`fnstenv`+`stmxcsr`
+  / `fldenv`+`ldmxcsr`), `_tas` (`xchg`). `emu/Linux/segflush-amd64.c` — no-op (x86 is
+  I-cache coherent).
+- `lib9/setfcr-Linux-amd64.S` — x87 control/status (`fldcw`/`fnstcw`/`fnstsw`) with the
+  Inferno `xorb $0x3f` FCR ABI, arg in `%edi`. `lib9/getcallerpc-Linux-amd64.S` — build
+  stub (real impl is the lib9.h inline).
+- `libinterp/comp-amd64.c` (interpreter-only JIT stub), `libinterp/das-amd64.c` (no-op).
+- Build with `make OBJTYPE=amd64 all` (the top Makefile `OBJTYPE` is now overridable).
+  libmp/libsec need nothing: with no `Posix-amd64` asm dir they use the C `port/`
+  fallback, exactly as aarch64 does.
+
+Known caveats to check on first real build/run:
+- **FP control is x87-only.** `setfcr`/`getfcr`/`getfsr` drive the x87 control/status
+  words (matching 386), but the interpreter's `double` arithmetic runs on SSE2
+  (MXCSR). FP *results* are correct regardless; only explicit `Math->FPcontrol`
+  rounding-mode changes won't reach SSE, and `getfsr` reports x87 (not SSE) exception
+  status. Wire MXCSR into setfcr/getfsr if a program needs non-default rounding.
+- **`FPsave`/`FPrestore`** save x87 env + MXCSR via `fnstenv`/`fldenv` (no alignment
+  requirement) — verify proc-switch FP isolation once running.
+- Bootstrap: `mk` must first be built for `Linux/amd64` (the Makefile expects
+  `Linux/amd64/bin/mk`), same chicken-and-egg the aarch64 bring-up had.
+
 ### Alternatives considered (and rejected)
 - **`-mabi=ilp32` (32-bit pointers on aarch64):** would keep the 4-byte `.dis`
   layout but needs an aarch64 ILP32 libc that stock Ubuntu does not ship.
