@@ -51,6 +51,16 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   the double. Pinned the word type to 32 bits (`typedef unsigned int ULong; typedef
   int Long;`). Without this the freshly built `limbo` segfaulted while generating
   `runt.h`.
+- **`limbo/dtocanon.c` + `libinterp/load.c` (`dtocanon`/`canontod`)** — same
+  `unsigned long`-is-8-bytes family. These split/reassemble an IEEE double into the
+  two 32-bit words of the `.dis` data section via a `union { double d; unsigned long
+  ul[2]; }`; on LP64 `ul[0]` aliased the whole double, so **every real *constant*
+  loaded as ~0** (reals computed at run time were fine, which is why the CLI/sh path
+  never caught it). Pinned the union element to `unsigned int`. Found by checking
+  floating-point math (`sqrt`/`sin`/`pow`/…, real arrays, `1e±300`, string→real) —
+  all correct after the fix. `dtocanon` is in the compiler, so the dis tree was
+  recompiled. The self-host `appl/cmd/limbo` is unaffected (it serialises reals via
+  the Math `export_real` builtin, not a C union).
 - **`emu/port/alloc.c`** — the pool allocation quantum was `31` (32-byte minimum
   block). A free block stores its tree node *in-band* in the `Bhdr` union; on LP64
   that node is 56 bytes + 8-byte `Btail` = 64 bytes, so 32-byte blocks let the
