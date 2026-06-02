@@ -215,6 +215,59 @@ lost, but it catches uninitialised reads — great for width bugs — and overru
 plain `malloc` buffers like `gscreendata`):
 `valgrind --track-origins=yes emu-g -r$PWD /dis/sh.dis -c PROG`.
 
+**Dis-heap object granularity for Valgrind (`-DVALGRIND`) — use-after-free in the
+GC heap.** By default Valgrind sees the whole Dis garbage-collected heap as a few
+giant pool superblocks, so a *use-after-free of a collected object* — a dangling
+pointer left in an `isptr=0` (untraced) `tptr`/`tbig` slot, or any reference that
+outlives a GC sweep — is invisible. `libinterp/vgheap.h` (off unless built with
+`-DVALGRIND`) overlays object-level tracking: every Dis object is a
+`VALGRIND_MALLOCLIKE_BLOCK` when `poolalloc(heapmem,…)` hands it out
+(`libinterp/heap.c`: `nheap`/`heapz`/`heap`) and a `VALGRIND_FREELIKE_BLOCK` when
+it is reclaimed — by refcount (`destroy`, `freelist`) **or by the GC sweep**
+(`gc.c`). After the FREELIKE the object is poisoned NOACCESS, so reading a
+reclaimed object is reported immediately as "Invalid read … block was freed by
+`<stack>`" with **both** the alloc and free/GC stacks — i.e. it confirms-or-denies
+a GC dangling-pointer and points at the offending slot. Build + run:
+```sh
+# rebuild just libinterp with the flag, relink emu, run under valgrind+Xvfb:
+cd libinterp; gcc -c -DVALGRIND <normal-cflags> heap.c gc.c
+ar r $ROOT/$OBJDIR/lib/libinterp.a heap.o gc.o
+(cd emu/Linux && rm -f o.emu && mk $ARGS CONF=emu install)   # or CONF=emu-g
+DISPLAY=:99 valgrind --error-exitcode=99 --num-callers=20 \
+    emu -g1024x768 wm/wm /dis/<app>.dis
+```
+When off (`-DVALGRIND` absent) the macros are no-ops, so the production allocator
+is byte-for-byte unchanged. Notes: redzones are 0 (the pool packs objects
+adjacently, so this catches use-after-free + uninitialised reads, not
+adjacent-object overruns); pool block coalescing makes a reused region's tracking
+approximate; the `MALLOCLIKE` instructions are harmless no-ops when the binary is
+run *outside* valgrind, so one `-DVALGRIND` emu serves both. The `-DVALGRIND`
+build also swaps the pool's arena growth from `sbrk` to `mmap` (`emu/port/alloc.c`)
+— `sbrk` overflows Valgrind's brk-segment limit and emu dies with `mallocz failed`
+before reaching the code under test. **ASan still can't use these** (its `malloc`
+interceptor already breaks emu at boot), so this is Valgrind-only — the right call,
+since wiring ASan would require renaming emu's allocator across every hosted
+platform.
+
+**Reality check (verified 2026-06): the basic patch reports real UAF with full
+alloc/free/GC stacks, but is NOISY because Inferno's memory model legitimately
+touches freed memory in three places, all of which trip a naive `FREELIKE`
+poison:** (1) the pool stores its **free-tree node in-band** inside freed blocks
+(`Bhdr.u.s` overlays `B2D` = the object region), so `pooldel`/`pooladd`/
+`dopoolalloc`/`smalloc` read/write poisoned bytes during normal allocation; (2) the
+**mark-sweep GC walks the whole arena**, reading every block's `Heap` header/color
+*including free ones* (`rungc`); (3) `poolcompact` `memmove`s free blocks. Plus the
+Dis-proc C stacks (run via `tramp`/`kproc-pthreads`) throw ~1000 false "Invalid
+write" reports. So today you must filter: a *genuine* Dis-object UAF is an `Invalid
+read/write` whose **top frame is VM/Limbo code** (a `Sys_*` builtin, `xec`, font/
+string ops) — *not* `pooldel`/`pooladd`/`dopoolalloc`/`poolfree`/`smalloc`/`rungc`/
+`destroy`/`memmove`. Making it genuinely clean is a bounded follow-up: wrap those
+pool/GC free-block accesses with `VALGRIND_MAKE_MEM_DEFINED`/re-poison, and
+`VALGRIND_STACK_REGISTER` the Dis proc stacks. Until then it is best used to
+confirm/deny a *specific* suspected UAF, not as a zero-noise sweep. (Caveat for
+intermittent races: Valgrind's ~30× slowdown perturbs timing — the brutus/charon
+`Tkclient[$Sys]` intermittent did **not** fire under it.)
+
 **Triage note (what's a real bug vs benign):** a left-shift/overflow finding is a
 real LP64 bug only when the value **sign-extends into a wider (64-bit) field used
 at full width** (e.g. `(uchar)<<24` → negative int → `0xFFFFFFFF…` in a `ulong`).

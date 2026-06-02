@@ -1,6 +1,7 @@
 #include "lib9.h"
 #include "interp.h"
 #include "pool.h"
+#include "vgheap.h"
 
 enum
 {
@@ -350,6 +351,7 @@ rungc(Prog *p)
 					freetype(t);
 				}
 				gcdestroys++;
+				VGHEAP_FREE(h);
 				poolfree(heapmem, h);
 			}
 		}

@@ -3,6 +3,19 @@
 #include "interp.h"
 #include "error.h"
 
+#ifdef VALGRIND
+/*
+ * Under Valgrind the pool is grown with mmap instead of sbrk: sbrk-grown
+ * arenas overflow Valgrind's brk-segment limit, so emu runs out of heap
+ * ("mallocz failed") long before reaching the code under test.  mmap has no
+ * such cap.  No-op for the normal (sbrk) build.  Dis-object use-after-free is
+ * still detected by the MALLOCLIKE/FREELIKE annotations in libinterp/vgheap.h
+ * (FREELIKE poisons the freed object), so the arena itself stays accessible —
+ * the pool's own Bhdr/free-tree metadata must remain writable.
+ */
+#include <sys/mman.h>
+#endif
+
 enum
 {
 	MAXPOOL		= 4
@@ -385,12 +398,22 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 	}
 
 	p->nbrk++;
+#ifdef VALGRIND
+	t = (Bhdr *)mmap(nil, alloc, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if(t == (Bhdr*)MAP_FAILED) {
+		p->nbrk--;
+		unlock(&p->l);
+		return nil;
+	}
+#else
 	t = (Bhdr *)sbrk(alloc);
 	if(t == (void*)-1) {
 		p->nbrk--;
 		unlock(&p->l);
 		return nil;
 	}
+#endif
 #ifdef __NetBSD__
 	/* Align allocations to 16 bytes */
 	{

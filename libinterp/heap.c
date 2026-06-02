@@ -3,6 +3,7 @@
 #include "interp.h"
 #include "pool.h"
 #include "raise.h"
+#include "vgheap.h"
 
 void	freearray(Heap*, int);
 void	freelist(Heap*, int);
@@ -174,6 +175,7 @@ freelist(Heap *h, int swept)
 		l = l->tail;
 		if(heapmonitor != nil)
 			heapmonitor(1, th, 0);
+		VGHEAP_FREE(th);
 		poolfree(heapmem, th);
 	}
 }
@@ -234,6 +236,7 @@ destroy(void *v)
 		gcunlock();
 		freetype(t);
 	}
+	VGHEAP_FREE(h);
 	poolfree(heapmem, h);
 }
 
@@ -366,6 +369,7 @@ nheap(int n)
 	h = poolalloc(heapmem, sizeof(Heap)+n);
 	if(h == nil)
 		error(exHeap);
+	VGHEAP_ALLOC(h, n);
 
 	h->t = nil;
 	h->ref = 1;
@@ -384,6 +388,7 @@ heapz(Type *t)
 	h = poolalloc(heapmem, sizeof(Heap)+t->size);
 	if(h == nil)
 		error(exHeap);
+	VGHEAP_ALLOC(h, t->size);
 
 	h->t = t;
 	t->ref++;
@@ -405,6 +410,7 @@ heap(Type *t)
 	h = poolalloc(heapmem, sizeof(Heap)+t->size);
 	if(h == nil)
 		error(exHeap);
+	VGHEAP_ALLOC(h, t->size);
 
 	h->t = t;
 	t->ref++;
