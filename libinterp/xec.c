@@ -5,6 +5,8 @@
 #include "pool.h"
 
 REG	R;			/* Virtual Machine registers */
+uchar*	jitlo;			/* bounds of JIT-generated native code (0 = no JIT) */
+uchar*	jithi;
 String	snil;			/* String known to be zero length */
 
 /*
@@ -1698,7 +1700,16 @@ xec(Prog *p)
 
 // print("%lux %lux %lux %lux %lux\n", (ulong)&R, R.xpc, R.FP, R.MP, R.PC);
 
-	if(R.M->compiled)
+	/*
+	 * Dispatch native code whenever R.PC points into JIT-generated code,
+	 * not only when R.M->compiled is set.  A compiled module that calls a
+	 * builtin (runt) module leaves R.M transiently pointing at the builtin
+	 * (compiled==0) while R.PC is still the compiled caller's native return
+	 * address; if that proc is saved/re-dispatched across a release (isave/
+	 * irestore) the interpreter would otherwise try to decode native code as
+	 * Dis bytecode.  jitlo/jithi bound the native code arena (0 when no JIT).
+	 */
+	if(R.M->compiled || ((uchar*)R.PC >= jitlo && (uchar*)R.PC < jithi))
 		comvec();
 	else do {
 		dec[R.PC->add]();

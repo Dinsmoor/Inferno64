@@ -612,7 +612,8 @@ freemod(Module *m)
 		free(m->type);
 	}
 	free(m->name);
-	free(m->prog);
+	if(!m->compiled)		/* JIT modules' prog points into the code arena */
+		free(m->prog);
 	free(m->path);
 	free(m->pctab);
 	if(m->ldt != nil){

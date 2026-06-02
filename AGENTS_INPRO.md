@@ -139,19 +139,37 @@ These are genuine 64-bit correctness fixes, not shortcuts:
 
 ## Stubbed / disabled
 
-### JIT compiler — `libinterp/comp-aarch64.c` replaced with an interpreter-only stub
-- **What:** The committed `comp-aarch64.c` (a WIP AArch64 JIT) does not compile —
-  wrong macro arity (`DP`/`DPI`), undefined `uint32_t`, duplicate `Cmp`, bad
-  pointer types — and its instruction *encodings* are incorrect throughout
-  (e.g. `RET`/`DPR`/`DPI`/`B` macros emit wrong opcodes). It was never built.
-- **Now:** `comp-aarch64.c` is a stub whose `compile()` returns 0, forcing every
-  module onto the interpreter (the canonical, architecture-independent execution
-  path). `comvec` stays nil, so `xec.c` never dispatches to native code.
-- **Why:** The interpreter is correct and sufficient to run Limbo; a JIT is an
-  optimization. Shipping a JIT that emits wrong code would be a landmine for anyone
-  passing `emu -c`. The original attempt is preserved verbatim as
-  `libinterp/comp-aarch64.c.jit-wip` for whoever revives it (see AGENTS_JIT.md and
-  AGENTS_AARCH64.md for the encoding details a real back-end needs).
+### JIT compiler — `libinterp/comp-aarch64.c` is a working LP64 JIT, off by default
+- **What:** `comp-aarch64.c` is a from-scratch LP64 AArch64 Dis JIT. It has a bit-exact,
+  assembler-verified A64 encoder layer; LP64-correct 4-byte (Ldw/Stw, W-regs) vs 8-byte
+  (Ldp/Stp, X-regs) memory access per field; and natively compiles the hot integer/control
+  path (moves, word/byte/long arithmetic, shifts, mul, conversions, **conditional branches +
+  IJMP**, LEN*, IIND*, MOVM/HEADM, and **IMCALL** via `commcall`/`macmcal`). The rest is
+  punted (ICALL, IRET, IFRAME/IMFRAME, IGOTO/ICASE/ICASEC — tables relocated first, FP,
+  news, div/mod, sends). Code is generated into a low (<2GB) executable mmap arena so the
+  32-bit WORD jump tables can hold native addresses, matching the interpreter's
+  `(Inst*)t[0]` reads. The old broken attempt is at `libinterp/comp-aarch64.c.jit-wip`.
+- **Default behaviour is unchanged:** `cflag==0` (the default) never calls `compile()`,
+  so every module runs interpreted exactly as before. The LP64 test suite is **166/166**
+  with the JIT present. The JIT only activates with `emu -c1` (or `-c2`).
+- **`emu -c1` works:** runs the Emuinit bootstrap, `sh` (pipes/glob/control flow), and the
+  full battery natively — **7 of 8 suites pass 100%** under `-c1` (vm, concur, crypto,
+  styxnet, selfhost, plumb, except). The only failures are the two `50_loader`
+  `$Loader`-reflection tests: `ifetch`/`newmod` can't introspect a JIT-compiled
+  module because `compile()` replaces `m->prog` (Dis) with native code and frees the
+  original (every Inferno JIT back-end does this). Not a codegen defect; passes at
+  `cflag==0`. Three bugs cracked sh: a one-character `cmnix` encoding error (tested x1 not
+  x0 in is-H checks), `comvec` not preserving AAPCS64 callee-saved x19/x20/x21/x24 across
+  the C boundary (corrupted `xec`'s `p` on reschedule), and a stale `R.PC` during yielding
+  builtins. See AGENTS_JIT.md "Root causes found and fixed".
+- **Supporting changes that DID land (and are correct/regression-free):**
+  - `emu/Linux/segflush-aarch64.c` now `mprotect()`s the flushed range RWX (pool/heap
+    memory is non-executable on Linux; generated code faulted on instruction fetch).
+  - `xec.c` dispatch is `if(R.M->compiled || R.PC in [jitlo,jithi)) comvec()` — dispatch
+    native whenever R.PC is in the JIT arena, not only when `R.M->compiled`. `jitlo`/
+    `jithi` default to 0, so this is a no-op for non-JIT builds and `cflag==0`.
+  - `xec.c handler()` already used byte offsets for compiled modules; `patchex` in
+    comp-aarch64.c scales `patch[]` (instruction units) to bytes to match.
 
 ### Disassembler — `libinterp/das-aarch64.c` made to compile (approximate)
 - **What:** Added `#include <stdint.h>`, added a missing `imm3` field, removed a
