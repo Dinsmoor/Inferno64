@@ -144,7 +144,12 @@ start_xserver() {
 		local auth bindopt
 		if [ "$bindlocal" -eq 1 ]; then auth="-nopw"; bindopt="-localhost"; else auth="-rfbauth $pwfile"; bindopt=""; fi
 		# shellcheck disable=SC2086
-		x11vnc -display "$DISP" -rfbport "$PORT" -forever -shared -noxdamage \
+		# emu blits to the Xvfb framebuffer with XPutImage; use XDAMAGE plus
+		# tight polling/defer timing so menus and window updates are pushed to
+		# the VNC client promptly (the old -noxdamage build never refreshed past
+		# the first frame for some clients).
+		x11vnc -display "$DISP" -rfbport "$PORT" -forever -shared \
+			-wait 10 -defer 10 \
 			$bindopt $auth -bg -o "$RUNDIR/x11vnc$N.log" >/dev/null 2>&1 \
 			|| die "x11vnc failed to start (see $RUNDIR/x11vnc$N.log)"
 	elif have_tiger; then
