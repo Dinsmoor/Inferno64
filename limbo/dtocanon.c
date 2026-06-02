@@ -3,7 +3,14 @@
 void
 dtocanon(double f, ulong v[])
 {
-	union { double d; ulong ul[2]; } a;
+	/*
+	 * Split an IEEE double into its two 32-bit halves for the .dis data
+	 * section.  The union element MUST be 32-bit: on LP64 "ulong" is 8 bytes,
+	 * so ul[0] would alias the whole double and ul[1] garbage, emitting the
+	 * wrong words (every real constant then loaded as ~0).  "unsigned int" is
+	 * 32-bit on both ILP32 and LP64 (cf. canontod, libmath/dtoa.c).
+	 */
+	union { double d; unsigned int ul[2]; } a;
 
 	a.d = 1.;
 	if(a.ul[0]){
@@ -20,7 +27,7 @@ dtocanon(double f, ulong v[])
 double
 canontod(ulong v[2])
 {
-	union { double d; unsigned long ul[2]; } a;
+	union { double d; unsigned int ul[2]; } a;	/* 32-bit halves; see dtocanon */
 
 	a.d = 1.;
 	if(a.ul[0]) {
