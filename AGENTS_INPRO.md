@@ -375,6 +375,42 @@ bug. After fixes, 1 residual fault: `toy0`, `IMFRAME` on a nil modlink from an
 uninstalled `load` with no nil-check — a program bug, not codegen. Not yet wired as
 a standing harness.
 
+### In-repo headless test suite — `tests/lp64/` (standing regression harness)
+A self-contained TAP suite that exercises the Dis VM + Limbo end-to-end through
+`emu-g`, no display needed. `tests/lp64/run.sh` compiles each `suites/*.b` with the
+C `limbo`, runs it under `emu-g`, and aggregates `ok`/`not ok` (via the shared
+`lib/testing.{m,b}` helper). **109 assertions, all green, ~0.2 s total.** Exits
+non-zero on any failure/crash; tolerates the benign teardown SIGKILL (rc 137; see
+below). The six suites map to the five "headless avenues" + a foundation:
+- `00_vm` — big/real constants+math, strings, lists/tuples/arrays incl. replicate
+  fill, pick-ADTs, data-carrying exceptions, and the modern features (`**`,
+  `fixed()`, function refs). Regression-guards every pointer-width fix above.
+- `10_concur` — spawn fan-in, buffered/unbuffered channels, the chan-mutex idiom,
+  `alt`, a sentinel-terminated prime sieve, chan-of-ref request/reply, and a
+  retained list surviving ~1M churned allocations (GC pointer-map traversal).
+- `20_crypto` — Keyring md5/sha1/sha256 (one-shot+incremental) vs published
+  vectors, AES/DES-CBC round-trips, and IPint modexp/add/mul (the `libmp` C-port
+  on LP64).
+- `30_styxnet` — real TCP loopback through `devip` (Dial announce/listen/accept/
+  dial), Styx `Tmsg`/`Rmsg` pack/unpack incl. 64-bit offsets, `packdir`/
+  `unpackdir` with a >4 GiB length.
+- `40_selfhost` — drives the in-emu `/dis/limbo.dis` to compile a generated module
+  then loads+runs it (also proves XMAGIC8 emission via a successful load).
+- `50_loader` — `$Loader` `ifetch`/`tdesc`/`link` → `newmod`/`tnew`/`dnew`/`ext`
+  round-trip with a byte-for-byte instruction match + forced-GC teardown; the
+  Limbo-level guard for the three `loader.c` fixes.
+
+**Gotchas baked into the suite (read before extending):** (1) tests live in the
+repo tree and reference inferno paths under the emu root (`/tests/lp64/...`,
+`/module`); generated files go in `_build/` (git-ignored), **not `/tmp`** — `/tmp`
+is not in the headless namespace. (2) `exit` is a no-arg statement; programs signal
+pass/fail through TAP, not an exit status. (3) **any spawned helper proc must
+terminate** (sentinel/bounded) or `emu-g` hangs until the timeout — a leaked
+infinite producer cost a 65 s-per-run stall before the sieve was made
+sentinel-terminated. (4) the post-run rc 137 SIGKILL is the pre-existing benign
+emu-g teardown (repro: bare `echo hi`), output always completes first — the harness
+treats 0/1/137 as non-error.
+
 ### `$Loader` LP64 fix (done) — runtime module reflect/rebuild
 `$Loader` (`libinterp/loader.c`, the `Loader->ifetch`/`newmod`/`link`/`tdesc`
 reflective interface) round-trips a module's instructions to/from Limbo. Three
