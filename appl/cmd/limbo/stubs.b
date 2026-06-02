@@ -223,12 +223,13 @@ modstub(globals: ref Decl)
 				s = id.dot.dot.sym.name + "_" + s;
 			print("void %s(void*);\ntypedef struct F_%s F_%s;\nstruct F_%s\n{\n",
 				s, s, s, s);
-			print("	WORD	regs[NREG-1];\n");
+			# register slots are pointer-sized to match the interpreter Frame
+			print("	void*	regs[NREG-1];\n");
 			if(id.ty.tof != tnone)
 				print("	%s*	ret;\n", ctypeconv(id.ty.tof));
 			else
-				print("	WORD	noret;\n");
-			print("	uchar	temps[%d];\n", MaxTemp-NREG*IBY2WD);
+				print("	void*	noret;\n");
+			print("	uchar	temps[%d];\n", MaxTemp-NREG*IBY2PTR);
 			offset := MaxTemp;
 			for(m := id.ty.ids; m != nil; m = m.next){
 				p := "";

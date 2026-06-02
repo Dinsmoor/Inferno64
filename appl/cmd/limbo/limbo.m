@@ -13,10 +13,12 @@ INOOP: con (MAXDIS+2);
 # temporary
 LDT: con 1;
 
-STemp:		con NREG * IBY2WD;
-RTemp:		con STemp + IBY2WD;
-DTemp:		con RTemp + IBY2WD;
-MaxTemp:	con DTemp + IBY2WD;
+# Frame register/temp slots are pointer-sized so the frame header and the
+# Stmp/Dtmp macros (R.FP + NREG*IBY2PTR) match the interpreter Frame on LP64.
+STemp:		con NREG * IBY2PTR;
+RTemp:		con STemp + IBY2PTR;
+DTemp:		con RTemp + IBY2PTR;
+MaxTemp:	con DTemp + IBY2PTR;
 MaxReg:		con 1 << 16;
 MaxAlign:	con IBY2LG;
 StrSize:	con 256;

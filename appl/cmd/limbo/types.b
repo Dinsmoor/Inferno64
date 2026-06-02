@@ -145,8 +145,8 @@ typeinit()
 	treal.ok = OKmask;
 
 	tstring = mktype(noline, noline, Tstring, nil, nil);
-	tstring.size = IBY2WD;
-	tstring.align = IBY2WD;
+	tstring.size = IBY2PTR;
+	tstring.align = IBY2PTR;
 	tstring.ok = OKmask;
 
 	texception = mktype(noline, noline, Texception, nil, nil);
@@ -155,8 +155,8 @@ typeinit()
 	texception.ok = OKmask;
 
 	tany = mktype(noline, noline, Tany, nil, nil);
-	tany.size = IBY2WD;
-	tany.align = IBY2WD;
+	tany.size = IBY2PTR;
+	tany.align = IBY2PTR;
 	tany.ok = OKmask;
 
 	tnone = mktype(noline, noline, Tnone, nil, nil);
@@ -182,13 +182,13 @@ typeinit()
 	id.src = Src(0, 0);
 	id = tfnptr.ids.next = mkids(nosrc, nil, tint, nil);
 	id.store = Dfield;
-	id.offset = IBY2WD;
+	id.offset = IBY2PTR;	# follows the t0 pointer slot
 	id.sym = enter("t1", 0);
 	id.src = Src(0, 0);
 
 	rtexception = mktype(noline, noline, Tref, texception, nil);
-	rtexception.size = IBY2WD;
-	rtexception.align = IBY2WD;
+	rtexception.size = IBY2PTR;
+	rtexception.align = IBY2PTR;
 	rtexception.ok = OKmask;
 }
 
@@ -1891,8 +1891,11 @@ fatal("sizetype bogus ok for " + stypeconv(t));
 	Tarray or
 	Tlist or
 	Tmodule or
-	Tfix or
 	Tpoly =>
+		# heap references: native pointer-sized slots on the host
+		t.size = t.align = IBY2PTR;
+	Tfix =>
+		# fixed-point is a scaled int, not a pointer
 		t.size = t.align = IBY2WD;
 	Tadt or
 	Ttuple or
@@ -1942,12 +1945,17 @@ fatal("sizetype bogus ok for " + stypeconv(t));
 		t.size = 0;
 		t.align = 1;
 	Talt =>
-		t.size = t.cse.nlab * 2*IBY2WD + 2*IBY2WD;
-		t.align = IBY2WD;
-	Tcase or
-	Tcasec =>
+		# {nsend,nrecv ints} + nlab*{Channel* c; void* ptr}
+		t.size = t.cse.nlab * 2*IBY2PTR + 2*IBY2WD;
+		t.align = IBY2PTR;
+	Tcase =>
+		# int ranges: {count} + nlab*{low,high,dest} + {wild} all words
 		t.size = t.cse.nlab * 3*IBY2WD + 2*IBY2WD;
 		t.align = IBY2WD;
+	Tcasec =>
+		# {count slot} + nlab*{String* low; String* high; dest slot} + {wild slot}
+		t.size = t.cse.nlab * 3*IBY2PTR + 2*IBY2PTR;
+		t.align = IBY2PTR;
 	Tcasel =>
 		t.size = t.cse.nlab * 6*IBY2WD + 3*IBY2WD;
 		t.align = IBY2LG;
@@ -2100,10 +2108,12 @@ gendesc(d: ref Decl, size: int, decls: ref Decl): ref Desc
 
 mkdesc(size: int, d: ref Decl): ref Desc
 {
-	pmap := array[(size+8*IBY2WD-1) / (8*IBY2WD)] of { * => byte 0 };
+	# map granularity is one bit per IBY2PTR-byte pointer slot, matching the
+	# interpreter's initmem()/markheap() which stride by sizeof(WORD*).
+	pmap := array[(size+8*IBY2PTR-1) / (8*IBY2PTR)] of { * => byte 0 };
 	n := descmap(d, pmap, 0);
 	if(n >= 0)
-		n = n / (8*IBY2WD) + 1;
+		n = n / (8*IBY2PTR) + 1;
 	else
 		n = 0;
 	return enterdesc(pmap, size, n);
@@ -2120,10 +2130,10 @@ usedty(t);
 	}
 	if(t.decl.desc != nil)
 		return t.decl.desc;
-	pmap := array[(t.size+8*IBY2WD-1) / (8*IBY2WD)] of {* => byte 0};
+	pmap := array[(t.size+8*IBY2PTR-1) / (8*IBY2PTR)] of {* => byte 0};
 	n := tdescmap(t, pmap, 0);
 	if(n >= 0)
-		n = n / (8*IBY2WD) + 1;
+		n = n / (8*IBY2PTR) + 1;
 	else
 		n = 0;
 	d := enterdesc(pmap, t.size, n);
@@ -2211,37 +2221,39 @@ tdescmap(t: ref Type, map: array of byte, offset: int): int
 
 	m := -1;
 	if(t.kind == Talt){
+		# Alt{int nsend; int nrecv; Altc ac[]} with Altc{Channel* c; void* ptr}
 		lab := t.cse.labs;
 		e = t.cse.nlab;
-		offset += IBY2WD * 2;
+		offset += IBY2WD * 2;		# nsend, nrecv (ints)
 		for(i = 0; i < e; i++){
 			if(lab[i].isptr){
-				bit = offset / IBY2WD % 8;
-				map[offset / (8*IBY2WD)] |= byte 1 << (7 - bit);
+				bit = offset / IBY2PTR % 8;
+				map[offset / (8*IBY2PTR)] |= byte 1 << (7 - bit);	# channel pointer
 				m = offset;
 			}
-			offset += 2*IBY2WD;
+			offset += 2*IBY2PTR;	# {Channel* c; void* ptr}
 		}
 		return m;
 	}
 	if(t.kind == Tcasec){
+		# count slot, then entries {String* low; String* high; int dest}
 		e = t.cse.nlab;
-		offset += IBY2WD;
+		offset += IBY2PTR;		# leading count (own pointer-aligned slot)
 		for(i = 0; i < e; i++){
-			bit = offset / IBY2WD % 8;
-			map[offset / (8*IBY2WD)] |= byte 1 << (7 - bit);
-			offset += IBY2WD;
-			bit = offset / IBY2WD % 8;
-			map[offset / (8*IBY2WD)] |= byte 1 << (7 - bit);
+			bit = offset / IBY2PTR % 8;
+			map[offset / (8*IBY2PTR)] |= byte 1 << (7 - bit);	# low string
+			offset += IBY2PTR;
+			bit = offset / IBY2PTR % 8;
+			map[offset / (8*IBY2PTR)] |= byte 1 << (7 - bit);	# high string
 			m = offset;
-			offset += 2*IBY2WD;
+			offset += 2*IBY2PTR;	# dest word + alignment pad
 		}
 		return m;
 	}
 
 	if(tattr[t.kind].isptr){
-		bit = offset / IBY2WD % 8;
-		map[offset / (8*IBY2WD)] |= byte 1 << (7 - bit);
+		bit = offset / IBY2PTR % 8;
+		map[offset / (8*IBY2PTR)] |= byte 1 << (7 - bit);
 		return offset;
 	}
 	if(t.kind == Tadtpick)

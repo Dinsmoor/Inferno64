@@ -4,6 +4,8 @@ Dis: module
 
 	XMAGIC:		con	819248;
 	SMAGIC:		con	923426;
+	XMAGIC8:	con	1867824;	# XMAGIC|16r100000: 64-bit pointer ABI
+	SMAGIC8:	con	1972002;	# SMAGIC|16r100000: signed 64-bit pointer ABI
 	MUSTCOMPILE:	con	1<<0;
 	DONTCOMPILE:	con 	1<<1;
 	SHAREMP:	con 	1<<2;

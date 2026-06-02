@@ -38,7 +38,7 @@ genstart()
 {
 	d := mkdecl(nosrc, Dlocal, tint);
 	d.sym = enter(".ret", 0);
-	d.offset = IBY2WD * REGRET;
+	d.offset = IBY2PTR * REGRET;	# REGRET slot, after the pointer-sized registers
 
 	retnode = ref znode;
 	retnode.op = Oname;
@@ -370,7 +370,14 @@ genbra(src: Src, op: int, s, m: ref Node): ref Inst
 	t := s.ty;
 	if(t == tany)
 		t = m.ty;
-	iop := disoptab[op][opind[t.kind]];
+	# Pointer-kinded operands fall to disoptab column 0 (4-byte IBEQW/IBNEW),
+	# which only test the low 32 bits of an LP64 pointer.  A Dis pointer is
+	# IBY2PTR==IBY2LG==8 bytes, so compare on the full width via the Tbig
+	# (long) column (IBEQL/IBNEL).  Only Oeq/Oneq on pointers reach here.
+	ind := opind[t.kind];
+	if(ind == 0 && tattr[t.kind].isptr && IBY2PTR == IBY2LG)
+		ind = opind[Tbig];
+	iop := disoptab[op][ind];
 	if(iop == 0)
 		fatal("can't deal with op "+opconv(op)+" on "+nodeconv(s)+" "+nodeconv(m)+" in genbra");
 	in := mkinst();

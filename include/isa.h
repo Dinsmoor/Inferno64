@@ -185,8 +185,19 @@ enum
 {
 	MAXDIS	= ISELF+1,
 
-	XMAGIC	= 819248,	/* Normal magic */
-	SMAGIC	= 923426,	/* Signed module */
+	XMAGIC	= 819248,	/* Normal magic, 32-bit pointer ABI */
+	SMAGIC	= 923426,	/* Signed module, 32-bit pointer ABI */
+	/*
+	 * Pointer-width ABI tag in the .dis magic.  A module compiled for an
+	 * LP64 (8-byte pointer) Dis has a different binary layout (register/
+	 * pointer slot sizes, GC map granularity, frame sizes) than a 32-bit
+	 * module, but the instruction/data stream still parses either way, so
+	 * the magic is the only safe discriminator.  Bit 0x100000 set => the
+	 * module uses 64-bit pointer slots.  A 32-bit VM and a 64-bit VM thus
+	 * reject each other's binaries (see libinterp/load.c, limbo/com.c).
+	 */
+	XMAGIC8	= 1867824,	/* XMAGIC|0x100000: normal magic, 64-bit pointer ABI */
+	SMAGIC8	= 1972002,	/* SMAGIC|0x100000: signed module, 64-bit pointer ABI */
 
 	AMP	= 0x00,		/* Src/Dst op addressing */
 	AFP	= 0x01,

@@ -232,18 +232,19 @@ disdatum(offset: int, n: ref Node)
 		else
 			disint(offset, -1);
 	Tcasec =>
+		# {count slot} + nlab*{String* low; String* high; dest slot} + {wild slot}
 		c = n.ty.cse;
 		disint(offset, c.nlab);
-		offset += IBY2WD;
+		offset += IBY2PTR;
 		for(i = 0; i < c.nlab; i++){
 			lab = c.labs[i];
 			disstring(offset, lab.start.decl.sym);
-			offset += IBY2WD;
+			offset += IBY2PTR;
 			if(lab.stop != lab.start)
 				disstring(offset, lab.stop.decl.sym);
-			offset += IBY2WD;
+			offset += IBY2PTR;
 			disint(offset, lab.inst.pc);
-			offset += IBY2WD;
+			offset += IBY2PTR;
 		}
 		if(c.iwild != nil)
 			disint(offset, c.iwild.pc);

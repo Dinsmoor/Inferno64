@@ -369,7 +369,7 @@ fnchk(n: ref Node): ref Decl
 	t.eraises = d.ty.eraises;
 
 	d.ty = t;
-	d.offset = idoffsets(t.ids, MaxTemp, IBY2WD);
+	d.offset = idoffsets(t.ids, MaxTemp, IBY2PTR);	# frame size, pointer-aligned
 	d.src = n.src;
 
 	d.locals = nil;
@@ -997,7 +997,7 @@ addfnptrs(d: ref Decl, link: int)
 		last.next = fps;
 	else
 		d.ty.ids = fps;
-	d.offset = idoffsets(d.ty.ids, MaxTemp, IBY2WD);
+	d.offset = idoffsets(d.ty.ids, MaxTemp, IBY2PTR);	# frame size, pointer-aligned
 }
 
 rmfnptrs(d: ref Decl)
@@ -1025,7 +1025,7 @@ rmfnptrs(d: ref Decl)
 	for(id = d.ty.ids; --n > 0; id = id.next)
 		;
 	id.next = nil;
-	d.offset = idoffsets(d.ty.ids, MaxTemp, IBY2WD);
+	d.offset = idoffsets(d.ty.ids, MaxTemp, IBY2PTR);	# frame size, pointer-aligned
 }
 
 local(d: ref Decl): int

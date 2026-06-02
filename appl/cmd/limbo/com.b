@@ -287,7 +287,13 @@ modcom(entry: ref Decl)
 
 	writet = sys->millisec();
 	if(gendis){
-		discon(XMAGIC);
+		# Stamp the magic for the pointer width this compiler targets, so a
+		# 64-bit Dis and a 32-bit Dis reject each other's binaries.  This
+		# build emits the layout selected by IBY2PTR (see isa.m).
+		mag := XMAGIC;
+		if(IBY2PTR == 8)
+			mag = XMAGIC8;
+		discon(mag);
 		hints := 0;
 		if(mustcompile)
 			hints |= MUSTCOMPILE;
@@ -954,8 +960,8 @@ altcom(nalt: ref Node)
 	#
 	# compile the sending and receiving channels and values
 	#
-	is = 2*IBY2WD;
-	ir = is + nsnd*2*IBY2WD;
+	is = 2*IBY2WD;			# after nsend,nrecv int header
+	ir = is + nsnd*2*IBY2PTR;	# recv entries follow the send entries
 	i = 0;
 	for(n = nalt.left; n != nil; n = n.right){
 		for(p = n.left.right.left; p != nil; p = p.right){
@@ -968,18 +974,21 @@ altcom(nalt: ref Node)
 			op = comm[i];
 			if(op.op == Osnd){
 				off.c.val = big is;
-				is += 2*IBY2WD;
+				is += 2*IBY2PTR;	# {Channel* c; void* ptr}
 			}else{
 				off.c.val = big ir;
-				ir += 2*IBY2WD;
+				ir += 2*IBY2PTR;
 			}
 			left = op.left;
 
 			#
-			# this sleaze is lying to the garbage collector
+			# this sleaze is lying to the garbage collector: store the
+			# borrowed channel pointer raw (untraced in the alt map).
+			# Use an 8-byte (tbig/IMOVL) raw move so the whole pointer
+			# is copied on LP64, not just the low word as tint would.
 			#
 			if(left.addable < Rcant)
-				genmove(left.src, Mas, tint, left, slot);
+				genmove(left.src, Mas, tbig, left, slot);
 			else{
 				slot.ty = left.ty;
 				ecom(left.src, slot, left);
@@ -990,7 +999,7 @@ altcom(nalt: ref Node)
 			#
 			# gen value
 			#
-			off.c.val += big IBY2WD;
+			off.c.val += big IBY2PTR;	# value/address slot follows channel
 			(p.left, tmps[i]) = rewritecomm(p.left, comm[i], slot);
 
 			i++;

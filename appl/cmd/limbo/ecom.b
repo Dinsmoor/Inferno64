@@ -130,6 +130,10 @@ rewrite(n: ref Node): ref Node
 		if((t = n.ty).kind == Texception){
 			if(int t.cons)
 				fatal("cons in rewrite Oname");
+			# skip the exbasetype {string name; int tag} header.
+			# FIXME(LP64): on a 64-bit host the header is
+			# {IBY2PTR string, IBY2WD int} possibly padded, not 2*IBY2WD;
+			# exceptions are off the load path, deferred with EXLP64.
 			n = mkbin(Oadd, n, mkconst(n.src, big(2*IBY2WD)));
 			n = mkunary(Oind, n);
 			n.ty = t;
@@ -187,7 +191,12 @@ rewrite(n: ref Node): ref Node
 		n.right = rewrite(right);
 		n = mkunary(Oind, n);
 		n.ty = n.left.ty;
-		n.left.ty = tint;
+		# The Oindx node computes the address of the indexed element; when
+		# that address is materialised into a temp it must be pointer-width.
+		# tbig is 8 bytes / 8-aligned with isptr=0 so the GC does not trace
+		# this interior pointer (was tint, only IBY2WD: an 8-byte element
+		# address overran the adjacent temp on LP64).
+		n.left.ty = tbig;
 	Oload =>
 		n.right = mkn(Oname, nil, nil);
 		n.right.src = n.left.src;
@@ -1088,7 +1097,7 @@ ecom(src: Src, nto, n: ref Node): ref Node
 			tright.ty = tany;
 			sumark(tright);
 			ecom(src, tright, mod);
-			ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, tto), mkconst(src, big IBY2WD)));
+			ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, tto), mkconst(src, big IBY2PTR)));
 			ind.ty = ind.left.ty = ind.left.right.ty = tint;
 			tright.op = Oas;
 			tright.left = ind;
@@ -1486,7 +1495,11 @@ callcom(src: Src, op: int, n, ret: ref Node)
 		d.desc = gendesc(d, idoffsets(nfn.ty.ids, MaxTemp, MaxAlign), nfn.ty.ids);
 	}
 
-	frame := talloc(tint, nil);
+	# The frame temp holds the callee's frame pointer (IFRAME/IMFRAME dst,
+	# ICALL/IMCALL src): a full pointer-width, pointer-aligned, untraced slot
+	# on LP64 (tbig), not tint (IBY2WD) which a 4-byte slot would truncate
+	# and overlap the adjacent pointer local.
+	frame := talloc(tbig, nil);
 
 	mod := nfn.left;
 	ind := nfn.right;
@@ -1571,7 +1584,7 @@ callcom(src: Src, op: int, n, ret: ref Node)
 	# pass return value
 	#
 	if(ret != nil){
-		toff.c.val = big(REGRET*IBY2WD);
+		toff.c.val = big(REGRET*IBY2PTR);	# callee REGRET slot
 		pass.ty = nfn.ty.tof;
 		p := genrawop(src, ILEA, ret, nil, pass);
 		p.m.offset = ret.ty.size;	# for optimizer
@@ -1628,7 +1641,10 @@ arraycom(a, elems: ref Node)
 
 	tindex := ref znode;
 	fake := ref znode;
-	tmp := talloc(tint, nil);
+	# tmp holds the address of the indexed array element (Oindx result,
+	# dereferenced via fake/Oind), so it must be pointer-width and untraced
+	# (tbig) on LP64, not tint (IBY2WD).
+	tmp := talloc(tbig, nil);
 	tindex.op = Oindx;
 	tindex.addable = Rcant;
 	tindex.left = a;
@@ -2017,9 +2033,9 @@ recvacom(src: Src, nto, n: ref Node)
 	# gen the channel
 	# this sleaze is lying to the garbage collector
 	#
-	off.c.val = big(2*IBY2WD);
+	off.c.val = big(2*IBY2WD);	# channel slot, after nsend,nrecv int header
 	if(left.addable < Rcant)
-		genmove(src, Mas, tint, left, slot);
+		genmove(src, Mas, tbig, left, slot);	# borrowed: raw 8-byte pointer move
 	else{
 		slot.ty = left.ty;
 		ecom(src, slot, left);
@@ -2029,7 +2045,7 @@ recvacom(src: Src, nto, n: ref Node)
 	#
 	# gen the value
 	#
-	off.c.val += big IBY2WD;
+	off.c.val += big IBY2PTR;	# value/address slot follows the channel
 	p = genrawop(left.src, ILEA, nto, nil, slot);
 	p.m.offset = nto.ty.size;	# for optimizer
 
@@ -2335,7 +2351,7 @@ fpcall(src: Src, op: int, n: ref Node, ret: ref Node)
 	if(e.addable >= Rcant)
 		(e, tp) = eacom(e, nil);
 	mod = mkunary(Oind, e);
-	ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, e), mkconst(src, big IBY2WD)));
+	ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, e), mkconst(src, big IBY2PTR)));
 	n.left = mkbin(Omdot, mod, ind);
 	n.left.ty = e.ty.tof;
 	mod.ty = ind.ty = ind.left.ty = ind.left.right.ty = tint;
