@@ -24,9 +24,14 @@ Cookie: adt {
 	path: string;
 	expire: int;		# seconds from epoch, -1 => not set, 0 => expire now
 	secure: int;
+	httponly: int;		# RFC 6265 HttpOnly: not exposed to scripts
+	samesite: int;		# RFC 6265bis SameSite: one of SS* below
 	touched: int;
 	link: cyclic ref Cookielist;	# linkage for list of cookies in the same domain
 };
+
+# SameSite attribute values (RFC 6265bis §5.4.7)
+SSunset, SSlax, SSstrict, SSnone: con iota;
 
 Domain: adt {
 	name: string;
@@ -346,7 +351,7 @@ cookie2str(ck: ref Cookie): string
 	namval := sys->sprint("%s=%s", ck.name, ck.value);
 	if (len namval > MAXCKLEN)
 		namval = namval[:MAXCKLEN];
-	return sys->sprint("%s\t%s\t%d\t%d\t%s", ck.dom, ck.path, ck.expire, ck.secure, namval);
+	return sys->sprint("%s\t%s\t%d\t%d\t%d\t%d\t%s", ck.dom, ck.path, ck.expire, ck.secure, ck.httponly, ck.samesite, namval);
 }
 
 loadcookie(ckstr: string)
@@ -355,10 +360,20 @@ loadcookie(ckstr: string)
 	if (n < 5)
 		return;
 	dom, path, exp, sec, namval: string;
+	httponly := 0;
+	samesite := SSunset;
 	(dom, toks) = (hd toks, tl toks);
 	(path, toks) = (hd toks, tl toks);
 	(exp, toks) = (hd toks, tl toks);
 	(sec, toks) = (hd toks, tl toks);
+	if (n >= 7) {
+		# new format also stores HttpOnly and SameSite
+		ho, ss: string;
+		(ho, toks) = (hd toks, tl toks);
+		(ss, toks) = (hd toks, tl toks);
+		httponly = int ho;
+		samesite = int ss;
+	}
 	(namval, toks) = (hd toks, tl toks);
 
 	# some sanity checks
@@ -369,7 +384,7 @@ loadcookie(ckstr: string)
 	if (value == nil)
 		return;
 	value = value[1:];
-	ck := ref Cookie(name, value, dom, path, int exp, int sec, touch++, nil);
+	ck := ref Cookie(name, value, dom, path, int exp, int sec, httponly, samesite, touch++, nil);
 	setcookie(ck);
 }
 
@@ -382,7 +397,7 @@ Client.set(c: self ref Client, host, path, cookie: string)
 	sys->write(c.fd, b, len b);
 }
 
-Client.getcookies(nil: self ref Client, host, path: string, secure: int): string
+Client.getcookies(nil: self ref Client, host, path: string, secure, fromjs: int): string
 {
 	dl: list of ref Domain;
 	if (isipaddr(host))
@@ -401,6 +416,9 @@ Client.getcookies(nil: self ref Client, host, path: string, secure: int): string
 		ckl := (hd dl).cookies;
 		for (ck := ckl.next; ck != nil; ck = ck.link.next) {
 			if (ck.secure && !secure)
+				continue;
+			# RFC 6265 §8.6: HttpOnly cookies are hidden from scripts
+			if (fromjs && ck.httponly)
 				continue;
 			if (!S->prefix(ck.path, path))
 				continue;
@@ -456,7 +474,7 @@ parsecookie(dom, path, cookie: string): ref Cookie
 		value = value[1:];
 	value = trim(value);
 
-	ck := ref Cookie(name, value, dom, defpath, -1, 0, 0, nil);
+	ck := ref Cookie(name, value, dom, defpath, -1, 0, 0, SSunset, 0, nil);
 	for (; toks != nil; toks = tl toks) {
 		(name, value) = S->splitl(hd toks, "=");
 		if (value != nil && value[0] == '=')
@@ -467,11 +485,31 @@ parsecookie(dom, path, cookie: string): ref Cookie
 		"domain" =>
 			ck.dom = value;
 		"expires" =>
-			ck.expire = date2sec(value);
+			# Max-Age takes precedence (RFC 6265 §5.3); don't clobber it
+			if (ck.expire == -1)
+				ck.expire = date2sec(value);
+		"max-age" =>
+			# RFC 6265 §5.2.2: delta-seconds; <= 0 means expire now
+			ma := int value;
+			if (ma <= 0)
+				ck.expire = now - 1;
+			else
+				ck.expire = now + ma;
 		"path" =>
 			ck.path = value;
 		"secure" =>
 			ck.secure = 1;
+		"httponly" =>
+			ck.httponly = 1;
+		"samesite" =>
+			case S->tolower(value) {
+			"strict" =>
+				ck.samesite = SSstrict;
+			"lax" =>
+				ck.samesite = SSlax;
+			"none" =>
+				ck.samesite = SSnone;
+			}
 		}
 	}
 	if (ckcookie(ck, dom, path))

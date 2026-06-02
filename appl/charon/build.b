@@ -80,6 +80,11 @@ blockbrk := array[LX->Numtags] of {
 	LX->Thr => BL, LX->Tisindex => BLBA, LX->Tli => BL, LX->Tmenu => BLBA,
 	LX->Tol => BLBA, LX->Tp => BLBA, LX->Tpre => BLBA,
 	LX->Tul => BLBA, LX->Txmp => BLBA,
+	# HTML5 sectioning/grouping elements: render as block boxes (like <div>)
+	# so their content is not run together inline.
+	LX->Tarticle => BL, LX->Tsection => BL, LX->Tnav => BL,
+	LX->Theader => BL, LX->Tfooter => BL, LX->Taside => BL,
+	LX->Tmain => BL, LX->Tfigure => BLBA, LX->Tfigcaption => BL,
 	* => byte 0
 };
 
@@ -948,6 +953,16 @@ TokLoop:
 						}
 					}
 				}
+			} else {
+				# HTML5 short form: <meta charset="utf-8">
+				(gotcs, cs) := tok.aval(LX->Acharset);
+				if(gotcs) {
+					btos := CU->getconv(cs);
+					if(btos != nil)
+						is.ts.setchset(btos);
+					else if(warn)
+						sys->print("cannot set charset %s\n", cs);
+				}
 			}
 
 		# Nobr is NOT in HMTL 4.0, but it is ubiquitous on the web
@@ -1518,6 +1533,24 @@ TokLoop:
 		or LX->Tobject or LX->Tobject+RBRA
 		or LX->Toptgroup or LX->Toptgroup+RBRA
 		or LX->Tspan or LX->Tspan+RBRA
+		# HTML5 sectioning/grouping elements (break handled via blockbrk above)
+		or LX->Tarticle or LX->Tarticle+RBRA
+		or LX->Tsection or LX->Tsection+RBRA
+		or LX->Tnav or LX->Tnav+RBRA
+		or LX->Theader or LX->Theader+RBRA
+		or LX->Tfooter or LX->Tfooter+RBRA
+		or LX->Taside or LX->Taside+RBRA
+		or LX->Tmain or LX->Tmain+RBRA
+		or LX->Tfigure or LX->Tfigure+RBRA
+		or LX->Tfigcaption or LX->Tfigcaption+RBRA
+		# HTML5 inline/text-level elements (render their content inline)
+		or LX->Tmark or LX->Tmark+RBRA
+		or LX->Ttime or LX->Ttime+RBRA
+		# HTML5 media: render any fallback content; <source> carries no text
+		or LX->Tvideo or LX->Tvideo+RBRA
+		or LX->Taudio or LX->Taudio+RBRA
+		or LX->Tpicture or LX->Tpicture+RBRA
+		or LX->Tsource or LX->Tsource+RBRA
 		=>
 			if(warn) {
 				if(tag > RBRA)

@@ -265,6 +265,7 @@ CharonUtils: module
 		length:	int;			# -1 if unknown
 		mtype:	int;			# TextHtml, etc.
 		chset:	string;		# charset encoding
+		encoding:	string;		# Content-Encoding (gzip/deflate); "" if none
 		msg:	string;			# possible message explaining status
 		refresh:string;			# used for server push
 		chal:	string;			# used if code is HSneedauth
@@ -365,7 +366,7 @@ CharonUtils: module
 	stripscript: fn(s: string) : string;	# strip HTML comments from Script
 	getconv: fn(chset : string) : Btos;
 	setcookie: fn(host, path, cookie: string);
-	getcookies: fn(host, path: string, secure: int): string;
+	getcookies: fn(host, path: string, secure, fromjs: int): string;
 	schemeok: fn(scheme: string): int;	# is URL scheme supported?
 	X: fn(s, note : string) : string;
 };

@@ -16,6 +16,7 @@ include "translate.m";
 Font : import D;
 Parsedurl: import U;
 convcs : Convcs;
+gzipfilter : Gzipfilter;
 trans : Translate;
 	Dict : import trans;
 dict : ref Dict;
@@ -260,6 +261,11 @@ init(ch: Charon, c: CharonUtils, argl: list of string, evc: chan of ref E->Event
 	if (convcs == nil)
 		return loadpath(Convcs->PATH);
 
+	# Content-Encoding (gzip/deflate) decoder; non-fatal if absent —
+	# we simply won't advertise or decode compressed responses.
+	gzipfilter = load Gzipfilter loadpath(Gzipfilter->PATH);
+	if (gzipfilter != nil)
+		gzipfilter->init();
 
 	# Intialize all modules after loading all, so that each
 	# may cache pointers to the other modules
@@ -729,18 +735,28 @@ eloop:
 
 		nc.state = NCgetdata;
 
-		# read enough data to guess media type
-		while (bs.hdr.mtype == UnknownType && ncgetdata(t, nc, bs))
-			bs.hdr.setmediatype(bs.hdr.actual.path, bs.data[:bs.edata]);
-		if (bs.hdr.mtype == UnknownType) {
-			bs.hdr.mtype = TextPlain;
-			bs.hdr.chset = "utf8";
-		}
-		ngchan <-= (NGstatechg,nil,nc,ach);
-		<- ach;
-		while (ncgetdata(t, nc, bs)) {
+		if (bs.hdr.encoding != "" && gzipfilter != nil) {
+			# gzip/deflate response: decode on the producer side so the
+			# consumer still sees a plain decoded ByteSource.
+			decodepump(t, nc, bs, ach);
+			if (bs.hdr.mtype == UnknownType) {
+				bs.hdr.mtype = TextPlain;
+				bs.hdr.chset = "utf8";
+			}
+		} else {
+			# read enough data to guess media type
+			while (bs.hdr.mtype == UnknownType && ncgetdata(t, nc, bs))
+				bs.hdr.setmediatype(bs.hdr.actual.path, bs.data[:bs.edata]);
+			if (bs.hdr.mtype == UnknownType) {
+				bs.hdr.mtype = TextPlain;
+				bs.hdr.chset = "utf8";
+			}
 			ngchan <-= (NGstatechg,nil,nc,ach);
 			<- ach;
+			while (ncgetdata(t, nc, bs)) {
+				ngchan <-= (NGstatechg,nil,nc,ach);
+				<- ach;
+			}
 		}
 		nc.state = NCdone;
 		G->progress <-= (bs.id, G->Phavedata, 100, "");
@@ -796,6 +812,106 @@ ncgetdata(t: Transport, nc: ref Netconn, bs: ref ByteSource): int
 	bs.edata += nr;
 	G->progress <-= (bs.id, G->Phavedata, 100*bs.edata/len bs.data, "");
 	return 1;
+}
+
+# Transparently decode a gzip/deflate (Content-Encoding) response.
+# A spawned feeder pulls the compressed stream from the network into a private
+# raw ByteSource and writes it to the inflate Decoder; this proc drains the
+# decoded output into bs, growing bs.data, guessing the media type from the
+# decoded bytes, and signalling consumers via ngchan after each chunk — the
+# same contract as the plain data loop in runnetconn.
+decodepump(t: Transport, nc: ref Netconn, bs: ref ByteSource, ach: chan of ref ByteSource)
+{
+	dec := gzipfilter->start(bs.hdr.encoding);
+	if (dec == nil) {
+		# codec unavailable: fall back to reading the raw (undecoded) stream
+		while (ncgetdata(t, nc, bs)) {
+			ngchan <-= (NGstatechg, nil, nc, ach);
+			<- ach;
+		}
+		return;
+	}
+
+	# raw twin: holds the compressed body.  Its hdr.length is the (compressed)
+	# Content-Length so ncgetdata sizes and terminates correctly, which also
+	# matters for HTTP/1.1 keep-alive where the socket does not EOF.
+	rawhdr := ref *bs.hdr;
+	rawhdr.encoding = "";
+	rawbs := ref ByteSource(
+		bs.id,		# share progress slot
+		bs.req, rawhdr,
+		nil,		# data
+		0,		# edata
+		"",		# err
+		bs.net,
+		1, 1,		# refgo, refnc
+		0,		# eof
+		0, 0		# lim, seenhdr
+	);
+
+	# bs now carries decoded bytes of unknown length: we grow it ourselves.
+	bs.hdr.length = -1;
+	bs.data = array[UBufsize] of byte;
+	bs.edata = 0;
+
+	spawn rawfeeder(t, nc, bs, rawbs, dec);
+
+	for (;;) {
+		(kind, buf, err) := <- dec.out;
+		case kind {
+		Gzipfilter->Ddata =>
+			appenddata(bs, buf);
+			if (bs.hdr.mtype == UnknownType)
+				bs.hdr.setmediatype(bs.hdr.actual.path, bs.data[:bs.edata]);
+			# only wake the consumer once the parser type is known
+			if (bs.hdr.mtype != UnknownType) {
+				G->progress <-= (bs.id, G->Phavedata, 0, "");
+				ngchan <-= (NGstatechg, nil, nc, ach);
+				<- ach;
+			}
+		Gzipfilter->Ddone =>
+			return;
+		Gzipfilter->Derr =>
+			if (bs.err == "")
+				bs.err = "inflate: " + err;
+			return;
+		}
+	}
+}
+
+# Pull the compressed stream from the network and hand it to the decoder.
+rawfeeder(t: Transport, nc: ref Netconn, bs: ref ByteSource, rawbs: ref ByteSource, dec: ref Gzipfilter->Decoder)
+{
+	Decoder: import gzipfilter;	# bind Decoder methods to the loaded instance
+	fwd := 0;
+	for (;;) {
+		more := ncgetdata(t, nc, rawbs);
+		if (rawbs.edata > fwd) {
+			dec.write(rawbs.data[fwd:rawbs.edata]);
+			fwd = rawbs.edata;
+		}
+		if (!more)
+			break;
+	}
+	if (rawbs.err != "" && bs.err == "")
+		bs.err = rawbs.err;
+	dec.eof();
+}
+
+# Append buf to bs.data, growing the buffer as needed.
+appenddata(bs: ref ByteSource, buf: array of byte)
+{
+	need := bs.edata + len buf;
+	if (need > len bs.data) {
+		nsize := 2 * len bs.data;
+		if (nsize < need)
+			nsize = need;
+		nd := array[nsize] of byte;
+		nd[0:] = bs.data[0:bs.edata];
+		bs.data = nd;
+	}
+	bs.data[bs.edata:] = buf;
+	bs.edata += len buf;
 }
 
 Netconn.new(id: int) : ref Netconn
@@ -867,6 +983,7 @@ ByteSource.stringsource(s: string) : ref ByteSource
 			n,			# length
 			TextHtml, 	# mtype
 			"utf8",		# chset
+			"",			# encoding
 			"",			# msg
 			"",			# refresh
 			"",			# chal
@@ -1112,6 +1229,7 @@ Header.new() : ref Header
 		-1,		# length
 		UnknownType,	# mtype
 		nil,		# chset
+		"",		# encoding
 		"",		# msg
 		"",		# refresh
 		"",		# chal
@@ -1469,7 +1587,7 @@ setconfig(argl: list of string)
 	config.agentname = "Mozilla/4.08 (Charon; Inferno)";
 	config.nthreads = 4;
 	config.offersave = 1;
-	config.charset = "windows-1252";
+	config.charset = "utf-8";	# HTML5 default for documents with no charset declaration
 	config.plumbport = "web";
 	config.wintitle = "Charon";	# tkclient->titlebar() title, used by GUI
 	config.dbgfile = "";
@@ -1877,12 +1995,12 @@ assert(i: int)
 	}
 }
 
-getcookies(host, path: string, secure: int): string
+getcookies(host, path: string, secure, fromjs: int): string
 {
 	if (CK == nil || ckclient == nil)
 		return nil;
 	Client: import CK;
-	return ckclient.getcookies(host, path, secure);
+	return ckclient.getcookies(host, path, secure, fromjs);
 }
 
 setcookie(host, path, cookie: string)

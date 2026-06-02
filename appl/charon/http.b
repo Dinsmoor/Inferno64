@@ -444,6 +444,7 @@ writereq(nc: ref Netconn, bs: ref ByteSource)
 		reqhdr.addval(HHost, u.host);
 	reqhdr.addval(HUserAgent, agent);
 	reqhdr.addval(HAccept, "*/*; *");
+	reqhdr.addval(HAcceptEncoding, "gzip, deflate");
 #	if(cr != nil && (cr.status == CRRevalidate || cr.status == CRMustRevalidate)) {
 #		if(cr.etag != "")
 #			reqhdr.addval(HIfNoneMatch, cr.etag);
@@ -457,7 +458,7 @@ writereq(nc: ref Netconn, bs: ref ByteSource)
 		reqhdr.addval(HContentType, "application/x-www-form-urlencoded");
 	}
         if((CU->config).docookies > 0) {
-                cookies := CU->getcookies(u.host, u.path, nc.tstate&TSSL);
+                cookies := CU->getcookies(u.host, u.path, nc.tstate&TSSL, 0);
 		if (cookies != nil)
                        reqhdr.addval(HCookie, cookies);
         }
@@ -658,10 +659,16 @@ hdrconv(hh: ref HTTP_Header, u: ref Parsedurl) : ref Header
 	hdr.chal = hh.getval(HWWWAuthenticate);
 	s = hh.getval(HContentEncoding);
 	if(s != "") {
-		if(warn)
-			sys->print("warning: unhandled content encoding: %s\n", s);
-		# force "save as" dialog
-		hdr.mtype = CU->UnknownType;
+		# gzip/deflate are decoded transparently in the ByteSource pump
+		# (see chutils.b); anything else still falls back to "save as".
+		case S->tolower(s) {
+		"gzip" or "x-gzip" or "deflate" =>
+			hdr.encoding = s;
+		* =>
+			if(warn)
+				sys->print("warning: unhandled content encoding: %s\n", s);
+			hdr.mtype = CU->UnknownType;
+		}
 	}
 	hdr.warn = hh.getval(HWarning);
 	hdr.lastModified = hh.getval(HLastModified);

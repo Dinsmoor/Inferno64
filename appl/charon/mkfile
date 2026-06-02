@@ -10,6 +10,7 @@ TARG=\
 	file.dis\
 	ftp.dis\
 	gui.dis\
+	gzipfilter.dis\
 	http.dis\
 	img.dis\
 	jscript.dis\
@@ -49,6 +50,7 @@ MODULES=\
 	date.m\
 	event.m\
 	gui.m\
+	gzipfilter.m\
 	img.m\
 	layout.m\
 	lex.m\
@@ -64,6 +66,7 @@ SYSMODULES=\
 	debug.m\
 	draw.m\
 	ecmascript.m\
+	filter.m\
 	sh.m\
 	ssl3.m\
 	string.m\

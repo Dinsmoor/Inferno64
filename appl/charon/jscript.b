@@ -1165,7 +1165,7 @@ get(ex: ref Exec, o: ref Obj, property: string): ref Val
 		target := top.findbyobj(o);
 		if(target != nil) {
 			url := target.frame.doc.src;
-			ans = CU->getcookies(url.host, url.path, url.scheme == "https");
+			ans = CU->getcookies(url.host, url.path, url.scheme == "https", 1);
 		}
 		return ES->strval(ans);
 	}

@@ -23,6 +23,9 @@ tagnames = array[] of {
 	"address",
 	"applet", 
 	"area",
+	"article",
+	"aside",
+	"audio",
 	"b",
 	"base",
 	"basefont",
@@ -49,7 +52,10 @@ tagnames = array[] of {
 	"dt",
 	"em",
 	"fieldset",
+	"figcaption",
+	"figure",
 	"font",
+	"footer",
 	"form",
 	"frame",
 	"frameset",
@@ -60,6 +66,7 @@ tagnames = array[] of {
 	"h5",
 	"h6",
 	"head",
+	"header",
 	"hr",
 	"html",
 	"i",
@@ -74,9 +81,12 @@ tagnames = array[] of {
 	"legend",
 	"li",
 	"link",
+	"main",
 	"map",
+	"mark",
 	"menu",
 	"meta",
+	"nav",
 	"nobr",
 	"noframes",
 	"noscript",
@@ -86,13 +96,16 @@ tagnames = array[] of {
 	"option",
 	"p",
 	"param",
+	"picture",
 	"pre",
 	"q",
 	"s",
 	"samp",
 	"script",
+	"section",
 	"select",
 	"small",
+	"source",
 	"span",
 	"strike",
 	"strong",
@@ -106,12 +119,14 @@ tagnames = array[] of {
 	"tfoot",
 	"th",
 	"thead",
+	"time",
 	"title",
 	"tr",
 	"tt",
 	"u",
 	"ul",
 	"var",
+	"video",
 	"xmp"
 };
 
@@ -1299,6 +1314,10 @@ getchar(ts: ref TokenSource): int
 		st.prevcsstate = st.csstate;
 		st.prevbi = st.bi;
 		edata := bs.edata;
+		# strip a leading UTF-8 byte-order mark (HTML5 4.4): EF BB BF
+		if (st.bi == 0 && edata >= 3 &&
+		    int bs.data[0] == 16rEF && int bs.data[1] == 16rBB && int bs.data[2] == 16rBF)
+			st.prevbi = st.bi = 3;
 		if (st.bi >= edata)
 			return -1;
 		(state, s, n ) := ts.chset->btos(st.csstate, bs.data[st.bi:edata], CONVBLK);
