@@ -44,10 +44,16 @@ typedef	vlong		Long;
 
 enum
 {
-	STemp		= NREG * IBY2WD,
-	RTemp		= STemp+IBY2WD,
-	DTemp		= RTemp+IBY2WD,
-	MaxTemp		= DTemp+IBY2WD,
+	/*
+	 * Frame register/temp area.  The NREG registers (REGLINK..REGRET)
+	 * and the three scratch temps are pointer-sized slots so the frame
+	 * header matches the interpreter's Frame struct (native pointers)
+	 * and the Stmp/Dtmp macros (R.FP + NREG*IBY2PTR) on LP64.
+	 */
+	STemp		= NREG * IBY2PTR,
+	RTemp		= STemp+IBY2PTR,
+	DTemp		= RTemp+IBY2PTR,
+	MaxTemp		= DTemp+IBY2PTR,
 	MaxReg		= 1<<16,
 	MaxAlign	= IBY2LG,
 	StrSize		= 256,

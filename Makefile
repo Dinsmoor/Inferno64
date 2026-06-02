@@ -10,7 +10,12 @@ SYSTARG := Linux
 OBJTYPE := aarch64
 OBJDIR  := $(SYSTARG)/$(OBJTYPE)
 MK      := $(ROOT)/$(OBJDIR)/bin/mk
+# emu-g is the graphics-less emu configuration.  The full GUI emu config pulls
+# in libfreetype, whose upstream sources are not vendored in this tree, so the
+# CLI/headless build is the reliable target for running Limbo.
+CONF    := emu-g
 MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE)
+EMUARGS := $(MKARGS) CONF=$(CONF)
 
 export PATH := $(ROOT)/$(OBJDIR)/bin:$(PATH)
 export ROOT
@@ -31,10 +36,8 @@ EMUDIRS := \
 	libdraw     \
 	libprefab   \
 	libtk       \
-	libfreetype \
 	libmemdraw  \
 	libmemlayer \
-	libdynld    \
 	utils/data2c \
 	utils/ndate \
 	emu
@@ -47,14 +50,15 @@ all emu:
 		echo; \
 		echo "=== $$dir ==="; \
 		if [ "$$dir" = "emu" ]; then \
-			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) clean); \
+			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) clean); \
+			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) install); \
 		else \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke); \
+			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
 		fi; \
-		(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
 	done
 	@echo
-	@echo "Build complete: $(ROOT)/$(OBJDIR)/bin/emu"
+	@echo "Build complete: $(ROOT)/$(OBJDIR)/bin/$(CONF)"
 
 clean:
 	@set -e; \

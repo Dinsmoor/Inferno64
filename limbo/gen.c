@@ -43,7 +43,7 @@ genstart(void)
 
 	d = mkdecl(&nosrc, Dlocal, tint);
 	d->sym = enter(".ret", 0);
-	d->offset = IBY2WD * REGRET;
+	d->offset = IBY2PTR * REGRET;	/* REGRET slot, after the pointer-sized registers */
 
 	retnode = znode;
 	retnode.op = Oname;
@@ -369,12 +369,25 @@ genbra(Src *src, int op, Node *s, Node *m)
 {
 	Type *t;
 	Inst *in;
-	int iop;
+	int iop, ind;
 
 	t = s->ty;
 	if(t == tany)
 		t = m->ty;
-	iop = disoptab[op][opind[t->kind]];
+	ind = opind[t->kind];
+	/*
+	 * Pointer-kinded operands (Tref/Tchan/Tarray/Tlist/Tmodule/Tpoly/Tany)
+	 * have no opind entry and fall to column 0, the 4-byte word compares
+	 * (IBEQW/IBNEW), which only test the low 32 bits of an LP64 pointer.
+	 * A Dis pointer is IBY2PTR==IBY2LG==8 bytes, so compare on the full
+	 * width via the Tbig (long) column (IBEQL/IBNEL).  Tstring keeps its
+	 * own column (opind 5: IBEQC content compare); numeric kinds keep theirs.
+	 * Only comparison ops reach genbra, and pointers only ever use Oeq/Oneq,
+	 * both of which have valid long-compare opcodes in the Tbig column.
+	 */
+	if(ind == 0 && tattr[t->kind].isptr && IBY2PTR == IBY2LG)
+		ind = opind[Tbig];
+	iop = disoptab[op][ind];
 	if(iop == 0)
 		fatal("can't deal with op %s on %n %n in genbra", opname[op], s, m);
 	in = mkinst();

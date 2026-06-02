@@ -364,7 +364,7 @@ extern	void	wunlock(RWLock*);
 #define	AEXIST	0	/* accessible: exists */
 #define	AEXEC	1	/* execute access */
 #define	AWRITE	2	/* write access */
-#define	READ	4	/* read access */
+#define	AREAD	4	/* read access */
 
 /* bits in Qid.type */
 #define QTDIR		0x80		/* type bit for directories */

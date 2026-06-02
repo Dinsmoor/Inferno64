@@ -85,10 +85,12 @@ enum
 	I = 0,		/* ignore */
 	B = 1,	/* byte */
 	W = 4,	/* int */
-	P = 4,	/* pointer */
-	A = 4,	/* array */
-	C = 4,	/* string */
-	X = 4,	/* fixed */
+	P = IBY2PTR,	/* pointer (8 bytes on LP64: the optimizer's liveness
+			 * analysis must see the whole pointer slot, else it
+			 * coalesces another decl over the high 4 bytes) */
+	A = IBY2PTR,	/* array (pointer) */
+	C = IBY2PTR,	/* string (pointer) */
+	X = 4,	/* fixed (scaled int, IBY2WD) */
 	R = 4,	/* float */
 	L = 8,	/* big */
 	F = 8,	/* real */
@@ -1339,7 +1341,7 @@ mkdec(int o)
 static void
 mkdecls(void)
 {
-	regdecls = mkdec(REGRET*IBY2WD);
+	regdecls = mkdec(REGRET*IBY2PTR);	/* REGRET slot */
 	regdecls->next = mkdec(STemp);
 	regdecls->next->next = mkdec(DTemp);
 }

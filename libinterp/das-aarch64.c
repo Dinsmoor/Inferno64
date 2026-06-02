@@ -4,6 +4,7 @@
  */
 
 #include <lib9.h>
+#include <stdint.h>
 
 typedef struct Instr Instr;
 struct Instr
@@ -19,6 +20,7 @@ struct Instr
 	uint16_t imm12;		/* 12-bit immediate */
 	uint16_t imm16;		/* 16-bit immediate */
 	uint16_t imm7;		/* 7-bit offset */
+	uint8_t imm3;		/* 3-bit field (e.g. TBZ/TBNZ bit position) */
 	uint32_t imm9;		/* 9-bit immediate */
 	long imm19;		/* 19-bit branch offset */
 	long imm26;		/* 26-bit branch offset */
@@ -108,9 +110,6 @@ aarch64class(uint32_t w)
 	case 0x32: case 0x52:
 		/* Test and branch (TBZ/TBNZ) */
 		return 52;
-	case 0x1E:
-		/* Floating point */
-		return 60;
 	case 0x5A:
 		/* Conditional compare */
 		return 65;

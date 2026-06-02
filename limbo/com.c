@@ -1015,8 +1015,8 @@ altcom(Node *nalt)
 	/*
 	 * compile the sending and receiving channels and values
 	 */
-	is = 2*IBY2WD;
-	ir = is + nsnd*2*IBY2WD;
+	is = 2*IBY2WD;			/* after nsend,nrecv int header */
+	ir = is + nsnd*2*IBY2PTR;	/* recv entries follow the send entries */
 	i = 0;
 	for(n = nalt->left; n != nil; n = n->right){
 		for(p = n->left->right->left; p != nil; p = p->right){
@@ -1029,18 +1029,23 @@ altcom(Node *nalt)
 			op = comm[i];
 			if(op->op == Osnd){
 				off.val = is;
-				is += 2*IBY2WD;
+				is += 2*IBY2PTR;	/* {Channel* c; void* ptr} */
 			}else{
 				off.val = ir;
-				ir += 2*IBY2WD;
+				ir += 2*IBY2PTR;
 			}
 			left = op->left;
 
 			/*
-			 * this sleaze is lying to the garbage collector
+			 * this sleaze is lying to the garbage collector:
+			 * store the borrowed channel pointer raw, without a
+			 * reference, so the alt map leaves it untraced.  Use an
+			 * 8-byte (tbig/IMOVL) raw move so the whole pointer is
+			 * copied on LP64 (IBY2PTR == IBY2LG here), not just the
+			 * low word as a tint move would.
 			 */
 			if(left->addable < Rcant)
-				genmove(&left->src, Mas, tint, left, &slot);
+				genmove(&left->src, Mas, tbig, left, &slot);
 			else{
 				slot.ty = left->ty;
 				ecom(&left->src, &slot, left);
@@ -1051,7 +1056,7 @@ altcom(Node *nalt)
 			/*
 			 * gen value
 			 */
-			off.val += IBY2WD;
+			off.val += IBY2PTR;	/* value/address slot follows channel */
 			tmps[i].decl = nil;
 			p->left = rewritecomm(p->left, comm[i], &tmps[i], &slot);
 

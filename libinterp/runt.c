@@ -86,8 +86,10 @@ xprint(Prog *xp, void *vfp, void *vva, String *s1, char *buf, int n)
 				break;
 			case 'q':
 			case 's':
+				while((va - fp) & (IBY2PTR-1))	/* pointer arg is 8-aligned on LP64 */
+					va++;
 				ss = *(String**)va;
-				va += IBY2WD;
+				va += IBY2PTR;
 				if(ss == H)
 					p = "";
 				else
@@ -144,6 +146,8 @@ xprint(Prog *xp, void *vfp, void *vva, String *s1, char *buf, int n)
 				break;
 /* Debugging formats - may disappear */
 			case 'H':
+				while((va - fp) & (IBY2PTR-1))	/* pointer arg is 8-aligned on LP64 */
+					va++;
 				ptr = *(ulong**)va;
 				c = -1;
 				t = nil;
@@ -152,7 +156,7 @@ xprint(Prog *xp, void *vfp, void *vva, String *s1, char *buf, int n)
 					t = D2H(ptr)->t;
 				}
 				b += snprint(b, eb-b, "%d.%.8lux", c, (ulong)t);
-				va += IBY2WD;
+				va += IBY2PTR;
 				break;
 			}
 			break;
@@ -288,7 +292,7 @@ Sys_tokenize(void *fp)
 		if(first == last)
 			break;
 
-		nl = cons(IBY2WD, h);
+		nl = cons(IBY2PTR, h);		/* list of String* : pointer-sized element */
 		nl->tail = H;
 		nl->t = &Tptr;
 		Tptr.ref++;

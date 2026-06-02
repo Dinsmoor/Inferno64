@@ -3,6 +3,7 @@
 #include	<termios.h>
 #include	<signal.h>
 #include 	<pwd.h>
+#include	<grp.h>
 #include	<sched.h>
 #include	<sys/resource.h>
 #include	<sys/wait.h>
@@ -13,6 +14,7 @@
 #include	"dat.h"
 #include	"fns.h"
 #include	"error.h"
+#include	"interp.h"
 
 #include <semaphore.h>
 
@@ -44,7 +46,12 @@ static void
 sysfault(char *what, void *addr)
 {
 	char buf[64];
+	char mbuf[128];
+	ulong pc;
 
+	pc = modstatus(&R, mbuf, sizeof(mbuf));
+	print("LP64 fault: %s%#p in %s pc=%lud op=%d\n", what, addr, mbuf, pc,
+		R.PC ? R.PC->op : -1);
 	snprint(buf, sizeof(buf), "sys: %s%#p", what, addr);
 	disfault(nil, buf);
 }
@@ -153,6 +160,92 @@ osreboot(char *file, char **argv)
 		termrestore();
 	execvp(file, argv);
 	error("reboot failure");
+}
+
+/*
+ * NSS-free user/group lookups.
+ *
+ * emu interposes the C malloc/free symbols with its own pool allocator.  That
+ * is incompatible with glibc's own allocator (its tcache and _int_malloc/free
+ * assume the glibc chunk layout), and the standard getpwXXX/getgrXXX entry
+ * points drag that allocator in: getpwnam(3) dlopens NSS service modules
+ * (libnss_systemd and friends) that allocate and free across the boundary,
+ * which corrupts our pool and crashes during startup.
+ *
+ * Inferno only needs a login name and the numeric uid/gid for file ownership,
+ * so we shadow the lookups with self-contained versions that never touch NSS.
+ * Names come from the environment when available; ids come from the kernel via
+ * getuid()/getgid().  Host file owners therefore appear as the invoking user
+ * or as numeric ids, which is sufficient for hosted Inferno.
+ */
+static struct passwd*
+synth_passwd(const char *name, uid_t uid, gid_t gid)
+{
+	static struct passwd pw;
+	static char namebuf[64];
+
+	if(name == nil || *name == 0){
+		name = getenv("USER");
+		if(name == nil || *name == 0)
+			name = getenv("LOGNAME");
+		if(name == nil || *name == 0)
+			name = "inferno";
+	}
+	strncpy(namebuf, name, sizeof(namebuf)-1);
+	namebuf[sizeof(namebuf)-1] = 0;
+	memset(&pw, 0, sizeof(pw));
+	pw.pw_name = namebuf;
+	pw.pw_passwd = "";
+	pw.pw_uid = uid;
+	pw.pw_gid = gid;
+	pw.pw_dir = "/";
+	pw.pw_shell = "";
+	return &pw;
+}
+
+struct passwd*
+getpwnam(const char *name)
+{
+	if(name != nil && strcmp(name, "nobody") == 0)
+		return nil;	/* leave uidnobody/gidnobody unset, as before */
+	return synth_passwd(name, getuid(), getgid());
+}
+
+struct passwd*
+getpwuid(uid_t uid)
+{
+	return synth_passwd(nil, uid, getgid());
+}
+
+static struct group*
+synth_group(const char *name, gid_t gid)
+{
+	static struct group gr;
+	static char gnamebuf[64];
+	static char *nomembers[] = { nil };
+
+	if(name == nil || *name == 0)
+		name = "inferno";
+	strncpy(gnamebuf, name, sizeof(gnamebuf)-1);
+	gnamebuf[sizeof(gnamebuf)-1] = 0;
+	memset(&gr, 0, sizeof(gr));
+	gr.gr_name = gnamebuf;
+	gr.gr_passwd = "";
+	gr.gr_gid = gid;
+	gr.gr_mem = nomembers;
+	return &gr;
+}
+
+struct group*
+getgrgid(gid_t gid)
+{
+	return synth_group(nil, gid);
+}
+
+struct group*
+getgrnam(const char *name)
+{
+	return synth_group(name, getgid());
 }
 
 void

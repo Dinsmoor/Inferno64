@@ -208,12 +208,13 @@ modstub(Decl *globals)
 				seprint(buf, buf+sizeof(buf), "%s_%s", id->dot->sym->name, id->sym->name);
 			print("void %s(void*);\ntypedef struct F_%s F_%s;\nstruct F_%s\n{\n",
 				buf, buf, buf, buf);
-			print("	WORD	regs[NREG-1];\n");
+			/* register slots are pointer-sized to match the interpreter Frame */
+			print("	void*	regs[NREG-1];\n");
 			if(id->ty->tof != tnone)
 				print("	%R*	ret;\n", id->ty->tof);
 			else
-				print("	WORD	noret;\n");
-			print("	uchar	temps[%d];\n", MaxTemp-NREG*IBY2WD);
+				print("	void*	noret;\n");
+			print("	uchar	temps[%d];\n", MaxTemp-NREG*IBY2PTR);
 			offset = MaxTemp;
 			for(m = id->ty->ids; m != nil; m = m->next){
 				if(m->sym != nil)

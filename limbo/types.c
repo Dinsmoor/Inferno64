@@ -177,8 +177,8 @@ typeinit(void)
 	treal->ok = OKmask;
 
 	tstring = mktype(&noline, &noline, Tstring, nil, nil);
-	tstring->size = IBY2WD;
-	tstring->align = IBY2WD;
+	tstring->size = IBY2PTR;
+	tstring->align = IBY2PTR;
 	tstring->ok = OKmask;
 
 	texception = mktype(&noline, &noline, Texception, nil, nil);
@@ -187,8 +187,8 @@ typeinit(void)
 	texception->ok = OKmask;
 
 	tany = mktype(&noline, &noline, Tany, nil, nil);
-	tany->size = IBY2WD;
-	tany->align = IBY2WD;
+	tany->size = IBY2PTR;
+	tany->align = IBY2PTR;
 	tany->ok = OKmask;
 
 	tnone = mktype(&noline, &noline, Tnone, nil, nil);
@@ -214,13 +214,13 @@ typeinit(void)
 	id->src = nosrc;
 	id = tfnptr->ids->next = mkids(&nosrc, nil, tint, nil);
 	id->store = Dfield;
-	id->offset = IBY2WD;
+	id->offset = IBY2PTR;	/* follows the t0 pointer slot */
 	id->sym = enter("t1", 0);
 	id->src = nosrc;
 
 	rtexception = mktype(&noline, &noline, Tref, texception, nil);
-	rtexception->size = IBY2WD;
-	rtexception->align = IBY2WD;
+	rtexception->size = IBY2PTR;
+	rtexception->align = IBY2PTR;
 	rtexception->ok = OKmask;
 }
 
@@ -2152,8 +2152,12 @@ fatal("sizetype bogus ok for %t", t);
 	case Tarray:
 	case Tlist:
 	case Tmodule:
-	case Tfix:
 	case Tpoly:
+		/* heap references: native pointer-sized slots on the host */
+		t->size = t->align = IBY2PTR;
+		break;
+	case Tfix:
+		/* fixed-point is a scaled int, not a pointer */
 		t->size = t->align = IBY2WD;
 		break;
 	case Ttuple:
@@ -2209,13 +2213,19 @@ fatal("sizetype bogus ok for %t", t);
 		t->align = 1;
 		break;
 	case Talt:
-		t->size = t->cse->nlab * 2*IBY2WD + 2*IBY2WD;
-		t->align = IBY2WD;
+		/* {nsend,nrecv ints} + nlab*{Channel* c; void* ptr} */
+		t->size = t->cse->nlab * 2*IBY2PTR + 2*IBY2WD;
+		t->align = IBY2PTR;
 		break;
 	case Tcase:
-	case Tcasec:
+		/* int ranges: {count} + nlab*{low,high,dest} + {wild} all words */
 		t->size = t->cse->nlab * 3*IBY2WD + 2*IBY2WD;
 		t->align = IBY2WD;
+		break;
+	case Tcasec:
+		/* {count slot} + nlab*{String* low; String* high; dest slot} + {wild slot} */
+		t->size = t->cse->nlab * 3*IBY2PTR + 2*IBY2PTR;
+		t->align = IBY2PTR;
 		break;
 	case Tcasel:
 		t->size = t->cse->nlab * 6*IBY2WD + 3*IBY2WD;
@@ -2398,12 +2408,12 @@ mkdesc(long size, Decl *d)
 	uchar *pmap;
 	long len, n;
 
-	len = (size+8*IBY2WD-1) / (8*IBY2WD);
+	len = (size+8*IBY2PTR-1) / (8*IBY2PTR);
 	pmap = allocmem(len);
 	memset(pmap, 0, len);
 	n = descmap(d, pmap, 0);
 	if(n >= 0)
-		n = n / (8*IBY2WD) + 1;
+		n = n / (8*IBY2PTR) + 1;
 	else
 		n = 0;
 	if(n > len)
@@ -2427,12 +2437,12 @@ usedty(t);
 	}
 	if(t->decl->desc != nil)
 		return t->decl->desc;
-	len = (t->size+8*IBY2WD-1) / (8*IBY2WD);
+	len = (t->size+8*IBY2PTR-1) / (8*IBY2PTR);
 	pmap = allocmem(len);
 	memset(pmap, 0, len);
 	n = tdescmap(t, pmap, 0);
 	if(n >= 0)
-		n = n / (8*IBY2WD) + 1;
+		n = n / (8*IBY2PTR) + 1;
 	else
 		n = 0;
 	if(n > len)
@@ -2531,49 +2541,60 @@ descmap(Decl *decls, uchar *map, long start)
 	return last;
 }
 
+/*
+ * mark the pointer-map bit for the pointer slot at byte offset.
+ * map granularity is one bit per IBY2PTR-byte pointer slot, matching
+ * the interpreter's initmem()/markheap() which stride by sizeof(WORD*).
+ */
+static void
+setmapbit(uchar *map, long offset)
+{
+	int bit;
+
+	bit = offset / IBY2PTR % 8;
+	map[offset / (8*IBY2PTR)] |= 1 << (7 - bit);
+}
+
 long
 tdescmap(Type *t, uchar *map, long offset)
 {
 	Label *lab;
 	long i, e, m;
-	int bit;
 
 	if(t == nil)
 		return -1;
 
 	m = -1;
 	if(t->kind == Talt){
+		/* Alt{int nsend; int nrecv; Altc ac[]} with Altc{Channel* c; void* ptr} */
 		lab = t->cse->labs;
 		e = t->cse->nlab;
-		offset += IBY2WD * 2;
+		offset += IBY2WD * 2;	/* nsend, nrecv (ints) */
 		for(i = 0; i < e; i++){
 			if(lab[i].isptr){
-				bit = offset / IBY2WD % 8;
-				map[offset / (8*IBY2WD)] |= 1 << (7 - bit);
+				setmapbit(map, offset);	/* channel pointer */
 				m = offset;
 			}
-			offset += 2*IBY2WD;
+			offset += 2*IBY2PTR;	/* {Channel* c; void* ptr} */
 		}
 		return m;
 	}
 	if(t->kind == Tcasec){
+		/* count word, then entries {String* low; String* high; int dest} */
 		e = t->cse->nlab;
-		offset += IBY2WD;
+		offset += IBY2PTR;	/* leading count (own pointer-aligned slot) */
 		for(i = 0; i < e; i++){
-			bit = offset / IBY2WD % 8;
-			map[offset / (8*IBY2WD)] |= 1 << (7 - bit);
-			offset += IBY2WD;
-			bit = offset / IBY2WD % 8;
-			map[offset / (8*IBY2WD)] |= 1 << (7 - bit);
+			setmapbit(map, offset);		/* low string */
+			offset += IBY2PTR;
+			setmapbit(map, offset);		/* high string */
 			m = offset;
-			offset += 2*IBY2WD;
+			offset += 2*IBY2PTR;		/* dest word + alignment pad */
 		}
 		return m;
 	}
 
 	if(tattr[t->kind].isptr){
-		bit = offset / IBY2WD % 8;
-		map[offset / (8*IBY2WD)] |= 1 << (7 - bit);
+		setmapbit(map, offset);
 		return offset;
 	}
 	if(t->kind == Tadtpick)

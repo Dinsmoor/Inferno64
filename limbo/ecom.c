@@ -188,6 +188,14 @@ rewrite(Node *n)
 		if((t = n->ty)->kind == Texception){
 			if(t->cons)
 				fatal("cons in rewrite Oname");
+			/*
+			 * skip the exbasetype {string name; int tag} header to
+			 * reach the user args.  FIXME(LP64): on a 64-bit host the
+			 * header is {IBY2PTR string, IBY2WD int} possibly padded
+			 * to the first arg's alignment, not 2*IBY2WD.  Exceptions
+			 * are off the module-load critical path; revisit with the
+			 * runtime exception-layout work (see EXLP64 task).
+			 */
 			n = mkbin(Oadd, n, mkconst(&n->src, 2*IBY2WD));
 			n = mkunary(Oind, n);
 			n->ty = t;
@@ -253,7 +261,18 @@ rewrite(Node *n)
 		n->right = rewrite(right);
 		n = mkunary(Oind, n);
 		n->ty = n->left->ty;
-		n->left->ty = tint;
+		/*
+		 * The Oindx node computes the address of the indexed element.
+		 * That is a pointer; when it has to be materialised into a temp
+		 * (e.g. a[k] = b[i], or any indirect-through-element addressing)
+		 * the temp must be pointer-width.  This was tint, which is only
+		 * IBY2WD: on LP64 an 8-byte element address landed in a 4-byte
+		 * slot and overran the adjacent temp.  tbig is 8 bytes / 8-aligned
+		 * with isptr=0, so the GC does not trace this interior pointer
+		 * (matching the original 32-bit intent where tint was exactly
+		 * pointer width and untraced).
+		 */
+		n->left->ty = tbig;
 		break;
 	case Oload:
 		n->right = mkn(Oname, nil, nil);
@@ -1234,7 +1253,7 @@ ecom(Src *src, Node *nto, Node *n)
 			tr.ty = tany;
 			sumark(&tr);
 			ecom(src, &tr, mod);
-			ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, &tto), mkconst(src, IBY2WD)));
+			ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, &tto), mkconst(src, IBY2PTR)));
 			ind->ty = ind->left->ty = ind->left->right->ty = tint;
 			tr.op = Oas;
 			tr.left = ind;
@@ -1666,7 +1685,16 @@ callcom(Src *src, int op, Node *n, Node *ret)
 		nfn->decl->desc = gendesc(nfn->right->decl, idoffsets(nfn->ty->ids, MaxTemp, MaxAlign), nfn->ty->ids);
 	}
 
-	talloc(&frame, tint, nil);
+	/*
+	 * The frame temp holds the callee's frame pointer (IFRAME/IMFRAME dst,
+	 * ICALL/IMCALL src).  It must be a full pointer-width, pointer-aligned
+	 * slot on LP64 (was tint, which is only IBY2WD: an 8-byte frame pointer
+	 * stored into a 4-byte slot overlapped the adjacent pointer local and
+	 * corrupted it).  tbig is 8 bytes / 8-aligned with isptr=0, so the GC
+	 * does not trace it, matching the original 32-bit intent where tint was
+	 * exactly pointer-sized and untraced.
+	 */
+	talloc(&frame, tbig, nil);
 
 	mod = nfn->left;
 	ind = nfn->right;
@@ -1752,7 +1780,7 @@ callcom(Src *src, int op, Node *n, Node *ret)
 	 * pass return value
 	 */
 	if(ret != nil){
-		toff.val = REGRET*IBY2WD;
+		toff.val = REGRET*IBY2PTR;	/* callee REGRET slot */
 		pass.ty = nfn->ty->tof;
 		p = genrawop(src, ILEA, ret, nil, &pass);
 		p->m.offset = ret->ty->size;	/* for optimizer */
@@ -1810,7 +1838,14 @@ arraycom(Node *a, Node *elems)
 
 	tindex = znode;
 	fake = znode;
-	talloc(&tmp, tint, nil);
+	/*
+	 * tmp holds the address of the indexed array element (Oindx result,
+	 * dereferenced below via fake/Oind), so it must be a full pointer-width,
+	 * pointer-aligned, untraced slot on LP64 (tbig), not tint (IBY2WD).
+	 * A 4-byte slot would overlap the adjacent pointer slot, as with the
+	 * call-frame temp in callcom().
+	 */
+	talloc(&tmp, tbig, nil);
 	tindex.op = Oindx;
 	tindex.addable = Rcant;
 	tindex.left = a;
@@ -2219,9 +2254,9 @@ recvacom(Src *src, Node *nto, Node *n)
 	 * gen the channel
 	 * this sleaze is lying to the garbage collector
 	 */
-	off.val = 2*IBY2WD;
+	off.val = 2*IBY2WD;	/* channel slot, after nsend,nrecv int header */
 	if(left->addable < Rcant)
-		genmove(src, Mas, tint, left, &slot);
+		genmove(src, Mas, tbig, left, &slot);	/* borrowed: raw 8-byte pointer move */
 	else{
 		slot.ty = left->ty;
 		ecom(src, &slot, left);
@@ -2231,7 +2266,7 @@ recvacom(Src *src, Node *nto, Node *n)
 	/*
 	 * gen the value
 	 */
-	off.val += IBY2WD;
+	off.val += IBY2PTR;	/* value/address slot follows the channel */
 	p = genrawop(&left->src, ILEA, nto, nil, &slot);
 	p->m.offset = nto->ty->size;	/* for optimizer */
 
@@ -2548,7 +2583,7 @@ fpcall(Src *src, int op, Node *n, Node *ret)
 	if(e->addable >= Rcant)
 		e = eacom(e, &tp, nil);
 	mod = mkunary(Oind, e);
-	ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, e), mkconst(src, IBY2WD)));
+	ind = mkunary(Oind, mkbin(Oadd, dupn(0, src, e), mkconst(src, IBY2PTR)));
 	n->left = mkbin(Omdot, mod, ind);
 	n->left->ty = e->ty->tof;
 	mod->ty = ind->ty = ind->left->ty = ind->left->right->ty = tint;

@@ -73,6 +73,7 @@ code
 	ulong strtochan(char *s){USED(s); return ~0;}
 	int tkstylus;
 	char* tkfont;
+	char* gkscanid;		/* raw scan format name; nil => disabled (no GUI) */
 
 init
 	emuinit

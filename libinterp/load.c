@@ -118,7 +118,10 @@ brpatch(Inst *ip, Module *m)
 	case ISPAWN:
 		if(ip->d.imm < 0 || ip->d.imm >= m->nprog)
 			return 0;
-		ip->d.imm = (WORD)&m->prog[ip->d.imm];
+		/* patch branch/spawn target to an absolute Inst*; store the
+		 * full native pointer via the union's ins member (JMP reads
+		 * *(Inst**)&d.imm), not the truncating WORD imm. */
+		ip->d.ins = &m->prog[ip->d.imm];
 		break;
 	}
 	return 1;

@@ -7,8 +7,15 @@
 REG	R;			/* Virtual Machine registers */
 String	snil;			/* String known to be zero length */
 
-#define Stmp	*((WORD*)(R.FP+NREG*IBY2WD))
-#define Dtmp	*((WORD*)(R.FP+(NREG+2)*IBY2WD))
+/*
+ * The Dis pointer-slot size IBY2PTR must equal the host pointer size:
+ * frame register slots, pointer-typed fields and the GC map granularity
+ * all assume native C pointers are stored in IBY2PTR-byte slots.
+ */
+typedef char IBY2PTR_matches_host_pointer[sizeof(void*) == IBY2PTR ? 1 : -1];
+
+#define Stmp	*((WORD*)(R.FP+NREG*IBY2PTR))
+#define Dtmp	*((WORD*)(R.FP+(NREG+2)*IBY2PTR))
 
 #define OP(fn)	void fn(void)
 #define B(r)	*((BYTE*)(R.r))
@@ -32,7 +39,7 @@ OP(negf) { F(d) = -F(s); }
 OP(jmp)  { JMP(d); }
 OP(movpc){ T(d) = &R.M->prog[W(s)]; }
 OP(movm) { memmove(R.d, R.s, W(m)); }
-OP(lea)  { W(d) = (WORD)R.s; }
+OP(lea)  { T(d) = R.s; }	/* effective address: store full native pointer */
 OP(movb) { B(d) = B(s); }
 OP(movw) { W(d) = W(s); }
 OP(movf) { F(d) = F(s); }
@@ -221,7 +228,7 @@ OP(indx)
 	i = W(d);
 	if(a == H || i >= a->len)
 		error(exBounds);
-	W(m) = (WORD)(a->data+i*a->t->size);
+	T(m) = a->data+i*a->t->size;	/* element address: full pointer (read back via DIND) */
 }
 OP(indw)
 {
@@ -232,7 +239,7 @@ OP(indw)
 	i = W(d);
 	if(a == H || i >= a->len)
 		error(exBounds);
-	W(m) = (WORD)(a->data+i*sizeof(WORD));
+	T(m) = a->data+i*sizeof(WORD);
 }
 OP(indf)
 {
@@ -243,7 +250,7 @@ OP(indf)
 	i = W(d);
 	if(a == H || i >= a->len)
 		error(exBounds);
-	W(m) = (WORD)(a->data+i*sizeof(REAL));
+	T(m) = a->data+i*sizeof(REAL);
 }
 OP(indl)
 {
@@ -254,7 +261,7 @@ OP(indl)
 	i = W(d);
 	if(a == H || i >= a->len)
 		error(exBounds);
-	W(m) = (WORD)(a->data+i*sizeof(LONG));
+	T(m) = a->data+i*sizeof(LONG);
 }
 OP(indb)
 {
@@ -265,7 +272,7 @@ OP(indb)
 	i = W(d);
 	if(a == H || i >= a->len)
 		error(exBounds);
-	W(m) = (WORD)(a->data+i*sizeof(BYTE));
+	T(m) = a->data+i*sizeof(BYTE);
 }
 OP(movp)
 {
@@ -521,7 +528,7 @@ OP(icase)
 	WORD v, *t, *l, d, n, n2;
 
 	v = W(s);
-	t = (WORD*)((WORD)R.d + IBY2WD);
+	t = (WORD*)((uchar*)R.d + IBY2WD);	/* int case table: all words */
 	n = t[-1];
 	d = t[n*3];
 
@@ -552,7 +559,7 @@ OP(casel)
 	LONG v;
 
 	v = V(s);
-	t = (WORD*)((WORD)R.d + 2*IBY2WD);
+	t = (WORD*)((uchar*)R.d + 2*IBY2WD);	/* big case table: bigs + word dests */
 	n = t[-2];
 	d = t[n*6];
 
@@ -579,68 +586,74 @@ OP(casel)
 }
 OP(casec)
 {
-	WORD *l, *t, *e, n, n2, r;
+	/*
+	 * String case table (LP64 layout):
+	 *   {count slot}{entry: String* low; String* high; WORD dest}*{wild dest slot}
+	 * Each pointer/dest is a pointer-sized (IBY2PTR) slot; the entry struct's
+	 * natural layout matches limbo's emission (dest at offset 2*IBY2PTR).
+	 */
+	WORD n, n2, r, *dest;
 	String *sl, *sh, *sv;
-	
+	struct Casec { String *l, *h; WORD dst; } *t, *e, *m;
+
 	sv = S(s);
-	t = (WORD*)((WORD)R.d + IBY2WD);
-	n = t[-1];
-	e = t + n*3;
+	n = *(WORD*)R.d;				/* count */
+	t = (struct Casec*)((uchar*)R.d + IBY2PTR);	/* entries */
+	e = t + n;					/* wild dest slot follows the entries */
+	dest = (WORD*)e;				/* default: wild */
 	if(n > 2){
 		while(n > 0){
 			n2 = n>>1;
-			l = t + n2*3;
-			sl = (String*)l[0];
+			m = t + n2;
+			sl = m->l;
 			r = stringcmp(sv, sl);
 			if(r == 0){
-				e = &l[2];
+				dest = &m->dst;
 				break;
 			}
 			if(r < 0){
 				n = n2;
 				continue;
 			}
-			sh = (String*)l[1];
+			sh = m->h;
 			if(sh == H || stringcmp(sv, sh) > 0){
-				t = l+3;
+				t = m+1;
 				n -= n2+1;
 				continue;
 			}
-			e = &l[2];
+			dest = &m->dst;
 			break;
 		}
-		t = e;
 	}
 	else{
 		while(t < e) {
-			sl = (String*)t[0];
-			sh = (String*)t[1];
+			sl = t->l;
+			sh = t->h;
 			if(sh == H) {
 				if(stringcmp(sl, sv) == 0) {
-					t = &t[2];
-					goto found;
+					dest = &t->dst;
+					break;
 				}
 			}
 			else
 			if(stringcmp(sl, sv) <= 0 && stringcmp(sh, sv) >= 0) {
-				t = &t[2];
-				goto found;
+				dest = &t->dst;
+				break;
 			}
-			t += 3;
+			t++;
 		}
 	}
-found:
 	if(R.M->compiled) {
-		R.PC = (Inst*)*t;
+		R.PC = (Inst*)*dest;
 		return;
 	}
-	R.PC = R.M->prog + t[0];
+	R.PC = R.M->prog + *dest;
 }
 OP(igoto)
 {
 	WORD *t;
 
-	t = (WORD*)((WORD)R.d + (W(s) * IBY2WD));
+	t = (WORD*)((uchar*)R.d + (W(s) * IBY2WD));	/* goto table: word PC entries */
 	if(R.M->compiled) {
 		R.PC = (Inst*)t[0];
 		return;
@@ -1090,7 +1103,7 @@ OP(consp)
 	Heap *h;
 	WORD *sv;
 
-	l = cons(IBY2WD, R.d);
+	l = cons(IBY2PTR, R.d);		/* pointer element occupies a full pointer slot */
 	sv = P(s);
 	if(sv != H) {
 		h = D2H(sv);
@@ -1634,7 +1647,7 @@ movtmp(void)		/* Used by send & receive */
 {
 	Type *t;
 
-	t = (Type*)W(m);
+	t = (Type*)T(m);	/* c->mid.t is a full pointer (movtmp channel) */
 
 	incmem(R.s, t);
 	if (t->np)

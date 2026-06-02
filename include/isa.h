@@ -226,6 +226,15 @@ enum
 	IBY2WD	= 4,
 	IBY2FT	= 8,
 	IBY2LG	= 8,
+	/*
+	 * IBY2PTR is the size of a Dis pointer/register slot in bytes.
+	 * On a 32-bit Dis it equals IBY2WD (pointer == word); on an LP64
+	 * host emu it must equal sizeof(void*) (8) so that frame register
+	 * slots, pointer-typed fields, and the GC pointer-map granularity
+	 * agree with the interpreter, which stores native C pointers and
+	 * strides its maps by sizeof(WORD*).  This tree targets LP64 hosts.
+	 */
+	IBY2PTR	= 8,
 
 	MUSTCOMPILE	= (1<<0),
 	DONTCOMPILE	= (1<<1),

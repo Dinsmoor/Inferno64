@@ -420,7 +420,7 @@ fnchk(Node *n)
 	t->u.eraises = d->ty->u.eraises;
 
 	d->ty = t;
-	d->offset = idoffsets(t->ids, MaxTemp, IBY2WD);
+	d->offset = idoffsets(t->ids, MaxTemp, IBY2PTR);	/* frame size, pointer-aligned */
 	d->src = n->src;
 
 	d->locals = nil;
@@ -1165,7 +1165,7 @@ addfnptrs(Decl *d, int link)
 		last->next = fps;
 	else
 		d->ty->ids = fps;
-	d->offset = idoffsets(d->ty->ids, MaxTemp, IBY2WD);
+	d->offset = idoffsets(d->ty->ids, MaxTemp, IBY2PTR);	/* frame size, pointer-aligned */
 	if(0 && debug['U']){
 		for(d = d->ty->ids; d != nil; d = d->next)
 			print("%s=%ld(%d) ", d->sym->name, d->offset, tattr[d->ty->kind].isptr);
@@ -1200,7 +1200,7 @@ rmfnptrs(Decl *d)
 	for(id = d->ty->ids; --n > 0; id = id->next)
 		;
 	id->next = nil;
-	d->offset = idoffsets(d->ty->ids, MaxTemp, IBY2WD);
+	d->offset = idoffsets(d->ty->ids, MaxTemp, IBY2PTR);	/* frame size, pointer-aligned */
 }
 
 int

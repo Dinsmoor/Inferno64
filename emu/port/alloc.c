@@ -40,6 +40,18 @@ struct Pool
 
 void*	initbrk(ulong);
 
+/*
+ * Allocation quantum (also the leader-block size and the smallest block the
+ * pool will ever hand out or free).  A free block stores its tree node in-band
+ * via the union in Bhdr, so the quantum must be large enough that the smallest
+ * block can still hold sizeof(Bhdr) plus its Btail; otherwise the free-tree
+ * pointers (e.g. bhf at offset 48 on LP64) and the trailer spill into the
+ * neighbouring block and corrupt the pool.  On ILP32 that is 32 bytes; on LP64
+ * the node is twice as wide, so 64 bytes (quantum-1 must be 2^k-1 for the
+ * `& ~quanta' rounding to work).
+ */
+#define QUANTA	(sizeof(Bhdr)+sizeof(Btail) <= 32 ? 31 : 63)
+
 struct
 {
 	int	n;
@@ -48,9 +60,9 @@ struct
 } table = {
 	3,
 	{
-		{ "main",  0, 	32*1024*1024, 31,  512*1024, 0, 31*1024*1024 },
-		{ "heap",  1, 	32*1024*1024, 31,  512*1024, 0, 31*1024*1024 },
-		{ "image", 2,   64*1024*1024+256, 31, 4*1024*1024, 1, 63*1024*1024 },
+		{ "main",  0, 	32*1024*1024, QUANTA,  512*1024, 0, 31*1024*1024 },
+		{ "heap",  1, 	32*1024*1024, QUANTA,  512*1024, 0, 31*1024*1024 },
+		{ "image", 2,   64*1024*1024+256, QUANTA, 4*1024*1024, 1, 63*1024*1024 },
 	}
 };
 

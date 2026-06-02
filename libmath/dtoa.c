@@ -2,6 +2,15 @@
 /* kudos to dmg@bell-labs.com, gripes to ehg@bell-labs.com */
 #include "lib9.h"
 
+/*
+ * David Gay's dtoa assumes the bignum "word" type and the two halves of an
+ * IEEE double are exactly 32 bits.  On LP64 targets (e.g. aarch64) `long`
+ * is 64 bits, which corrupts the bignum arithmetic and makes word0/word1
+ * read past the end of the double.  Pin the word type to 32 bits here.
+ */
+typedef unsigned int ULong;
+typedef int Long;
+
 #ifdef __APPLE__
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wparentheses"
@@ -36,11 +45,11 @@
 #define word1(x) ((FPdbleword*)&x)->lo
 #else
 #ifdef __LITTLE_ENDIAN
-#define word0(x) ((unsigned  long *)&x)[1]
-#define word1(x) ((unsigned  long *)&x)[0]
+#define word0(x) ((ULong *)&x)[1]
+#define word1(x) ((ULong *)&x)[0]
 #else
-#define word0(x) ((unsigned  long *)&x)[0]
-#define word1(x) ((unsigned  long *)&x)[1]
+#define word0(x) ((ULong *)&x)[0]
+#define word1(x) ((ULong *)&x)[1]
 #endif
 #endif
 
@@ -89,7 +98,7 @@ struct
 Bigint {
 	struct Bigint *next;
 	int	k, maxwds, sign, wds;
-	unsigned  long x[1];
+	ULong x[1];
 };
 
 typedef struct Bigint Bigint;
@@ -107,7 +116,7 @@ Balloc(int k)
 		freelist[k] = rv->next;
 	} else {
 		x = 1 << k;
-		rv = (Bigint * )malloc(sizeof(Bigint) + (x - 1) * sizeof(unsigned  long));
+		rv = (Bigint * )malloc(sizeof(Bigint) + (x - 1) * sizeof(ULong));
 		if(rv == nil)
 			return nil;
 		rv->k = k;
@@ -130,14 +139,14 @@ Bfree(Bigint *v)
 }
 
 #define Bcopy(x,y) memcpy((char *)&x->sign, (char *)&y->sign, \
-y->wds*sizeof(long) + 2*sizeof(int))
+y->wds*sizeof(Long) + 2*sizeof(int))
 
 static Bigint *
 multadd(Bigint *b, int m, int a)	/* multiply by m and add a */
 {
 	int	i, wds;
-	unsigned  long * x, y;
-	unsigned  long xi, z;
+	ULong * x, y;
+	ULong xi, z;
 	Bigint * b1;
 
 	wds = b->wds;
@@ -164,11 +173,11 @@ multadd(Bigint *b, int m, int a)	/* multiply by m and add a */
 }
 
 static Bigint *
-s2b(const char *s, int nd0, int nd, unsigned  long y9)
+s2b(const char *s, int nd0, int nd, ULong y9)
 {
 	Bigint * b;
 	int	i, k;
-	long x, y;
+	Long x, y;
 
 	x = (nd + 8) / 9;
 	for (k = 0, y = 1; x > y; y <<= 1, k++) 
@@ -192,7 +201,7 @@ s2b(const char *s, int nd0, int nd, unsigned  long y9)
 }
 
 static int	
-hi0bits(register unsigned  long x)
+hi0bits(register ULong x)
 {
 	register int	k = 0;
 
@@ -221,10 +230,10 @@ hi0bits(register unsigned  long x)
 }
 
 static int	
-lo0bits(unsigned  long *y)
+lo0bits(ULong *y)
 {
 	register int	k;
-	register unsigned  long x = *y;
+	register ULong x = *y;
 
 	if (x & 7) {
 		if (x & 1)
@@ -279,9 +288,9 @@ mult(Bigint *a, Bigint *b)
 {
 	Bigint * c;
 	int	k, wa, wb, wc;
-	unsigned  long carry, y, z;
-	unsigned  long * x, *xa, *xae, *xb, *xbe, *xc, *xc0;
-	unsigned  long z2;
+	ULong carry, y, z;
+	ULong * x, *xa, *xae, *xb, *xbe, *xc, *xc0;
+	ULong z2;
 
 	if (a->wds < b->wds) {
 		c = a;
@@ -387,7 +396,7 @@ lshift(Bigint *b, int k)
 {
 	int	i, k1, n, n1;
 	Bigint * b1;
-	unsigned  long * x, *x1, *xe, z;
+	ULong * x, *x1, *xe, z;
 
 	n = k >> 5;
 	k1 = b->k;
@@ -421,7 +430,7 @@ lshift(Bigint *b, int k)
 static int	
 cmp(Bigint *a, Bigint *b)
 {
-	unsigned  long * xa, *xa0, *xb, *xb0;
+	ULong * xa, *xa0, *xb, *xb0;
 	int	i, j;
 
 	i = a->wds;
@@ -446,9 +455,9 @@ diff(Bigint *a, Bigint *b)
 {
 	Bigint * c;
 	int	i, wa, wb;
-	long borrow, y;	/* We need signed shifts here. */
-	unsigned  long * xa, *xae, *xb, *xbe, *xc;
-	long z;
+	Long borrow, y;	/* We need signed shifts here. */
+	ULong * xa, *xae, *xb, *xbe, *xc;
+	Long z;
 
 	i = cmp(a, b);
 	if (!i) {
@@ -501,7 +510,7 @@ diff(Bigint *a, Bigint *b)
 static double	
 ulp(double x)
 {
-	register long L;
+	register Long L;
 	double	a;
 
 	L = (word0(x) & Exp_mask) - (P - 1) * Exp_msk1;
@@ -529,7 +538,7 @@ ulp(double x)
 static double	
 b2d(Bigint *a, int *e)
 {
-	unsigned  long * xa, *xa0, w, y, z;
+	ULong * xa, *xa0, w, y, z;
 	int	k;
 	double	d;
 #define d0 word0(d)
@@ -566,7 +575,7 @@ d2b(double d, int *e, int *bits)
 {
 	Bigint * b;
 	int	de, i, k;
-	unsigned  long * x, y, z;
+	ULong * x, y, z;
 #define d0 word0(d)
 #define d1 word1(d)
 
@@ -679,8 +688,8 @@ strtod(const char *s00, char **se)
 	e, e1, esign, i, j, k, nd, nd0, nf, nz, nz0, sign;
 	const char * s, *s0, *s1;
 	double	aadj, aadj1, adj, rv, rv0;
-	long L;
-	unsigned  long y, z;
+	Long L;
+	ULong y, z;
 	Bigint * bb, *bb1, *bd, *bd0, *bs, *delta;
 	sign = nz0 = nz = 0;
 	rv = 0.;
@@ -1164,11 +1173,11 @@ static int
 quorem(Bigint *b, Bigint *S)
 {
 	int	n;
-	long borrow, y;
-	unsigned  long carry, q, ys;
-	unsigned  long * bx, *bxe, *sx, *sxe;
-	long z;
-	unsigned  long si, zs;
+	Long borrow, y;
+	ULong carry, q, ys;
+	ULong * bx, *bxe, *sx, *sxe;
+	Long z;
+	ULong si, zs;
 
 	n = S->wds;
 	if (b->wds < n)
@@ -1236,9 +1245,9 @@ rv_alloc(int i)
 {
 	int	j, k, *r;
 
-	j = sizeof(unsigned  long);
+	j = sizeof(ULong);
 	for (k = 0; 
-	    sizeof(Bigint) - sizeof(unsigned  long) - sizeof(int) + j <= i; 
+	    sizeof(Bigint) - sizeof(ULong) - sizeof(int) + j <= i; 
 	    j <<= 1)
 		k++;
 	r = (int * )Balloc(k);
@@ -1304,7 +1313,7 @@ freedtoa(char *s)
  *	   guarantee that the floating-point calculation has given
  *	   the correctly rounded result.  For k requested digits and
  *	   "uniformly" distributed input, the probability is
- *	   something like 10^(k-15) that we must resort to the long
+ *	   something like 10^(k-15) that we must resort to the Long
  *	   calculation.
  */
 
@@ -1348,10 +1357,10 @@ dtoa(double d, int mode, int ndigits, int *decpt, int *sign, char **rve)
 	int	bbits, b2, b5, be, dig, i, ieps, ilim, ilim0, ilim1,
 	j, j1, k, k0, k_check, leftright, m2, m5, s2, s5,
 	spec_case, try_quick;
-	long L;
+	Long L;
 #ifndef Sudden_Underflow
 	int	denorm;
-	unsigned  long x;
+	ULong x;
 #endif
 	Bigint * b, *b1, *delta, *mlo, *mhi, *S;
 	double	d2, ds, eps;
