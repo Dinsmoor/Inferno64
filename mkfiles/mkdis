@@ -18,6 +18,14 @@ $DISBIN/%.dis:	%.dis
 
 %.dis:		$MODULES $SYS_MODULE
 
+# Rebuild a .dis when the limbo compiler itself changes, even if the .b is
+# unchanged: mk only checks prerequisite mtimes, and the compiler binary was not
+# a prerequisite, so a recompiled limbo did not invalidate stale .dis (a
+# recurring "the fix didn't take" trap during the LP64 port).
+LIMBOCMD=$ROOT/$OBJDIR/bin/limbo
+
+%.dis:		$LIMBOCMD
+
 %.dis:		%.b
 	limbo $LIMBOFLAGS -gw $stem.b
 

@@ -166,11 +166,11 @@ paths for sanitizer-cleanliness is risk without reward.
 
 ## Methodology and tooling that worked
 
-- **Recompile-on-mismatch.** After any `limbo`/compiler change, the *entire*
-  `appl` dis tree must be rebuilt — `mk` does **not** rebuild a `.dis` when only
-  the compiler changed and the `.b` is unchanged. Several "the fix didn't work"
-  dead-ends were stale `.dis`. The `.dis` carries `XMAGIC8`; the emu rejects a
-  wrong-width module, which is itself a useful guard.
+- **Recompile the whole dis tree after a compiler change.** A pointer-width fix
+  in `limbo` only takes effect once every `.dis` is regenerated; the build now
+  triggers this automatically (a `.dis` depends on the `limbo` binary). The `.dis`
+  also carries an `XMAGIC8` magic and the emu rejects a wrong-width module — a
+  useful guard against running a stale 32-bit tree.
 - **Native Dis-level debugging first.** A broken process parks in the `Broken`
   state and is fully inspectable via `/prog/<pid>/`: `grep Broken /prog/*/status`,
   then `cat /prog/<pid>/{exception,stack}` for the Dis backtrace, `disdump` +
@@ -188,16 +188,6 @@ paths for sanitizer-cleanliness is risk without reward.
 - **Xvfb for headless GUI.** `Xvfb :99 … & DISPLAY=:99 emu -g WxH wm/wm`, then
   `import -window root out.png` to screenshot and `xdotool` to drive input —
   enough to render menus and apps and confirm pixels are correct.
-
-## Build system notes
-
-`make all` (top-level `Makefile`) wraps `mk` and nukes objects between
-components because `mk`'s incremental dependency tracking is unreliable. Default
-`CONF=emu` (full GUI); `CONF=emu-g` for the fast headless build the tests run
-under. **Known `mk` gaps** (tracked separately): it does not rebuild a `.dis`
-when only the compiler changed, and it does not recompile `.o` when only mkfile
-flags change (stale ASan `.o` vs UBSan libs produced `__asan_*` link errors mid-
-audit). Until fixed, `mk clean`/`rm *.o` a dir after changing flags.
 
 ## Status: done vs deferred
 

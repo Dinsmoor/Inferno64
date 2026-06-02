@@ -40,12 +40,11 @@ known remaining crashes on the CLI path. (Off-path LP64 items remain deferred:
 exceptions/EXLP64, `$Loader`, the `-S` `Tcasec` listing, devprog/devprof — see
 "Deferred LP64 items".)
 
-**CRITICAL build gotcha (cost real time this session):** `mk`'s dependency tracking
-does **not** rebuild a `.dis` when only the *compiler* changed and the `.b` is
-unchanged — `mk install` over `appl/` is a **no-op** for unchanged sources. After any
-`limbo` change you MUST force a full dis recompile, e.g. `find appl -name '*.b' -exec
-touch {} +` then `mk -k <MKARGS> install`. Several "the fix didn't work" dead-ends
-this session were actually stale `.dis` from the old compiler.
+**Build dependencies:** the rule templates make a `.dis` depend on the `limbo`
+binary (`mkfiles/mkdis`) and a `.o` depend on the per-target flags mkfile
+(`mkfiles/mksyslib-sh`, `mkfiles/mkone-sh`), so mk recompiles when the compiler or
+the build flags change — not just when a source `.b`/`.c` changes. (To force a
+full dis recompile anyway: `find appl -name '*.b' -exec touch {} +`.)
 
 This file records every place where something was turned off, stubbed, or worked
 around, plus the LP64 port design and the open bug, so the next person knows what

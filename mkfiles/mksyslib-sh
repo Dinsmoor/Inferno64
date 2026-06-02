@@ -26,6 +26,12 @@ $LIBRARY(%.$O):N:	%.$O
 
 %.$O:	$HFILES		# don't combine with following %.$O rules
 
+# Rebuild objects when the build flags change.  CFLAGS lives in the per-target
+# mkfile, so depend on it (like $HFILES above); otherwise an mtime-only mk leaves
+# stale .o after a flag change (e.g. a sanitizer .o linked against non-sanitizer
+# libs -> __asan_* undefined references).
+%.$O:	$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE
+
 %.$O:	%.c
 	$CC $CFLAGS $stem.c
 

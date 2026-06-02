@@ -200,10 +200,10 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0 emu-g -r$PWD /dis/sh.dis -c PRO
 # (leave the vendored libfreetype uninstrumented — third-party noise; UBSan is
 # per-TU so mixed linking is fine) and link CONF=emu, then run under Xvfb.
 ```
-Revert the mkfile and `make all` to restore the normal build afterwards. NB: `mk`
-does **not** recompile `.o` when only the mkfile flags change — `mk clean`/`rm *.o`
-the dirs or you get stale objects (e.g. ASan `.o` vs UBSan libs → `__asan_*`
-undefined-reference link errors).
+Revert the mkfile and `make all` to restore the normal build afterwards.  (The
+rule templates make `.o` depend on the per-target flags mkfile, so changing the
+sanitizer flags there does invalidate stale objects — but `mk clean` the emu dir
+anyway if you mix configs.)
 
 **ASan does NOT work** with emu: `emu/port/alloc.c` defines its own pool
 `malloc`/`free`, which ASan's interceptors override, so a pool pointer reaches

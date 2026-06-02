@@ -19,6 +19,10 @@ $O.out:	$OFILES $libs
 
 %.$O:	$HFILES		# don't combine with following %.$O rules
 
+# Rebuild objects when the build flags change (CFLAGS lives in the per-target
+# mkfile); otherwise an mtime-only mk leaves stale .o after a flag change.
+%.$O:	$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE
+
 %.$O:	%.c
 	$CC $CFLAGS -o $target $stem.c
 
