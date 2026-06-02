@@ -229,11 +229,39 @@ by **one new constant**:
 **Build / dis tree:** rebuilt limbo → libinterp (regenerates `runt.h`/`*mod.h` maps)
 → emu-g, then **recompiled the whole `appl/lib` and `appl/cmd` dis trees** with the
 new compiler (`mk -k ... install`; `-k` to skip the pre-existing broken `venti.b`).
-The committed 4-byte `.dis` cannot be mixed with the new VM, so any `.dis` that is
-loaded must be recompiled. NOTE: the `.dis` magic is unchanged (still `XMAGIC`), so
-there is currently **no guard** against accidentally loading an old 4-byte `.dis`;
-adding a distinct magic / ABI tag is the planned phase-2 work (ship `.b` + lazy
-recompile on mismatch).
+The 4-byte `.dis` cannot be mixed with the new VM, so any `.dis` that is loaded must
+be recompiled.
+
+### Phase 2 — pointer-width `.dis` magic + recompile-on-mismatch (implemented)
+Done (stage-2 commit on this branch; the guard half is also on `master`). A 64-bit
+and a 32-bit Dis now **reject each other's binaries** instead of silently mis-running
+them:
+- **`include/isa.h`**: `XMAGIC8`/`SMAGIC8` (= `XMAGIC`/`SMAGIC` `| 0x100000`), the
+  64-bit-pointer-ABI magics; on this branch `IBY2PTR=8`, on master `IBY2PTR=IBY2WD`.
+- **compiler** (`limbo/com.c` and `appl/cmd/limbo/com.b`) stamps the magic selected by
+  `IBY2PTR`: 64-bit → `XMAGIC8`, 32-bit → `XMAGIC`.
+- **loader** (`libinterp/load.c`) accepts only this build's width; the other width's
+  magic is rejected with a distinct catchable error `exDiswidth`
+  ("dis module compiled for wrong pointer width"); garbage still says "bad magic".
+- **`appl/cmd/limbo` was ported to LP64** (mirror of the stage-1 C-compiler changes:
+  `isa.m`/`limbo.m`/`types.b`/`ecom.b`/`gen.b`/`com.b`/`decls.b`/`dis.b`/`stubs.b`), so
+  the **self-hosted `/dis/limbo` emits correct 64-bit `.dis`** — this is what the
+  recompile path runs. (Note: there are **two** compilers — the C `limbo/` host binary
+  that `mk` uses, and the Limbo `appl/cmd/limbo/` one compiled to `/dis/limbo.dis`;
+  both must be LP64-ported. `appl/cmd/limbo/optim.b` is a no-op stub, so no optimizer
+  liveness fix is needed there.)
+- **recompile-on-mismatch** (`appl/cmd/sh/sh.b`): on the wrong-width error, sh reads the
+  source path embedded at the end of the `.dis` (the trailing `source` string, read
+  width-independently), and if that `.b` exists runs `limbo -o <dis> <src>` and retries
+  the load once. Validated: a stale 32-bit `.dis` is auto-rebuilt from `/appl/cmd/*.b`
+  and run.
+- **dis readers** (`module/dis.m`, `appl/lib/dis.b`) accept both magics (mdb/rt/the
+  recompile lookup read only the width-independent header/stream).
+
+Bootstrap caveat: a fresh checkout's committed `.dis` are the old `XMAGIC` tree, which
+the new emu-g rejects; you must build (`make`) and recompile the dis tree once. The
+recompile-on-mismatch only helps for *application* modules once a correct-width
+`emuinit`/`sh`/`limbo` core is in place.
 
 ### Solved this session
 The list+format-print crash (the previous "one remaining bug") was the **call-frame
