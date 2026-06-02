@@ -325,6 +325,7 @@ Sym: adt
 	Owild,
 	Oxor,
 	Oxoras,
+	Osizeof,	# compile-time sizeof(type); lowered to Oconst in echeck
 
 	Oend:		con iota + 1;
 

@@ -122,6 +122,7 @@ keywords := array [] of
 	Keywd("ref",		Lref),
 	Keywd("return",		Lreturn),
 	Keywd("self",		Lself),
+	Keywd("sizeof",		Lsizeof),
 	Keywd("spawn",		Lspawn),
 	Keywd("string",		Ltid),
 	Keywd("tagof",		Ltagof),

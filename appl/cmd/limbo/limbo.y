@@ -139,7 +139,7 @@ include "draw.m";
 %nonassoc	<tok.v.ival>	Lconst
 %nonassoc	<tok.v.idval>	Lid Ltid Lsconst
 %nonassoc	<tok.src>	Llabs Lnil
-			'!' '~' Llen Lhd Ltl Ltagof
+			'!' '~' Llen Lhd Ltl Ltagof Lsizeof
 			'{' '}' ';'
 			Limplement Limport Linclude
 			Lcon Ltype Lmodule Lcyclic
@@ -1334,6 +1334,16 @@ monexp	: term
 	{
 		$$ = mkunary(Otagof, $2);
 		$$.src.start = $1.start;
+	}
+	| Lsizeof '(' type ')'
+	{
+		# compile-time size, in bytes, of a type; lowered to an
+		# integer constant in echeck (typecheck.b).  The measured
+		# type rides in .ty until then.
+		$$ = mkn(Osizeof, nil, nil);
+		$$.ty = $3;
+		$$.src.start = $1.start;
+		$$.src.stop = $4.stop;
 	}
 	| Larray '[' exp ']' Lof type
 	{

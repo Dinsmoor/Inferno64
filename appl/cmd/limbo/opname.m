@@ -104,6 +104,7 @@ opname := array[Oend+1] of
 	Owild =>	"*",
 	Oxor =>		"^",
 	Oxoras =>	"^=",
+	Osizeof =>	"sizeof",
 
 	Oend =>	"unknown"
 };

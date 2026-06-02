@@ -932,6 +932,20 @@ echeck(n: ref Node, typeok, isglobal: int, par: ref Node): (int, int)
 		n.ty = tnone;
 	Owild =>
 		n.ty = tint;
+	Osizeof =>
+		# compile-time sizeof(type): the operand type rides in n.ty.
+		# usetype() forces it fully sized, then we rewrite the node in
+		# place into the integer constant (the type's byte size, in
+		# IBY2PTR/IBY2WD units).  Folded here so the rest of the
+		# compiler only ever sees a plain Oconst -- usable anywhere a
+		# constant is, e.g. `con`.
+		t = usetype(n.ty);
+		n.op = Oconst;
+		n.ty = tint;
+		n.c = ref Const(big t.size, 0.0);
+		n.left = nil;
+		n.right = nil;
+		n.decl = nil;
 	Ocast =>
 		t = usetype(n.ty);
 		n.ty = t;
