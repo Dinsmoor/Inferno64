@@ -185,6 +185,16 @@ objspecs := array[] of {
 	nil,
 	nil
 	),
+    ObjSpec("Storage",		# HTML5 Web Storage (localStorage / sessionStorage)
+	array[] of {MethSpec
+		("clear", nil),
+		("getItem", array[] of { "key" }),
+		("key", array[] of { "index" }),
+		("removeItem", array[] of { "key" }),
+		("setItem", array[] of { "key", "value" }) },
+	array[] of {PropSpec
+		("length", ReadOnly, IVzero) }
+	),
     ObjSpec("document",
 	array[] of {MethSpec
 		("close", nil),
@@ -528,6 +538,274 @@ jevhandler()
 	}
 }
 
+#
+# HTML5 Web Storage backend (localStorage / sessionStorage).
+#
+# Only the method API (getItem/setItem/removeItem/clear/key) plus the length
+# property are implemented; arbitrary dot/bracket key access (storage.foo) is
+# not intercepted, since that would shadow method resolution on the host object.
+# sessionStorage lives in memory and is dropped when Charon exits; localStorage
+# persists under config.userdir + "/localstorage/<sanitized-origin>".
+#
+SKsession, SKlocal: con iota;
+
+Kv: adt {
+	key:	string;
+	val:	string;
+};
+
+Store: adt {
+	kind:	int;
+	origin:	string;
+	kvs:	list of ref Kv;		# insertion order
+};
+
+sessionstores: list of ref Store;	# origin -> Store (in memory)
+localstores:   list of ref Store;	# loaded/cached local Stores
+
+storageorigin(u: ref Parsedurl): string
+{
+	return u.scheme + "://" + u.host + ":" + u.port;
+}
+
+mkstorage(ex: ref Exec, origin: string, kind: int): ref Obj
+{
+	o := mkhostobj(ex, "Storage");
+	ES->put(ex, o, "@PRIVstoragekind", ES->numval(real kind));
+	ES->put(ex, o, "@PRIVorigin", ES->strval(origin));
+	return o;
+}
+
+storeof(ex: ref Exec, o: ref Obj): ref Store
+{
+	vk := ES->get(ex, o, "@PRIVstoragekind");
+	vo := ES->get(ex, o, "@PRIVorigin");
+	kind := SKsession;
+	if(ES->isnum(vk))
+		kind = ES->toInt32(ex, vk);
+	origin := "";
+	if(ES->isstr(vo))
+		origin = ES->toString(ex, vo);
+	return storefor(kind, origin);
+}
+
+storefor(kind: int, origin: string): ref Store
+{
+	if(kind == SKlocal) {
+		for(l := localstores; l != nil; l = tl l)
+			if((hd l).origin == origin)
+				return hd l;
+		st := localload(origin);
+		localstores = st :: localstores;
+		return st;
+	}
+	for(l := sessionstores; l != nil; l = tl l)
+		if((hd l).origin == origin)
+			return hd l;
+	st := ref Store(SKsession, origin, nil);
+	sessionstores = st :: sessionstores;
+	return st;
+}
+
+storagelen(st: ref Store): int
+{
+	return len st.kvs;
+}
+
+storageget(st: ref Store, key: string): (string, int)
+{
+	for(l := st.kvs; l != nil; l = tl l)
+		if((hd l).key == key)
+			return ((hd l).val, 1);
+	return ("", 0);
+}
+
+storagekey(st: ref Store, n: int): (string, int)
+{
+	if(n < 0)
+		return ("", 0);
+	i := 0;
+	for(l := st.kvs; l != nil; l = tl l) {
+		if(i == n)
+			return ((hd l).key, 1);
+		i++;
+	}
+	return ("", 0);
+}
+
+storageset(st: ref Store, key, val: string)
+{
+	out: list of ref Kv;
+	found := 0;
+	for(l := st.kvs; l != nil; l = tl l) {
+		kv := hd l;
+		if(kv.key == key) {
+			out = ref Kv(key, val) :: out;
+			found = 1;
+		} else
+			out = kv :: out;
+	}
+	if(!found)
+		out = ref Kv(key, val) :: out;	# reversed below -> lands at the end
+	st.kvs = kvreverse(out);
+	if(st.kind == SKlocal)
+		localsave(st);
+}
+
+storageremove(st: ref Store, key: string)
+{
+	out: list of ref Kv;
+	removed := 0;
+	for(l := st.kvs; l != nil; l = tl l) {
+		kv := hd l;
+		if(kv.key == key)
+			removed = 1;
+		else
+			out = kv :: out;
+	}
+	if(removed) {
+		st.kvs = kvreverse(out);
+		if(st.kind == SKlocal)
+			localsave(st);
+	}
+}
+
+storageclear(st: ref Store)
+{
+	if(st.kvs != nil) {
+		st.kvs = nil;
+		if(st.kind == SKlocal)
+			localsave(st);
+	}
+}
+
+kvreverse(l: list of ref Kv): list of ref Kv
+{
+	r: list of ref Kv;
+	for(; l != nil; l = tl l)
+		r = hd l :: r;
+	return r;
+}
+
+localdir(): string
+{
+	return (CU->config).userdir + "/localstorage";
+}
+
+originfile(origin: string): string
+{
+	return localdir() + "/" + sanitize(origin);
+}
+
+sanitize(s: string): string
+{
+	t := "";
+	for(i := 0; i < len s; i++) {
+		c := s[i];
+		if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		   (c >= '0' && c <= '9') || c == '.' || c == '-')
+			t[len t] = c;
+		else
+			t[len t] = '_';
+	}
+	return t;
+}
+
+localload(origin: string): ref Store
+{
+	st := ref Store(SKlocal, origin, nil);
+	data := readall(originfile(origin));
+	if(data == nil)
+		return st;
+	(nil, lines) := sys->tokenize(string data, "\n");
+	out: list of ref Kv;
+	for(; lines != nil; lines = tl lines) {
+		(ek, rest) := S->splitl(hd lines, "\t");
+		if(rest == "")
+			continue;		# no separator on this line
+		out = ref Kv(unescape(ek), unescape(rest[1:])) :: out;
+	}
+	st.kvs = kvreverse(out);
+	return st;
+}
+
+localsave(st: ref Store)
+{
+	# best-effort: make the directory, then rewrite the whole file
+	sys->create(localdir(), Sys->OREAD, Sys->DMDIR | 8r700);
+	fd := sys->create(originfile(st.origin), Sys->OWRITE, 8r600);
+	if(fd == nil)
+		return;
+	s := "";
+	for(l := st.kvs; l != nil; l = tl l) {
+		kv := hd l;
+		s += escape(kv.key) + "\t" + escape(kv.val) + "\n";
+	}
+	if(s != "") {
+		b := array of byte s;
+		sys->write(fd, b, len b);
+	}
+}
+
+readall(path: string): array of byte
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	buf := array[8192] of byte;
+	n := 0;
+	for(;;) {
+		if(n == len buf) {
+			nb := array[2 * len buf] of byte;
+			nb[0:] = buf[0:n];
+			buf = nb;
+		}
+		r := sys->read(fd, buf[n:], len buf - n);
+		if(r <= 0)
+			break;
+		n += r;
+	}
+	if(n == 0)
+		return nil;
+	return buf[0:n];
+}
+
+escape(s: string): string
+{
+	t := "";
+	for(i := 0; i < len s; i++) {
+		c := s[i];
+		case c {
+		'\\' =>	t += "\\\\";
+		'\n' =>	t += "\\n";
+		'\r' =>	t += "\\r";
+		'\t' =>	t += "\\t";
+		* =>	t[len t] = c;
+		}
+	}
+	return t;
+}
+
+unescape(s: string): string
+{
+	t := "";
+	i := 0;
+	while(i < len s) {
+		c := s[i++];
+		if(c == '\\' && i < len s) {
+			d := s[i++];
+			case d {
+			'n' =>	t[len t] = '\n';
+			'r' =>	t[len t] = '\r';
+			't' =>	t[len t] = '\t';
+			* =>	t[len t] = d;
+			}
+		} else
+			t[len t] = c;
+	}
+	return t;
+}
+
 # Create an execution context for the frame.
 # The global object of the frame is the frame's Window object.
 # Return the execution context and the Location object for the window.
@@ -564,6 +842,13 @@ makeframeex(f : ref Layout->Frame) : (ref Exec, ref Obj)
 		reinitprop(locobj, "search", ES->strval("?" + src.query));
 	}
 	ES->put(ex, winobj, "location", ES->objval(locobj));
+
+	# HTML5 Web Storage: localStorage (persisted) and sessionStorage (in-memory)
+	if (src != nil) {
+		origin := storageorigin(src);
+		ES->put(ex, winobj, "localStorage", ES->objval(mkstorage(ex, origin, SKlocal)));
+		ES->put(ex, winobj, "sessionStorage", ES->objval(mkstorage(ex, origin, SKsession)));
+	}
 
 	scrobj := mkhostobj(ex, "Screen");
 	scr := (CU->G->display).image;
@@ -1169,6 +1454,8 @@ get(ex: ref Exec, o: ref Obj, property: string): ref Val
 		}
 		return ES->strval(ans);
 	}
+	if(o.class == "Storage" && property == "length")
+		return ES->numval(real storagelen(storeof(ex, o)));
 	if(o.class == "Window" && property == "opener"){
 		if(!CH->hasopener() || top.ex.global != o)
 			v := ES->undefined;
@@ -1648,6 +1935,36 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 				sw.docwriteout += ES->toString(ex, ES->biarg(args, ai));
 			sw.docwriteout += "\n";
 		}
+	"Storage.prototype.getItem" =>
+		st := storeof(ex, this);
+		key := ES->toString(ex, ES->biarg(args, 0));
+		(v, found) := storageget(st, key);
+		if(found)
+			ans = ES->valref(ES->strval(v));
+		else
+			ans = ES->valref(ES->null);
+	"Storage.prototype.setItem" =>
+		st := storeof(ex, this);
+		key := ES->toString(ex, ES->biarg(args, 0));
+		val := ES->toString(ex, ES->biarg(args, 1));
+		storageset(st, key, val);
+		ans = ES->valref(ES->undefined);
+	"Storage.prototype.removeItem" =>
+		st := storeof(ex, this);
+		key := ES->toString(ex, ES->biarg(args, 0));
+		storageremove(st, key);
+		ans = ES->valref(ES->undefined);
+	"Storage.prototype.clear" =>
+		storageclear(storeof(ex, this));
+		ans = ES->valref(ES->undefined);
+	"Storage.prototype.key" =>
+		st := storeof(ex, this);
+		n := ES->toInt32(ex, ES->biarg(args, 0));
+		(k, found) := storagekey(st, n);
+		if(found)
+			ans = ES->valref(ES->strval(k));
+		else
+			ans = ES->valref(ES->null);
 	"navigator.prototype.javaEnabled" or
 	"navigator.prototype.taintEnabled" =>
 		ans = ES->valref(ES->false);
