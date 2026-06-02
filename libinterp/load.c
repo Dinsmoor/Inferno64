@@ -343,7 +343,16 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 			for(i = 0; i < n; i++) {
 				hi = disw(isp);
 				lo = disw(isp);
-				*(LONG*)si = (LONG)hi << 32 | (LONG)(ulong)lo;
+				/*
+				 * The low word must be ZERO-extended.  lo is a signed
+				 * WORD; on LP64 (ulong)lo sign-extends a low word whose
+				 * bit 31 is set into bits 32..63, corrupting the value
+				 * (e.g. 123456789012 loaded as -1097262572).  (u32int)
+				 * keeps it a 32-bit unsigned quantity.  The high word
+				 * keeps its sign (it carries the big's sign).  On 32-bit
+				 * ulong was 4 bytes so this never sign-extended.
+				 */
+				*(LONG*)si = (LONG)hi << 32 | (LONG)(u32int)lo;
 				si += sizeof(LONG);
 			}
 			break;

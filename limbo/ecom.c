@@ -164,9 +164,10 @@ Node*
 rewrite(Node *n)
 {
 	Long v;
+	long exhdr;
 	Type *t;
 	Decl *d;
-	Node *nn, *left, *right;
+	Node *nn, *left, *right, *tagc;
 
 	if(n == nil)
 		return nil;
@@ -189,14 +190,18 @@ rewrite(Node *n)
 			if(t->cons)
 				fatal("cons in rewrite Oname");
 			/*
-			 * skip the exbasetype {string name; int tag} header to
-			 * reach the user args.  FIXME(LP64): on a 64-bit host the
-			 * header is {IBY2PTR string, IBY2WD int} possibly padded
-			 * to the first arg's alignment, not 2*IBY2WD.  Exceptions
-			 * are off the module-load critical path; revisit with the
-			 * runtime exception-layout work (see EXLP64 task).
+			 * Skip the exbasetype {string name; tag} header to reach
+			 * the user args.  The header is padded to IBY2LG (see
+			 * mkexbasetype) so the args start at an 8-aligned offset and
+			 * therefore land at exactly the same offsets whether laid
+			 * out here (from 0, as the exception type's own fields) or
+			 * during construction (from the header).  A non-8-aligned
+			 * header (e.g. {string(8),int(4)}=12 on LP64) would desync
+			 * the two once args of differing alignment are mixed.  On a
+			 * 32-bit Dis this is align(8,8)=8 = the historical 2*IBY2WD.
 			 */
-			n = mkbin(Oadd, n, mkconst(&n->src, 2*IBY2WD));
+			exhdr = align(IBY2PTR + IBY2WD, IBY2LG);
+			n = mkbin(Oadd, n, mkconst(&n->src, exhdr));
 			n = mkunary(Oind, n);
 			n->ty = t;
 			n->left->ty = n->left->left->ty = tint;
@@ -375,7 +380,12 @@ if(debug['U']) print("call %n\n", left);
 			n->op = Otuple;
 			n->right = nil;
 			n->left = nn = mkunary(Oseq, left->decl->init);
-			nn->right = mkunary(Oseq, mkconst(&n->src, 0));
+			tagc = mkconst(&n->src, 0);
+			/* match the (possibly IBY2LG-padded) tag field in mkexbasetype
+			 * so the tuple lays the user args at the header-aligned offsets */
+			if(align(IBY2PTR+IBY2WD, IBY2LG) > IBY2PTR+IBY2WD)
+				tagc->ty = tbig;
+			nn->right = mkunary(Oseq, tagc);
 			nn->right->right = right;
 			n->ty = mkexbasetype(n->ty);
 			n = mkunary(Oref, n);

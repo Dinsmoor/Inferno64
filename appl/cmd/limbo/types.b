@@ -3817,7 +3817,14 @@ mkexbasetype(t: ref Type): ref Type
 	last.store = Dfield;
 	nt := mktype(t.src.start, t.src.stop, Texception, nil, last);
 	nt.cons = byte 0;
-	new := mkids(t.decl.src, nil, tint, nil);
+	# The {string name; tag} header must be IBY2LG-aligned so the user args
+	# begin at an 8-aligned offset (see ecom rewrite/construction).  On 32-bit
+	# {string(4),int(4)}=8 is already aligned (tag=tint); on LP64 use an
+	# IBY2LG-sized tag so {string(8),tag(8)}=16.  The runtime ignores the tag.
+	tagty := tint;
+	if(align(IBY2PTR+IBY2WD, IBY2LG) > IBY2PTR+IBY2WD)
+		tagty = tbig;
+	new := mkids(t.decl.src, nil, tagty, nil);
 	new.store = Dfield;
 	last.next = new;
 	last = new;

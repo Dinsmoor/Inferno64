@@ -130,11 +130,14 @@ rewrite(n: ref Node): ref Node
 		if((t = n.ty).kind == Texception){
 			if(int t.cons)
 				fatal("cons in rewrite Oname");
-			# skip the exbasetype {string name; int tag} header.
-			# FIXME(LP64): on a 64-bit host the header is
-			# {IBY2PTR string, IBY2WD int} possibly padded, not 2*IBY2WD;
-			# exceptions are off the load path, deferred with EXLP64.
-			n = mkbin(Oadd, n, mkconst(n.src, big(2*IBY2WD)));
+			# Skip the exbasetype {string name; tag} header.  The header
+			# is padded to IBY2LG (see mkexbasetype) so the args begin at
+			# an 8-aligned offset and land at identical offsets whether
+			# laid out from 0 (the exception type's fields) or from the
+			# header (construction).  On 32-bit this is align(8,8)=8 = the
+			# historical 2*IBY2WD.
+			exhdr := align(IBY2PTR + IBY2WD, IBY2LG);
+			n = mkbin(Oadd, n, mkconst(n.src, big exhdr));
 			n = mkunary(Oind, n);
 			n.ty = t;
 			n.left.ty = n.left.left.ty = tint;
@@ -294,7 +297,12 @@ rewrite(n: ref Node): ref Node
 			n.op = Otuple;
 			n.right = nil;
 			n.left = nn = mkunary(Oseq, left.decl.init);
-			nn.right = mkunary(Oseq, mkconst(n.src, big 0));
+			tagc := mkconst(n.src, big 0);
+			# match the (possibly IBY2LG-padded) tag field in mkexbasetype
+			# so the tuple lays the user args at the header-aligned offsets
+			if(align(IBY2PTR+IBY2WD, IBY2LG) > IBY2PTR+IBY2WD)
+				tagc.ty = tbig;
+			nn.right = mkunary(Oseq, tagc);
 			nn.right.right = right;
 			n.ty = mkexbasetype(n.ty);
 			n = mkunary(Oref, n);

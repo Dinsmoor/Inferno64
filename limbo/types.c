@@ -4276,7 +4276,17 @@ mkexbasetype(Type *t)
 	last->store = Dfield;
 	nt = mktype(&t->src.start, &t->src.stop, Texception, nil, last);
 	nt->cons = 0;
-	new = mkids(&t->decl->src, nil, tint, nil);
+	/*
+	 * The {string name; tag} header must be IBY2LG-aligned so the user args
+	 * begin at an 8-aligned offset; then they land at identical offsets
+	 * whether sized from 0 (the exception type's own fields, used to access
+	 * the args) or from the header (construction).  On a 32-bit Dis
+	 * {string(4),int(4)}=8 is already 8-aligned (tag = tint); on LP64 use an
+	 * IBY2LG-sized tag so {string(8),tag(8)}=16.  The runtime ignores the tag
+	 * (it reads only the offset-0 name string), so its width is free.
+	 */
+	new = mkids(&t->decl->src, nil,
+		align(IBY2PTR+IBY2WD, IBY2LG) > IBY2PTR+IBY2WD ? tbig : tint, nil);
 	new->store = Dfield;
 	last->next = new;
 	last = new;
