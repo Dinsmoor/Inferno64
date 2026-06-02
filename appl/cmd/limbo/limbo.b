@@ -139,6 +139,7 @@ Ldynamic: con	57419;
 	#
 	tany:		ref Type;
 	tbig:		ref Type;
+	tptr:		ref Type;	# pointer-width, untraced: tbig on LP64, tint on ILP32
 	tbyte:		ref Type;
 	terror:		ref Type;
 	tint:		ref Type;

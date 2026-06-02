@@ -1046,12 +1046,12 @@ altcom(Node *nalt)
 			 * this sleaze is lying to the garbage collector:
 			 * store the borrowed channel pointer raw, without a
 			 * reference, so the alt map leaves it untraced.  Use an
-			 * 8-byte (tbig/IMOVL) raw move so the whole pointer is
-			 * copied on LP64 (IBY2PTR == IBY2LG here), not just the
-			 * low word as a tint move would.
+			 * pointer-width (tptr) raw move so the whole pointer is
+			 * copied (IMOVL on LP64, IMOVW on ILP32), not just the
+			 * low word as a fixed tint move would on LP64.
 			 */
 			if(left->addable < Rcant)
-				genmove(&left->src, Mas, tbig, left, &slot);
+				genmove(&left->src, Mas, tptr, left, &slot);
 			else{
 				slot.ty = left->ty;
 				ecom(&left->src, &slot, left);

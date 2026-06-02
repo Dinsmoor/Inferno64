@@ -270,14 +270,13 @@ rewrite(Node *n)
 		 * The Oindx node computes the address of the indexed element.
 		 * That is a pointer; when it has to be materialised into a temp
 		 * (e.g. a[k] = b[i], or any indirect-through-element addressing)
-		 * the temp must be pointer-width.  This was tint, which is only
-		 * IBY2WD: on LP64 an 8-byte element address landed in a 4-byte
-		 * slot and overran the adjacent temp.  tbig is 8 bytes / 8-aligned
-		 * with isptr=0, so the GC does not trace this interior pointer
-		 * (matching the original 32-bit intent where tint was exactly
-		 * pointer width and untraced).
+		 * the temp must be pointer-width (tptr): tint is only IBY2WD, so
+		 * on LP64 an 8-byte element address landed in a 4-byte slot and
+		 * overran the adjacent temp.  tptr is the untraced pointer-width
+		 * type (tbig on LP64, tint on ILP32), so the GC does not trace
+		 * this interior pointer and the width is correct on either ABI.
 		 */
-		n->left->ty = tbig;
+		n->left->ty = tptr;
 		break;
 	case Oload:
 		n->right = mkn(Oname, nil, nil);
@@ -420,7 +419,17 @@ if(debug['U']) print("call %n\n", left);
 			right->ty = tint;
 
 			n->left = left = mkunary(Oind, left);
-			left->ty = tint;
+			/*
+			 * left is Oind(module): it loads the foreign module's data-
+			 * segment pointer (Modlink.MP) to reach an imported global
+			 * variable.  That is a genuine pointer, so it needs a pointer-
+			 * width move/temp (tptr: tbig on LP64, tint on ILP32), not a
+			 * fixed tint.  With tint the move was IMOVW and truncated/
+			 * sign-extended the data pointer on LP64, so a later deref of
+			 * an imported variable (e.g. acme's `display: import gui`)
+			 * faulted.  tptr is correct on either ABI.
+			 */
+			left->ty = tptr;
 			n->op = Oadd;
 			n = mkunary(Oind, n);
 			n->ty = n->left->ty;
@@ -1698,13 +1707,13 @@ callcom(Src *src, int op, Node *n, Node *ret)
 	/*
 	 * The frame temp holds the callee's frame pointer (IFRAME/IMFRAME dst,
 	 * ICALL/IMCALL src).  It must be a full pointer-width, pointer-aligned
-	 * slot on LP64 (was tint, which is only IBY2WD: an 8-byte frame pointer
+	 * slot (tptr): tint is only IBY2WD, so on LP64 an 8-byte frame pointer
 	 * stored into a 4-byte slot overlapped the adjacent pointer local and
-	 * corrupted it).  tbig is 8 bytes / 8-aligned with isptr=0, so the GC
-	 * does not trace it, matching the original 32-bit intent where tint was
-	 * exactly pointer-sized and untraced.
+	 * corrupted it.  tptr is the untraced pointer-width type (tbig on LP64,
+	 * tint on ILP32), so the GC does not trace it and the width is right on
+	 * either ABI.
 	 */
-	talloc(&frame, tbig, nil);
+	talloc(&frame, tptr, nil);
 
 	mod = nfn->left;
 	ind = nfn->right;
@@ -1851,11 +1860,11 @@ arraycom(Node *a, Node *elems)
 	/*
 	 * tmp holds the address of the indexed array element (Oindx result,
 	 * dereferenced below via fake/Oind), so it must be a full pointer-width,
-	 * pointer-aligned, untraced slot on LP64 (tbig), not tint (IBY2WD).
-	 * A 4-byte slot would overlap the adjacent pointer slot, as with the
-	 * call-frame temp in callcom().
+	 * pointer-aligned, untraced slot (tptr: tbig on LP64, tint on ILP32),
+	 * not a fixed tint.  A too-small slot would overlap the adjacent
+	 * pointer slot, as with the call-frame temp in callcom().
 	 */
-	talloc(&tmp, tbig, nil);
+	talloc(&tmp, tptr, nil);
 	tindex.op = Oindx;
 	tindex.addable = Rcant;
 	tindex.left = a;
@@ -1968,11 +1977,11 @@ arraydefault(Node *a, Node *elem)
 	t->left->ty = elem->ty;
 	/*
 	 * The Oindx node computes the element ADDRESS; it must be pointer-width
-	 * (tbig: 8 bytes, 8-aligned, untraced) on LP64, not tint (IBY2WD), or the
-	 * materialised element address overruns its 4-byte temp and corrupts the
-	 * fill (same fix as rewrite()'s Oindex and arraycom's tmp).
+	 * (tptr: tbig on LP64, tint on ILP32, untraced), not a fixed tint, or the
+	 * materialised element address overruns its temp and corrupts the fill
+	 * (same fix as rewrite()'s Oindex and arraycom's tmp).
 	 */
-	t->left->left->ty = tbig;
+	t->left->left->ty = tptr;
 	sumark(t);
 	ecom(&t->src, nil, t);
 
@@ -2272,7 +2281,7 @@ recvacom(Src *src, Node *nto, Node *n)
 	 */
 	off.val = 2*IBY2WD;	/* channel slot, after nsend,nrecv int header */
 	if(left->addable < Rcant)
-		genmove(src, Mas, tbig, left, &slot);	/* borrowed: raw 8-byte pointer move */
+		genmove(src, Mas, tptr, left, &slot);	/* borrowed: raw pointer-width move (untraced) */
 	else{
 		slot.ty = left->ty;
 		ecom(src, &slot, left);

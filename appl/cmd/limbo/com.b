@@ -984,11 +984,12 @@ altcom(nalt: ref Node)
 			#
 			# this sleaze is lying to the garbage collector: store the
 			# borrowed channel pointer raw (untraced in the alt map).
-			# Use an 8-byte (tbig/IMOVL) raw move so the whole pointer
-			# is copied on LP64, not just the low word as tint would.
+			# Use a pointer-width (tptr) raw move so the whole pointer is
+			# copied -- IMOVL on LP64, IMOVW on ILP32 -- not just the low
+			# word as a fixed tint would truncate to on LP64.
 			#
 			if(left.addable < Rcant)
-				genmove(left.src, Mas, tbig, left, slot);
+				genmove(left.src, Mas, tptr, left, slot);
 			else{
 				slot.ty = left.ty;
 				ecom(left.src, slot, left);

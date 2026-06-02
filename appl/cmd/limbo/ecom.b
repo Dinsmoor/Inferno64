@@ -195,11 +195,10 @@ rewrite(n: ref Node): ref Node
 		n = mkunary(Oind, n);
 		n.ty = n.left.ty;
 		# The Oindx node computes the address of the indexed element; when
-		# that address is materialised into a temp it must be pointer-width.
-		# tbig is 8 bytes / 8-aligned with isptr=0 so the GC does not trace
-		# this interior pointer (was tint, only IBY2WD: an 8-byte element
-		# address overran the adjacent temp on LP64).
-		n.left.ty = tbig;
+		# that address is materialised into a temp it must be pointer-width
+		# (tptr: tbig on LP64, tint on ILP32, untraced), not a fixed tint --
+		# on LP64 an 8-byte element address overran the adjacent 4-byte temp.
+		n.left.ty = tptr;
 	Oload =>
 		n.right = mkn(Oname, nil, nil);
 		n.right.src = n.left.src;
@@ -334,7 +333,13 @@ rewrite(n: ref Node): ref Node
 			right.ty = tint;
 
 			n.left = left = mkunary(Oind, left);
-			left.ty = tint;
+			# left is Oind(module): it loads the foreign module's data-
+			# segment pointer (Modlink.MP) to reach an imported global.  That
+			# is a pointer, so it needs a pointer-width move/temp (tptr: tbig
+			# on LP64, tint on ILP32), not a fixed tint -- else the move is
+			# IMOVW and truncates the data pointer on LP64, faulting a later
+			# deref of an imported variable.  tptr is correct on either ABI.
+			left.ty = tptr;
 			n.op = Oadd;
 			n = mkunary(Oind, n);
 			n.ty = n.left.ty;
@@ -1504,10 +1509,10 @@ callcom(src: Src, op: int, n, ret: ref Node)
 	}
 
 	# The frame temp holds the callee's frame pointer (IFRAME/IMFRAME dst,
-	# ICALL/IMCALL src): a full pointer-width, pointer-aligned, untraced slot
-	# on LP64 (tbig), not tint (IBY2WD) which a 4-byte slot would truncate
-	# and overlap the adjacent pointer local.
-	frame := talloc(tbig, nil);
+	# ICALL/IMCALL src): a pointer-width, pointer-aligned, untraced slot
+	# (tptr: tbig on LP64, tint on ILP32), not a fixed tint which on LP64
+	# would truncate and overlap the adjacent pointer local.
+	frame := talloc(tptr, nil);
 
 	mod := nfn.left;
 	ind := nfn.right;
@@ -1651,8 +1656,8 @@ arraycom(a, elems: ref Node)
 	fake := ref znode;
 	# tmp holds the address of the indexed array element (Oindx result,
 	# dereferenced via fake/Oind), so it must be pointer-width and untraced
-	# (tbig) on LP64, not tint (IBY2WD).
-	tmp := talloc(tbig, nil);
+	# (tptr: tbig on LP64, tint on ILP32), not a fixed tint.
+	tmp := talloc(tptr, nil);
 	tindex.op = Oindx;
 	tindex.addable = Rcant;
 	tindex.left = a;
@@ -1760,9 +1765,10 @@ arraydefault(a, elem: ref Node)
 	t = mkbin(Oas, mkunary(Oind, t), elem);
 	t.ty = elem.ty;
 	t.left.ty = elem.ty;
-	# the Oindx node is the element ADDRESS: pointer-width (tbig) on LP64,
-	# not tint, else the 8-byte address overruns its temp during the fill
-	t.left.left.ty = tbig;
+	# the Oindx node is the element ADDRESS: pointer-width (tptr: tbig on
+	# LP64, tint on ILP32), not a fixed tint, else on LP64 the 8-byte
+	# address overruns its temp during the fill
+	t.left.left.ty = tptr;
 	sumark(t);
 	ecom(t.src, nil, t);
 
@@ -2045,7 +2051,7 @@ recvacom(src: Src, nto, n: ref Node)
 	#
 	off.c.val = big(2*IBY2WD);	# channel slot, after nsend,nrecv int header
 	if(left.addable < Rcant)
-		genmove(src, Mas, tbig, left, slot);	# borrowed: raw 8-byte pointer move
+		genmove(src, Mas, tptr, left, slot);	# borrowed: raw pointer-width move (untraced)
 	else{
 		slot.ty = left.ty;
 		ecom(src, slot, left);

@@ -657,6 +657,7 @@ Extern	int	superwarn;
 Extern	char	*symfile;
 Extern	Type	*tany;
 Extern	Type	*tbig;
+Extern	Type	*tptr;		/* pointer-width, untraced: tbig on LP64, tint on ILP32 */
 Extern	Type	*tbyte;
 Extern	Type	*terror;
 Extern	Type	*tint;

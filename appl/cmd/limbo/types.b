@@ -139,6 +139,19 @@ typeinit()
 	tint.align = IBY2WD;
 	tint.ok = OKmask;
 
+	# tptr: the type for a temp/slot holding a raw Dis pointer or interior
+	# address (frame pointers, element addresses, an imported module's
+	# Modlink.MP) that the GC must NOT trace.  It must be pointer-width
+	# (IBY2PTR): tbig (8 bytes, IMOVL) on LP64, tint (4 bytes, IMOVW) on
+	# ILP32 -- both isptr=0.  A fixed tbig would emit 8-byte moves for
+	# 4-byte pointers on a 32-bit build; this keeps one source correct for
+	# either ABI.  (tany is pointer-width but isptr=1, so the GC would
+	# wrongly trace a non-heap interior pointer.)
+	if(IBY2PTR == IBY2LG)
+		tptr = tbig;
+	else
+		tptr = tint;
+
 	treal = mktype(noline, noline, Treal, nil, nil);
 	treal.size = IBY2FT;
 	treal.align = IBY2FT;

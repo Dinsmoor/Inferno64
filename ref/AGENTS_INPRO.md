@@ -444,18 +444,51 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
 
 ### The pointer-width `tint` bug class — audited (don't whack-a-mole)
 Every LP64 bug here is the same shape: a slot that holds/computes a **pointer or
-address** used `tint` (`IBY2WD`=4) where it needs `IBY2PTR`=8 (latent on 32-bit
+address** used `tint` (`IBY2WD`=4) where it needs `IBY2PTR` (latent on 32-bit
 where pointer==word), or a 64-bit value reconstructed by extending a 32-bit half
-wrong. Audit conclusion (2026-06-02, both compilers): a `tint` node/temp is a bug
-**only when its own type drives the move width AND it holds an address/8-byte
-value** — i.e. a *materialised* address. Those sites are exactly the `Oindx`
-(element-address) nodes, and all three creations are covered (`rewrite` Oindex →
-`tbig`; `arraydefault` → `tbig`; `arraycom` → materialises into a `tbig` temp).
-`Oadr` nodes always fold into an `Oind` addressing mode (the compiler `fatal`s if
-they can't), so no truncating materialisation. `tint` temps used only as
-intermediates for explicitly-typed `genop`/`genmove` (verified: big/real
-`++`/`--`/`+=`, op-assign-in-expression, big-array-element `+=`) are safe — the op
-carries the operand type. So **most `tint` is correct; do not blanket-convert.**
+wrong. A `tint` node/temp is a bug **only when its own type drives the move width
+AND it holds an address/pointer value** — i.e. a *materialised* address or a
+loaded pointer. `tint` temps used only as intermediates for explicitly-typed
+`genop`/`genmove` (big/real `++`/`--`/`+=`, op-assign-in-expression,
+big-array-element `+=`) are safe — the op carries the operand type. So **most
+`tint` is correct; do not blanket-convert.**
+
+**Use `tptr`, not `tbig`, for these slots (2026-06-02 — ABI-correctness fix).**
+The materialised-pointer slots must be **pointer-width**: `IBY2PTR` bytes — 4 on
+ILP32, 8 on LP64. `tbig` is a fixed 8-byte/`IMOVL` type, so it is correct on LP64
+*only because* `IBY2PTR == IBY2LG` there; on a 32-bit build (the C compiler gets
+`IBY2PTR = sizeof(void*) = 4`; the self-hosted one gets `IBY2PTR = con
+sizeof(string)`) a bare `tbig` emits 8-byte moves for 4-byte pointers and corrupts
+the neighbouring slot — i.e. bare `tbig` silently pins the compiler to 64-bit and
+defeats the one-tree dual-ABI goal. The fix is a single pointer-width, **untraced**
+type `tptr = (IBY2PTR == IBY2LG)? tbig : tint` (both `isptr=0`; `tany` is
+pointer-width too but `isptr=1`, so the GC would wrongly trace a non-heap interior
+pointer). Defined once (`limbo/types.c` + `limbo.h`; `appl/cmd/limbo/types.b` +
+`limbo.b`) and used for the whole class: the `Oindx` element-address nodes
+(`rewrite` Oindex, `arraydefault`, `arraycom`), the `callcom` call-frame temp, the
+borrowed-channel raw move (`com.c`/`ecom.c`), **and the newly found imported-global
+load (below)**. On LP64 `tptr ≡ tbig`, so the change is byte-identical codegen
+there (the 166-assertion suite + acme/charon stay green and *prove* no
+regression); ILP32 becomes correct. Genuine-`big` sites stay `tbig`
+(`globalBconst`; the alignment-guarded exception/pick-tag header, which is already
+`IBY2PTR`-conditioned).
+
+**Imported global VARIABLES — the acme/charon crash (2026-06-02).** Accessing a
+variable imported from another module (`x: import othermod`, e.g. acme's
+`display: import gui`) is rewritten (`ecom.c`/`ecom.b` `rewrite()` Omdot/Dglobal)
+to `Oind(Oadd(Oind(module), field_offset))`: load the foreign module's
+data-segment pointer (`Modlink.MP`), add the global's offset, load the field. The
+inner `Oind(module)` load was typed `tint`, so on LP64 it was a 4-byte `movw` that
+truncated/sign-extended the 8-byte `Modlink.MP` (e.g. fault at
+`0xffffffff2c138d00`); the next deref faulted **at app launch**. This is why acme
+and charon crashed immediately while in-process Tk apps that don't read another
+module's globals (bounce, tetris, clock, …) were fine, and why the TAP suite never
+caught it — the suites import funcs and types but never imported global
+*variables*. Fixed by typing that load `tptr`. Regression: `suites/80_modglobal.b`
+(imports ref/string/list/array globals from `lib/modglobals`; reverting the fix
+turns it `BROKE` with the segfault). `Oadr` nodes still always fold into an `Oind`
+addressing mode (the compiler `fatal`s otherwise), so no other truncating
+materialisation remains.
 
 ### Test battery
 `github.com/caerwynj/inferno-lab` (~281 real Limbo programs) is the repeatable
@@ -471,7 +504,7 @@ a standing harness.
 A self-contained TAP suite that exercises the Dis VM + Limbo end-to-end through
 `emu-g`, no display needed. `tests/lp64/run.sh` compiles each `suites/*.b` with the
 C `limbo`, runs it under `emu-g`, and aggregates `ok`/`not ok` (via the shared
-`lib/testing.{m,b}` helper). **166 assertions across 8 suites, all green.** Exits
+`lib/testing.{m,b}` helper). **178 assertions across 9 suites, all green.** Exits
 non-zero on any failure/crash; tolerates the benign teardown SIGKILL (rc 137; see
 below) but flags a mid-run VM break (`BROKE`/`NOPLAN` — a suite that never reaches
 summary()'s `1..N` plan line). `run.sh` compiles every `lib/*.b` helper first, with
@@ -502,6 +535,30 @@ summary()'s `1..N` plan line). `run.sh` compiles every `lib/*.b` helper first, w
   convention, and **cross-module** raise/catch via the helper `lib/exraise.{m,b}`.
   Reintroducing the old 32-bit `NOPC` drops it from 9 → 1 assertions (the proc
   breaks mid-run), which the `BROKE`/`NOPLAN` guard now flags.
+- `80_modglobal` — cross-module **imported global variables** (the acme/charon
+  launch-crash regression): imports ref/string/list/array globals from the helper
+  `lib/modglobals.{m,b}` and reads them back, exercising the `Modlink.MP` load that
+  the `tptr` fix repairs. Reverting the imported-global load to `tint` turns it
+  `BROKE` with the truncated-pointer segfault. 12 assertions. **This path is the
+  one the GUI apps hit that nothing else in the suite did** (the suites otherwise
+  import only funcs and types, never global variables).
+
+### GUI app sweep — `tests/lp64/gui_sweep.sh` (compile + headless launch)
+The TAP suites never open a window, so GUI-only LP64 crashes (like the imported-
+global one) need a separate net. `gui_sweep.sh` has two phases: **(1) compile** —
+runs `limbo` over every `.b` under the GUI app trees (`appl/{wm,acme,charon,ebook,
+demo,spree,tiny,…}`) and flags compile errors; **(2) launch** — starts each
+top-level GUI app under `Xvfb` + `wm/wm` with the graphical `emu`, waits a few
+seconds, and FAILs it only if the emu log shows a C-level VM crash (`LP64 fault`/
+`segmentation`/`Broken:`/`illegal dis`/`panic`). Benign env noise (no `/tmp`, no
+plumber, no network) is ignored — we hunt VM crashes, which is where LP64 bugs
+live. Result after the `tptr` fix + full dis-tree recompile: **compile 116 ok / 4
+err** (the 4 — `mpeg`, `qt`, `samtk`, `paginate` — are pre-existing source-level
+API drift, not LP64), and **every launched app runs crash-free** (acme, charon,
+and ~20 `wm` apps). Caveats baked in: never `pkill -f <pattern>` from the script —
+it matches the script's own command line and kills it; bound each emu with
+`timeout -s KILL` instead. The full launch phase runs ~2 min, so run it
+backgrounded (it exceeds a 120 s foreground budget).
 
 **Gotchas baked into the suite (read before extending):** (1) tests live in the
 repo tree and reference inferno paths under the emu root (`/tests/lp64/...`,
