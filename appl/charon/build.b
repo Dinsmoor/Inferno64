@@ -743,6 +743,8 @@ TokLoop:
 			if(ps.curanchor != 0)
 				dfltbd = 2;
 			src := aurlval(tok, LX->Asrc, nil, di.base);
+			if(src == nil)
+				src = srcseturl(tok, di.base);	# HTML5 responsive <img srcset>
 			if(src == nil) {
 				if(warn)
 					sys->print("warning: <img> has no src attribute\n");
@@ -2437,6 +2439,26 @@ listtyval(tok: ref Token, dflt: byte) : byte
 }
 
 # attrvalue when value is a URL
+# Resolve the first candidate URL of an HTML5 srcset attribute.
+# srcset is "url [descriptor], url [descriptor], ..."; we take the first
+# candidate's URL (smallest/lowest-bandwidth) and resolve it against base.
+# (URLs containing commas are not handled — rare for <img> srcset.)
+srcseturl(tok: ref Token, base: ref Parsedurl) : ref Parsedurl
+{
+	(fnd, ss) := tok.aval(LX->Asrcset);
+	if(!fnd || ss == nil)
+		return nil;
+	(cand, nil) := S->splitl(ss, ",");
+	(url, nil) := S->splitl(stripwhite(cand), " \t\n");
+	url = stripwhite(url);
+	if(url == nil)
+		return nil;
+	ans := U->parse(url);
+	if(base != nil)
+		ans = U->mkabs(ans, base);
+	return ans;
+}
+
 aurlval(tok: ref Token, attid: int, dflt, base: ref Parsedurl) : ref Parsedurl
 {
 	ans := dflt;

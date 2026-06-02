@@ -244,6 +244,7 @@ attrnames = array[] of {
 	"size",
 	"span",
 	"src",
+	"srcset",
 	"standby",
 	"start",
 	"style",

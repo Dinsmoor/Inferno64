@@ -48,7 +48,7 @@ Lex: module
 		Aonmouseup, Aonreset, Aonresize, Aonselect, Aonsubmit, Aonunload,
 		Aprofile, Aprompt, Areadonly, Arel, Arev, Arows, Arowspan, Arules,
 		Ascheme, Ascope, Ascrolling, Aselected, Ashape, Asize,
-		Aspan, Asrc, Astandby, Astart, Astyle, Asummary,
+		Aspan, Asrc, Asrcset, Astandby, Astart, Astyle, Asummary,
 		Atabindex, Atarget, Atext, Atitle, Atype, Ausemap,
 		Avalign, Avalue, Avaluetype, Aversion, Avlink, Avspace, Awidth,
 		Numattrs
