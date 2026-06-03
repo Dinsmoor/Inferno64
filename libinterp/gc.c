@@ -324,6 +324,7 @@ rungc(Prog *p)
 		return;
 	}
 
+	VG_MM_BEGIN;	/* collector mark+sweep legitimately reads freed-but-present objects */
 	for(visit = quanta; visit > 0; ) {
 		if(ptr->magic == MAGIC_A) {
 			visit--;
@@ -364,6 +365,7 @@ rungc(Prog *p)
 			limit = B2LIMIT(base);
 		}
 	}
+	VG_MM_END;
 
 	quanta = (MaxQuanta+Quanta)/2 + ((MaxQuanta-Quanta)/20)*((100*gce)/gct);
 	if(quanta < Quanta)
@@ -376,7 +378,9 @@ rungc(Prog *p)
 	if(nprop == 0) {	/* Completed the epoch ? */
 		gcepochs++;
 		gccolor++;
+		VG_MM_BEGIN;	/* rootset marks live objects; tolerate any dangling root */
 		rootset(p);
+		VG_MM_END;
 		gce = 0;
 		gct = 1;
 		return;

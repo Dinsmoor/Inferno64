@@ -16,24 +16,21 @@
 #include <sys/mman.h>
 #include <valgrind/memcheck.h>
 /*
- * A free block carries the allocator's structural metadata IN-BAND, overlaying
- * the user region that a Dis-heap VGHEAP_FREE (VALGRIND_FREELIKE_BLOCK)
- * poisons: the free-tree node (Bhdr.u.s: left/right/parent/fwd/prev) sits at
- * B2D(b), and the Btail (back-pointer) at the block end.  VG_POOL_META re-marks
- * exactly those two regions accessible so the pool's own tree walks and
- * coalescing reads/writes (pooladd/pooldel/dopoolalloc/poolfree) don't trip the
- * poison.  The object payload BETWEEN node and tail stays poisoned, so a
- * use-after-free of a Dis object is still caught and the FREELIKE provenance is
- * kept; and reads from outside the allocator (the GC mark walk, freeptrs) are
- * left visible on purpose -- that is exactly where a real dangling-pointer UAF
- * would surface.
+ * The pool reads its in-band free-tree node (Bhdr.u.s, overlaying B2D) and the
+ * Btail of neighbouring free blocks while searching/coalescing -- memory a
+ * Dis-heap VGHEAP_FREE poisoned.  That is allocator activity, not a mutator
+ * use-after-free, so bracket the pool's freed-memory-touching work with
+ * VG_MM_BEGIN/VG_MM_END (VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING, nestable):
+ * reports are silenced while the pool runs, but the blocks stay poisoned, so a
+ * *mutator* read of a freed object is still caught.  Unlike un-poisoning the
+ * node region, this keeps the whole freed object protected.  See
+ * libinterp/vgheap.h for the matching GC/refcount brackets.
  */
-#define VG_POOL_META(b) do { \
-		VALGRIND_MAKE_MEM_DEFINED(B2D(b), sizeof(((Bhdr*)0)->u)); \
-		VALGRIND_MAKE_MEM_DEFINED(B2T(b), sizeof(Btail)); \
-	} while(0)
+#define VG_MM_BEGIN	VALGRIND_DISABLE_ERROR_REPORTING
+#define VG_MM_END	VALGRIND_ENABLE_ERROR_REPORTING
 #else
-#define VG_POOL_META(b) do { } while(0)
+#define VG_MM_BEGIN	do { } while(0)
+#define VG_MM_END	do { } while(0)
 #endif
 
 enum
@@ -286,8 +283,6 @@ pooladd(Pool *p, Bhdr *q)
 
 	q->magic = MAGIC_F;
 
-	VG_POOL_META(q);	/* let the pool use this free block's in-band node + tail */
-
 	q->left = nil;
 	q->right = nil;
 	q->parent = nil;
@@ -504,9 +499,14 @@ poolalloc(Pool *p, ulong asize)
 {
 	Prog *prog;
 
+	void *v;
+
 	if(p->cursize > p->ressize && (prog = currun()) != nil && prog->flags&Prestricted)
 		return nil;
-	return dopoolalloc(p, asize, getcallerpc(&p));
+	VG_MM_BEGIN;	/* the free-tree search reads poisoned in-band nodes of free blocks */
+	v = dopoolalloc(p, asize, getcallerpc(&p));
+	VG_MM_END;
+	return v;
 }
 
 void
@@ -516,7 +516,7 @@ poolfree(Pool *p, void *v)
 	extern Bhdr *ptr;
 
 	D2B(b, v);
-	VG_POOL_META(b);	/* b is about to become a free block; let coalescing touch its node+tail */
+	VG_MM_BEGIN;	/* coalescing reads neighbouring free blocks' poisoned node/tail */
 	if(p->monitor)
 		MM(p->pnum|(1<<8), getcallerpc(&p), (ulong)v, b->size);
 
@@ -545,6 +545,7 @@ poolfree(Pool *p, void *v)
 	}
 	pooladd(p, b);
 	unlock(&p->l);
+	VG_MM_END;
 }
 
 void *

@@ -232,7 +232,17 @@ destroy(void *v)
 	t = h->t;
 	if(t != nil) {
 		gclock();
+		/*
+		 * t->free runs the refcount free-cascade (freeptrs -> destroy ->
+		 * ...), which walks a dying subtree and may read children the
+		 * cascade has already reclaimed; that is manager activity, not a
+		 * mutator UAF, so don't report freed-memory reads inside it.  h
+		 * itself is not poisoned until VGHEAP_FREE below, so its own
+		 * freeptrs read is on live memory regardless.
+		 */
+		VG_MM_BEGIN;
 		t->free(h, 0);
+		VG_MM_END;
 		gcunlock();
 		freetype(t);
 	}

@@ -1,88 +1,27 @@
-# Valgrind/Memcheck suppressions for the Inferno emu pool allocator.
-#
-# Use with the -DVALGRIND build (see ref/AGENTS_DEBUGGING.md):
+# Valgrind/Memcheck suppressions for the Inferno emu allocator, used with the
+# -DVALGRIND build (see ref/AGENTS_DEBUGGING.md):
 #   valgrind --suppressions=libinterp/valgrind-inferno.supp \
 #            --error-limit=no emu -g1024x768 wm/wm /dis/<app>.dis
 #
-# WHY: emu's tree allocator (emu/port/alloc.c) keeps its free-list metadata
-# IN-BAND -- a free block's tree node (Bhdr.u.s) and its Btail overlay the same
-# bytes a Dis-heap object occupied, which VGHEAP_FREE (VALGRIND_FREELIKE_BLOCK)
-# poisons.  VG_POOL_META() in pooladd/poolfree re-marks the node+tail
-# accessible, which removes the bulk (e.g. pooldel goes to zero), but the
-# coalescer and tree walks still legitimately read a few payload-adjacent bytes
-# of neighbouring free blocks to decide merges.  Those reads are allocator
-# bookkeeping, never a consumer use-after-free, so suppress them BY TOP FRAME.
+# Most of the allocator/collector's legitimate reads of freed-but-not-yet-reused
+# memory are handled in C, not here: VG_MM_BEGIN/VG_MM_END
+# (VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING) bracket the GC mark/sweep (rungc),
+# the refcount free-cascade (destroy's t->free) and the pool tree/coalesce
+# (poolalloc/poolfree) so those phases don't report, while the objects stay
+# FREELIKE-poisoned -- so a MUTATOR read of a freed object (the real
+# use-after-free the isptr=0 tptr/tbig untraced slots can cause) is still caught.
+# A genuine UAF therefore appears as a report from a VM frame (Sys_*, xec,
+# string/font ops) whose address is "inside a block ... free'd" (not "after/
+# before a block", which is the benign redzone-0 boundary case).
 #
-# IMPORTANT -- what is deliberately NOT here:  rungc, destroy, freeptrs and any
-# VM frame (Sys_*, xec, font/string ops).  A real dangling-pointer / use-after-
-# free of a Dis object -- the exact hazard the isptr=0 untraced tptr/tbig slots
-# create -- surfaces in one of THOSE frames, so they must stay visible.  Only
-# the pure allocator-internal functions below are suppressed.
+# This file mops up only the few allocator paths that are NOT phase-bracketed:
 #
-# smalloc is included for its own reason: under Valgrind, libc malloc is
-# intercepted (emu's pool malloc is bypassed), so emu's Bhdr-header arithmetic
-# writes into Valgrind's redzone ahead of a malloc block.  That is a
-# Valgrind-only interposition artifact (production uses emu's pool), benign.
-#
-# Regenerate/extend with `valgrind --gen-suppressions=all` if new allocator
-# frames appear.
+# - smalloc: under Valgrind, libc malloc is intercepted (emu's pool malloc is
+#   bypassed), so emu's Bhdr-header arithmetic writes/reads in malloc's redzone.
+#   A Valgrind-only interposition artifact -- production uses emu's pool.
+# - poolread / poolmsize: the /prog pool inspector and size query read in-band
+#   free-block metadata directly, outside any alloc/free operation.
 
-{
-   inferno-poolfree-addr
-   Memcheck:Addr8
-   fun:poolfree
-}
-{
-   inferno-poolfree-addr4
-   Memcheck:Addr4
-   fun:poolfree
-}
-{
-   inferno-pooladd-addr
-   Memcheck:Addr8
-   fun:pooladd
-}
-{
-   inferno-pooldel-addr
-   Memcheck:Addr8
-   fun:pooldel
-}
-{
-   inferno-dopoolalloc-addr
-   Memcheck:Addr8
-   fun:dopoolalloc
-}
-{
-   inferno-dopoolalloc-addr4
-   Memcheck:Addr4
-   fun:dopoolalloc
-}
-{
-   inferno-poolcompact-addr
-   Memcheck:Addr8
-   fun:poolcompact
-}
-{
-   inferno-poolrealloc-addr
-   Memcheck:Addr8
-   fun:poolrealloc
-}
-{
-   inferno-poolmsize-addr
-   Memcheck:Addr8
-   fun:poolmsize
-}
-{
-   inferno-poolread-addr
-   Memcheck:Addr8
-   fun:poolread
-}
-{
-   inferno-poolalloc-memmove
-   Memcheck:Addr8
-   fun:__GI_memmove
-   fun:poolcompact
-}
 {
    inferno-smalloc-redzone-write
    Memcheck:Addr8
@@ -92,4 +31,19 @@
    inferno-smalloc-redzone-write4
    Memcheck:Addr4
    fun:smalloc
+}
+{
+   inferno-smalloc-redzone-write1
+   Memcheck:Addr1
+   fun:smalloc
+}
+{
+   inferno-poolread-addr
+   Memcheck:Addr8
+   fun:poolread
+}
+{
+   inferno-poolmsize-addr
+   Memcheck:Addr8
+   fun:poolmsize
 }
