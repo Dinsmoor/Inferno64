@@ -3,6 +3,13 @@
 # mk's dependency tracking is unreliable for incremental changes, so this
 # Makefile always nukes object files before rebuilding each component.
 # Build order matches EMUDIRS in the top-level mkfile.
+#
+# `make all` builds BOTH halves of the system:
+#   1. the C side  -- libraries, the limbo compiler, and the emu binary;
+#   2. the Dis tree -- the Limbo source under appl/ compiled to .dis with the
+#      compiler just built.  .dis are build output (gitignored), not tracked,
+#      so they must be regenerated from source; this is what makes a compiler
+#      fix actually reach the running system.
 
 ROOT    := $(realpath $(dir $(firstword $(MAKEFILE_LIST))))
 SYSHOST := Linux
@@ -49,9 +56,19 @@ EMUDIRS := \
 	utils/ndate \
 	emu
 
-.PHONY: all emu clean nuke
+# The Limbo source tree.  appl/mkfile descends (via mksubdirs) into acme,
+# charon, cmd, lib, math, wm, ... and each leaf compiles its .b to .dis and
+# installs them under $(ROOT)/dis/.
+APPLDIR := appl
 
-all emu:
+.PHONY: all emu dis clean nuke
+
+# Full system: C side first (so the limbo compiler exists), then the Dis tree.
+all: emu dis
+	@echo
+	@echo "Build complete (emu + Dis tree): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+emu:
 	@set -e; \
 	for dir in $(EMUDIRS); do \
 		echo; \
@@ -65,7 +82,19 @@ all emu:
 		fi; \
 	done
 	@echo
-	@echo "Build complete: $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+	@echo "C build complete: $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+# Compile the Limbo source tree to .dis with the freshly built compiler.
+# Requires the C side (the limbo binary) to be built first; `make all` ensures
+# this, or run `make emu` before `make dis`.  nuke clears stale .dis (in both
+# the source dirs and dis/) so the tree is rebuilt clean from source.
+dis:
+	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
+	@set -e; \
+	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke); \
+	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) install)
+	@echo
+	@echo "Dis tree complete: $(ROOT)/dis"
 
 clean:
 	@set -e; \
@@ -73,6 +102,8 @@ clean:
 		echo "--- clean $$dir ---"; \
 		(cd $(ROOT)/$$dir && $(MK) $(MKARGS) clean) || true; \
 	done
+	@echo "--- clean $(APPLDIR) ---"
+	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) clean) || true
 
 nuke:
 	@set -e; \
@@ -84,3 +115,5 @@ nuke:
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke) || true; \
 		fi; \
 	done
+	@echo "--- nuke $(APPLDIR) ---"
+	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke) || true
