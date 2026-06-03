@@ -15,3 +15,25 @@ mallocz(ulong size, int clr)
 		memset(p, 0, size);
 	return p;
 }
+
+/* IEEE special values; in emu these live in libmath's FP support.  charstod
+ * (lib9) calls NaN() on a malformed number. */
+double
+NaN(void)
+{
+	static const uvlong qnan = 0x7ff8000000000000ULL;
+	double d;
+	memmove(&d, &qnan, sizeof d);
+	return d;
+}
+
+double
+Inf(int sign)
+{
+	uvlong inf = 0x7ff0000000000000ULL;
+	double d;
+	if(sign < 0)
+		inf |= 0x8000000000000000ULL;
+	memmove(&d, &inf, sizeof d);
+	return d;
+}
