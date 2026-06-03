@@ -64,7 +64,7 @@ for section in "$@"; do
 		[ -e "$src" ] || { echo "  (no test_*.c)"; break; }
 		base=$(basename "$src" .c)
 		bin=$out/$base
-		if ! $CC $CFLAGS -o "$bin" "$src" $libs 2>"$out/$base.cc.log"; then
+		if ! $CC $CFLAGS -o "$bin" "$src" "$SCRIPT_DIR/shim.c" $libs 2>"$out/$base.cc.log"; then
 			echo "  CCERR $base"; sed 's/^/    /' "$out/$base.cc.log"; rc=1; continue
 		fi
 		if "$bin" >"$out/$base.run.log" 2>&1; then
