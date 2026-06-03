@@ -47,6 +47,9 @@ libs_for() {
 	libmp)     echo "$LIBDIR/libmp.a $LIBDIR/lib9.a -lm";;
 	libsec)    echo "$LIBDIR/libsec.a $LIBDIR/libmp.a $LIBDIR/lib9.a -lm";;
 	libmath)   echo "$LIBDIR/libmath.a $LIBDIR/lib9.a -lm";;
+	libdraw)   echo "$LIBDIR/libdraw.a $LIBDIR/lib9.a -lm";;
+	libmemdraw) echo "$LIBDIR/libmemdraw.a $LIBDIR/libmemlayer.a $LIBDIR/libdraw.a $LIBDIR/lib9.a -lm";;
+	libmemlayer) echo "$LIBDIR/libmemlayer.a $LIBDIR/libmemdraw.a $LIBDIR/libdraw.a $LIBDIR/lib9.a -lm";;
 	*)         echo "$LIBDIR/$1.a $LIBDIR/lib9.a -lm";;
 	esac
 }
