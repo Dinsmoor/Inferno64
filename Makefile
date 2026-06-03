@@ -61,7 +61,14 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis clean nuke
+.PHONY: all emu dis clean nuke test_all_unit
+
+# C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
+#   make test_lib9_unit      run one section's tests
+#   make test_all_unit       run every section that has tests
+# Tests link against the already-built static libs in $(OBJDIR)/lib, so build
+# the C side first (make emu / make all).
+TEST_RUN := ROOT=$(ROOT) OBJDIR=$(OBJDIR) sh $(ROOT)/tests/cunit/run.sh
 
 # Full system: C side first (so the limbo compiler exists), then the Dis tree.
 all: emu dis
@@ -117,3 +124,12 @@ nuke:
 	done
 	@echo "--- nuke $(APPLDIR) ---"
 	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke) || true
+
+# Run a single section's unit tests, e.g. `make test_lib9_unit`.
+test_%_unit:
+	@$(TEST_RUN) $*
+
+# Run every section that has a tests/cunit/<section>/ directory.
+test_all_unit:
+	@secs=`for d in $(ROOT)/tests/cunit/*/; do [ -d "$$d" ] && basename "$$d"; done`; \
+	$(TEST_RUN) $$secs
