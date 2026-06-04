@@ -56,5 +56,25 @@ comment in `cunit.h`):
    vectors, hand-computed results), so the test can actually catch a bug.
 
 `shim.c` provides host versions of kernel/emu hooks that the libraries call but
-lib9 doesn't define (`mallocz`, `NaN`, `Inf`); it is linked into every test.
-Build artifacts go in each section's `.out/` (git-ignored).
+lib9 doesn't define (`mallocz`, `NaN`/`Inf`, `_assert`, `_tas`, and a
+malloc-backed image pool for libmemdraw); it is linked into every test. Build
+artifacts go in each section's `.out/` (git-ignored).
+
+## Testing VM/loader internals
+
+Some of the highest-LP64-risk C lives inside the Dis VM (libinterp) as
+file-local `static` functions in objects that drag the whole runtime if linked.
+To unit-test such a function, **extract it** into a small dependency-free
+compilation unit and declare it in the library's header, so a test can link
+just that object. Example: `operand`/`disw`/`canontod` were moved from
+`libinterp/load.c` into `libinterp/disops.c` (declared in `interp.h`), which is
+pure code motion — emu still builds and links unchanged — and is now covered by
+`libinterp/disops`. Functions that genuinely need a live heap/module/display
+runtime stay covered by the integration suites (`tests/lp64`, `gui_sweep.sh`).
+
+## Coverage
+
+8 sections: lib9 (fmt, str, runestr, utf, getfields, b64, numconv, fcall),
+libbio, libmp (conv, arith, shift), libsec (digest, cipher), libmath, libdraw
+(geom, chan), libmemdraw, libinterp (disops). LP64 bugs caught + fixed so far:
+`lib9/strtoull` (base-16 overflow clamp) and `libmp/mptov` (64-bit truncation).
