@@ -61,7 +61,7 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis clean nuke test_all_unit
+.PHONY: all emu dis clean nuke test_all_unit lint lint-update lint-all
 
 # C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
 #   make test_lib9_unit      run one section's tests
@@ -133,3 +133,20 @@ test_%_unit:
 test_all_unit:
 	@secs=`for d in $(ROOT)/tests/cunit/*/; do [ -d "$$d" ] && basename "$$d"; done`; \
 	$(TEST_RUN) $$secs
+
+# clang -Wshorten-64-to-32 narrowing lint (LP64 bug class). Replays the real
+# per-file compile flags through clang; diffs against tests/lint/baseline.txt.
+#   make lint          report NEW narrowings vs baseline (nonzero if any)
+#   make lint-all      list every narrowing site
+#   make lint-update   regenerate the baseline (after triaging)
+# Requires clang and a built tree (make emu) so `mk -n -a` can report flags.
+LINT_RUN := $(MKARGS) MK=$(MK) sh $(ROOT)/tests/lint/run.sh
+
+lint:
+	@$(LINT_RUN)
+
+lint-all:
+	@$(LINT_RUN) --all
+
+lint-update:
+	@$(LINT_RUN) --update

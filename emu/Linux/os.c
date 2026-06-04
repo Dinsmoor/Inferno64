@@ -73,7 +73,7 @@ static char *disstate[] = {	/* must track enum ProgState in interp.h */
 static void
 aw(char *s, int n)
 {
-	int r;
+	long r;
 
 	while(n > 0){
 		r = write(2, s, n);
