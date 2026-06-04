@@ -27,7 +27,9 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | filesystem | ✅ | `ls /` (host tree via `-r`), `cat`, `/dev/user`→tyler, `/dev/sysname`, `pwd` |
 | process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
 | namespace | ✅ | `ns` shows full bind/mount: `#U` hostfs, `#c` cons, `#p` prog, `#d` fd, `#I` ip, `#e` env |
-| networking (IP/styx) | ✅ | `/net` stack live (arp/tcp/udp/ndb); `cat /net/tcp/clone` allocates a conn; + headless 30_styxnet TCP loopback + 9P pass. GUI net apps not individually driven |
+| networking (IP/styx) | ✅ | `/net` stack live (arp/tcp/udp/ndb); `cat /net/tcp/clone` allocates a conn; emu reaches external hosts (TCP+UDP dial to 8.8.8.8/1.1.1.1); + headless 30_styxnet TCP loopback + 9P pass |
+| DNS resolution | 🟡 | network + raw DNS-over-UDP **work** (hand-built query to 8.8.8.8 → valid answer); ndb resolver configured; but the cs/dns resolver **service hangs** on queries (BUG-3, open) |
+| plumber | ✅ | **was failing for non-"inferno" users; fixed** (BUG-2). Desktop plumber now runs (2 procs) with all ports (`/chan/plumb.{edit,web,view,dir,man,auplay,input}`) |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
 (The headless TAP suites in `tests/lp64/suites/` already cover VM/lang/concur/
@@ -80,6 +82,33 @@ for a manual run: `wm/wm /dis/sh.dis -c 'memfs /tmp; /dis/acme/acme.dis'`.
 Remaining `can't read /chan/plumb.edit` is just the **plumber** not running —
 only affects inter-window plumbing (right-click-to-open across windows still
 works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
+
+### BUG-2 — plumber fails to start for non-"inferno" users  ✅ FIXED
+- **Symptom:** acme/charon log `can't read /chan/plumb.edit`; no plumber, no
+  `/chan/plumb.*`. The desktop's `wmsetup` runs `plumber`, but it exited.
+- **Root cause:** `Plumbing.init` (appl/lib/plumbing.b) tried `/usr/$user/plumbing`
+  then `/usr/$user/lib/plumbing` and errored if neither existed — and the distro
+  only ships `/usr/inferno/lib/plumbing`. Any other user (e.g. `tyler`) → no rules
+  → plumber dies.
+- **Fix (commit `4141ddc7`, cherry-picked to master `112158da`):** add a
+  system-wide default `/lib/plumbing` and fall back to it. Per-user files still
+  win. Rebuild `appl/lib/plumbing.b` → `/dis/lib/plumbing.dis`.
+- **Verified:** desktop plumber runs (2 Plumber procs), all ports created; the
+  `plumb` command connects and sends without error. (Full message-payload
+  round-trip read was inconclusive due to test-harness buffering, but the daemon
+  is functional and acme's `plumb.edit` now exists.)
+
+### BUG-3 — cs/dns resolver service hangs on queries  ❌ OPEN
+- **Symptom:** `ndb/dnsquery`/`ndb/csquery` never return (in bare shell *and* the
+  full desktop, with cs+dns running).
+- **Established:** emu networking is fine — TCP+UDP dial to external hosts works,
+  and a hand-built DNS query to 8.8.8.8 returns a valid answer (`ancount=2`).
+  `ndb/dns` reads the configured resolvers (`servers: 8.8.8.8 1.1.1.1`).
+  `file2chan` create/bind works. So this is **not** a network or LP64-width bug.
+- **Suspected:** the file2chan **request data path** (the read/write reply path
+  shared by all srv services) — a minimal file2chan data round-trip test could
+  not complete. Same path the plumber uses for delivery. Needs focused work;
+  network capability itself is proven (see `dialtest`/`udptest` in `_build`).
 
 ## Method notes
 
