@@ -414,6 +414,8 @@ extern	void		destroylinks(Module*);
 extern	void		destroystack(REG*);
 extern	void		drawmodinit(void);
 extern	Type*		dtype(void (*)(Heap*, int), int, uchar*, int);
+extern	int		verifytype(Type*, int*);	/* GC map vs size consistency (LP64) */
+extern	void		verifyctype(char*, Type*, int);	/* init-time C-type map cross-check */
 extern	Module*		dupmod(Module*);
 extern	int		dynldable(int);
 extern	void		iqlock(ILock*);
