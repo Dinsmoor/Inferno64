@@ -28,6 +28,7 @@ uvlong	gcbusy;
 uvlong	gcidle;
 uvlong	gcidlepass;
 uvlong	gcpartial;
+uvlong	schedprogress;	/* heartbeat: bumped each time the scheduler runs a prog */
 int keepbroken = 1;
 extern int	vflag;
 static Prog*	proghash[64];
@@ -751,6 +752,44 @@ currun(void)
 	return isched.runhd;
 }
 
+/*
+ * Is there a prog on the run queue?  Read by the hang watchdog (faultmon):
+ * if the scheduler heartbeat (schedprogress) stops advancing while this is
+ * true, a prog has entered the interpreter and not come back -> a real hang.
+ */
+int
+schedbusy(void)
+{
+	return isched.runhd != nil;
+}
+
+/*
+ * Scheduler invariant, checked when the VM is about to go idle (run queue
+ * empty).  A prog in state Pready is by construction linked on the run queue
+ * (see addrun/pushrun/acquire), so if one is Pready while the queue is empty
+ * a wakeup was lost -- the classic deadlock signature.  Dump once and keep
+ * running so the dump can actually be read.
+ */
+static void
+schedidlecheck(void)
+{
+	static int reported;
+	Prog *p;
+
+	if(reported)
+		return;
+	for(p = isched.head; p != nil; p = p->next){
+		if(p->state == Pready){
+			reported = 1;
+			print("SCHED: lost wakeup: prog %d (%s) is Pready but run queue is empty\n",
+				p->pid,
+				p->R.M != H && p->R.M->m != nil ? p->R.M->m->name : "?");
+			dumpallprogs("lost-wakeup");
+			return;
+		}
+	}
+}
+
 Prog*
 schedmod(Module *m)
 {
@@ -1038,6 +1077,8 @@ vmachine(void *a)
 	for(;;) {
 		if(tready(nil) == 0) {
 			execatidle();
+			if(isched.runhd == nil)
+				schedidlecheck();
 			strcpy(up->text, "idle");
 			Sleep(&isched.irend, tready, 0);
 			strcpy(up->text, "dis");
@@ -1050,6 +1091,7 @@ vmachine(void *a)
 
 		r = isched.runhd;
 		if(r != nil) {
+			schedprogress++;	/* heartbeat for the hang watchdog */
 			o = r->osenv;
 			up->env = o;
 
@@ -1123,6 +1165,10 @@ disinit(void *a)
 	o->syserrstr = o->errbuf1;
 
 	isched.idle = 1;
+
+	if(faultmonsec > 0)
+		kproc("faultmon", faultmon, nil, 0);
+
 	poperror();
 	vmachine(nil);
 }

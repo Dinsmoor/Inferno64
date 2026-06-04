@@ -302,6 +302,86 @@ sign-extending `mode`/9P-field/`disw` family below.
 
 ---
 
+## Runtime observability — catching LP64 faults and hangs
+
+LP64 bugs (a 64-bit value truncated to 32 bits) usually surface as a *wild
+pointer* that faults far from its cause, or as a *hang* (a truncated value
+sends a loop or scheduler into a state it never leaves). The emu has three
+built-in hooks to make both legible. All output goes to the host's **stderr
+(fd 2)** and is **async-signal-safe** (only `write(2)`, no malloc/locks/`print`),
+so it works even mid-fault or mid-deadlock. Implemented in `emu/Linux/os.c`
+(`disbacktrace`/`dumpallprogs`/`faultmon`/`syscrash`) and `emu/port/dis.c`
+(`schedprogress`/`schedbusy`/`schedidlecheck`).
+
+### `kill -USR2 <emu>` — JVM-style thread dump (always on)
+
+Dumps every Dis prog: pid, scheduler state (`alt`/`send`/`recv`/`debug`/
+`ready`/`release`/`exiting`/`broken`), and a per-frame backtrace
+(`module pc=<dis-offset> op=<opcode>`) walked from the prog's registers down
+the `Frame` chain. The running prog uses the live global `R`; blocked progs
+use their saved `p->R`. Every pointer is validated (`faultprobe`, via a
+`write` to `/dev/null` that returns `EFAULT` on a bad address) before deref,
+and the walk is depth-capped (64) — safe to fire at any time. Example:
+
+```
+=== Dis proc dump (SIGUSR2) ===
+prog 1 [release]
+	$Sys pc=0x... op=45
+	Bufio pc=147 op=45
+	Sh pc=5348 op=93
+	...
+	Emuinit pc=55 op=12
+=== end dump ===
+```
+
+`op=12` is `IRET` (see `isa.h`); a wild pointer reported in an `IRET` frame is
+a truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
+
+> SIGUSR1 is **not** used for this — it is reserved for unblocking
+> interruptible host I/O (`trapUSR1`). The dump is on USR2.
+
+### `EMUCRASH=1` — fault → backtrace → core (opt-in)
+
+By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis
+exception (`sysfault`→`disfault`), so corruption surfaces benignly layers
+later. With `EMUCRASH=1`, a *wild-address* fault (non-nil — an ordinary nil
+deref still becomes the normal Limbo exception) instead prints the one-line
+diagnostic + a full `dumpallprogs` backtrace, then restores the default signal
+disposition and **returns**, so the faulting instruction re-executes and the
+OS drops a core at the exact C site. Then:
+
+```sh
+ulimit -c unlimited           # and ensure /proc/sys/kernel/core_pattern keeps the core
+EMUCRASH=1 emu ... ; gdb emu core
+```
+
+gives the precise truncating C op-handler offline. SIGILL is routed the same
+way (a corrupt/truncated code pointer).
+
+### `EMUWATCHDOG=<secs>` — hang detector (default 60s)
+
+A watchdog kproc (`faultmon`, spawned from `disinit`) samples the scheduler
+heartbeat `schedprogress`, which `vmachine` bumps each time it runs a prog. If
+progress stops advancing **while a prog is still on the run queue**
+(`schedbusy()`), a prog entered the interpreter and never came back (a C-level
+infinite loop or a lock cycle) — a real hang, distinct from an idle system
+(run queue empty, blocked on I/O, which is *not* flagged). It prints `HANG:
+...` + a full dump; under `EMUCRASH` it also `abort()`s for a core.
+`EMUWATCHDOG=0` disables it. (Note: a pure channel-deadlock where every prog is
+blocked looks identical to idle and is *not* caught here — that needs I/O
+accounting; see the plan.)
+
+Separately, `schedidlecheck()` asserts a scheduler invariant whenever the VM
+goes idle: a `Pready` prog must be linked on the run queue, so a `Pready` prog
+found while the queue is empty is a **lost wakeup** (classic deadlock
+signature) and triggers a one-shot dump.
+
+> Native `/prog` inspection (above) is still the first tool for a *broken*
+> proc you can reach; these hooks are for faults/hangs that kill or freeze the
+> system before you can `cat /prog/*/status`.
+
+---
+
 ## Adding Diagnostic Prints
 
 ```limbo

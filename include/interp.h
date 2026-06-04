@@ -468,6 +468,21 @@ extern	Array*		mem2array(void*, int);
 extern	void		mlink(Module*, Link*, uchar*, int, int, Type*);
 extern	void		modinit(void);
 extern	WORD		modstatus(REG*, char*, int);
+
+/*
+ * LP64 observability (emu/Linux/os.c + emu/port/dis.c).
+ * faultcrash: EMUCRASH set -> wild-address fault dumps then re-raises for a core.
+ * faultmonsec: hang-watchdog threshold in seconds (0 disables); EMUWATCHDOG tunes it.
+ * schedprogress: bumped by the scheduler each time it runs a prog (heartbeat).
+ */
+extern	int		faultcrash;
+extern	int		faultmonsec;
+extern	uvlong		schedprogress;
+extern	int		faultprobe(void*, int);		/* async-signal-safe: is [p,p+n) readable? */
+extern	void		disbacktrace(REG*);		/* async-signal-safe Dis stack trace to fd 2 */
+extern	void		dumpallprogs(char*);		/* async-signal-safe dump of every Dis prog */
+extern	void		faultmon(void*);		/* hang-watchdog kproc */
+extern	int		schedbusy(void);		/* is a prog on the run queue? */
 extern	void		movp(void);
 extern	void		movtmp(void);
 extern	void		movtmpsafe(void);
