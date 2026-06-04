@@ -19,8 +19,12 @@ init(regexmod: Regex, args: list of string): (list of ref Rule, string)
 			return (nil, sys->sprint("can't read /dev/user: %r"));
 		filename := "/usr/"+user+"/plumbing";
 		(rc, nil) := sys->stat(filename);
-		if(rc < 0)
+		if(rc < 0){
 			filename = "/usr/"+user+"/lib/plumbing";
+			(rc, nil) = sys->stat(filename);
+			if(rc < 0)
+				filename = "/lib/plumbing";	# system-wide default when the user has none
+		}
 		args = filename :: nil;
 	}
 	r, rules: list of ref Rule;
