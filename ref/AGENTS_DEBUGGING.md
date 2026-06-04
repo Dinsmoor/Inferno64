@@ -382,6 +382,60 @@ signature) and triggers a one-shot dump.
 
 ---
 
+## Catching LP64 width bugs statically and semantically
+
+Complementing the runtime hooks above, four layers catch a 64→32 truncation
+*before* it corrupts anything — at compile, link/load, and (debug) run time.
+
+### `make lint` — clang 64→32 narrowing lint
+
+clang's `-Wshorten-64-to-32` is exactly the LP64 bug class as a warning, and
+gcc has no equivalent. `tests/lint/run.sh` (via `make lint`) asks `mk -n -a`
+for the real per-file compile flags of every host C file (libs + emu) and
+replays each through clang in `-fsyntax-only` mode with only that warning on,
+diffing against `tests/lint/baseline.txt` so a **new** narrowing fails the run
+while the ~246 pre-existing (mostly benign) ones stay quiet. gcc remains the
+production compiler. `make lint-all` lists every site; `make lint-update`
+re-baselines after triage. See `tests/lint/README.md`.
+
+### `genmove` width assertion (limbo compiler, #4b)
+
+The move/cons opcode the code generator picks from a type's kind has a fixed
+width (`IMOVW`=4, `IMOVL`=8, `IMOVP`=`IBY2PTR`, …); it must equal the type's
+size or the emitted code moves the wrong number of bytes — the truncation
+class. `genmove` (both `limbo/gen.c` and `appl/cmd/limbo/gen.b`) asserts
+`movewidth(op) == mt->size`, a compile-time guard against type/optab/size
+drift. (`tptr = IBY2PTR==IBY2LG ? tbig : tint` is what keeps pointer temps in
+step across both ABIs — see `ref/AGENTS_INPRO.md`.)
+
+### GC pointer-map vs layout (libinterp, #4c/#4d)
+
+`markheap` traces the pointer at every set bit of a type's map, at byte offset
+`slot*IBY2PTR`. `verifytype()` (`heap.c`) asserts every set bit lies wholly
+within the object's size; the `.dis` loader (`load.c`) runs it on each type
+descriptor (**#4d**) — a module that parses but whose maps are inconsistent for
+this ABI is rejected up front, naming the module. `verifyctype()` runs at init
+for the C-registered draw types (**#4c**), additionally requiring a generated
+ADT map to stay within the Limbo ADT prefix it describes (the C-only tail
+pointers are deliberately untraced) — a mismatch panics at boot.
+
+### `make emu-disptrcheck` — "Valgrind for Dis pointers" (#5)
+
+A `-DDISPTRCHECK` build validates every map-marked pointer slot against the
+live heap as the GC walks it: a real reference is `H`, or points just past a
+`Heap` header inside a heap arena (`ptrinpool`), with a sane GC colour. A
+64→32 truncated pointer fails all three and is reported (type, object, byte
+offset, value) at the first GC after it is installed, instead of crashing
+layers away when chased; the slot is then skipped. Debug only (slow); `make
+emu` reverts to production. This is the dynamic analog of #4c/#4d.
+
+> Layering: `make lint` + the `genmove` assert catch width bugs at build time;
+> `verifytype`/`verifyctype` at load/init; `DISPTRCHECK` at run time; and the
+> runtime hooks above (`EMUCRASH`/USR2/`EMUWATCHDOG`) when one still gets
+> through and faults or hangs.
+
+---
+
 ## Adding Diagnostic Prints
 
 ```limbo
