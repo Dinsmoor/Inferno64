@@ -20,7 +20,7 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 |---|---|---|
 | wm/wm desktop | ✅ | renders, taskbar, windows (16- & 24-bit) |
 | wm/clock | ✅ | renders + runs (self-test) |
-| acme (editor) | ✅ | **was crashing at 24-bit; fixed** (BUG-1: aarch64 release barrier). Launches clean in the GUI sweep |
+| acme (editor) | ✅ | **was crashing at 24-bit; fixed** (BUG-1). Fully interactive at 24-bit: renders tag/columns/dir-listing, opens files via button-3 (verified opening Makefile), no fault under xdotool input. Needs a writable /tmp (now default, below) |
 | wm apps (20) | ✅ | gui_sweep launch @24-bit: about/bounce/clock/coffee/colors/collide/memory/polyhedra/reversi/snake/stopwatch/sweeper/task/tetris/mand/pen/view/edit/brutus/calendar all ok |
 | charon (browser) | 🟡 | launches clean (gui_sweep); interactive browsing not yet exercised |
 | sh (shell) | ✅ | echo, pipes, `` `{} `` cmd-substitution, multi-cmd scripts |
@@ -70,13 +70,16 @@ crypto/styx/loader — see `tests/lp64/README.md`. This document is about the
   emu has the same latent bug (its `_tas` has DMB but `coherence` is `nofence`);
   the fix could extend there if/when that target is exercised.
 
-### Note: acme/full-desktop apps need /tmp + plumber  🟡 (environmental, not a bug)
-A bare `wm/wm /dis/acme/acme.dis` launch logs `can't read /chan/plumb.edit`
-(no plumber) and `can't create temp file` (no writable `/tmp` in the default
-namespace), so acme comes up degraded for editing. This is environment setup,
-not an LP64/port defect — `scripts/headless_vnc.sh`'s full desktop (wmsetup)
-binds `/tmp` and starts the plumber. Follow-up: have `scenario.sh` optionally
-set up `/tmp`+plumber for true interactive-app testing.
+### Note: writable /tmp for GUI apps  ✅ (done) + plumber 🟡 (optional)
+A bare `wm/wm /dis/acme/acme.dis` had no writable `/tmp`, so acme couldn't
+create its scratch files. **Fixed in the harness:** `scenario.sh` now defaults
+to `TMPFS=1`, mounting a fresh in-memory `/tmp` (`memfs /tmp`) under a wm shell
+before the app — apps that need scratch space (acme, downloads) work like a real
+desktop. (`TMPFS=0` keeps the bare direct-launch path for crash repro.) Recipe
+for a manual run: `wm/wm /dis/sh.dis -c 'memfs /tmp; /dis/acme/acme.dis'`.
+Remaining `can't read /chan/plumb.edit` is just the **plumber** not running —
+only affects inter-window plumbing (right-click-to-open across windows still
+works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
 
 ## Method notes
 

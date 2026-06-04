@@ -150,12 +150,23 @@ record_existing_cores
 
 ASLR=${ASLR:-off}
 if [ "$ASLR" = on ]; then ASLRWRAP=""; else ASLRWRAP="setarch -R"; fi
+
+# TMPFS=1 (default): mount a fresh writable in-memory /tmp before the app, so
+# apps that need scratch files (acme's temp files, downloads, etc.) work like a
+# real desktop.  The app then runs under a wm shell rather than as the direct
+# wm client.  TMPFS=0 launches the app directly (the bare crash-repro path).
+TMPFS=${TMPFS:-1}
+if [ "$TMPFS" = 1 ]; then
+	set -- wm/wm /dis/sh.dis -c "memfs /tmp; $APP"
+else
+	set -- wm/wm "$APP"
+fi
 ( ulimit -c unlimited
   exec env DISPLAY="$DISP" EMUCRASH="$CRASHMODE" EMUWATCHDOG="$WATCHDOG" \
-       $ASLRWRAP "$EMU" -r"$ROOT" -g"$GEOM" wm/wm "$APP" ) \
+       $ASLRWRAP "$EMU" -r"$ROOT" -g"$GEOM" "$@" ) \
   >"$EMULOG" 2>&1 </dev/null &
 EMU_PID=$!
-say "[scenario] emu pid=$EMU_PID (EMUCRASH=$CRASHMODE EMUWATCHDOG=$WATCHDOG, ASLR=$ASLR)"
+say "[scenario] emu pid=$EMU_PID (EMUCRASH=$CRASHMODE EMUWATCHDOG=$WATCHDOG, ASLR=$ASLR, tmpfs=$TMPFS)"
 
 CRASH_RE='LP64 fault|[Ss]egmentation|Broken:|illegal dis|bad address|[Pp]anic|assert|SIGSEGV|SIGILL|SIGBUS'
 HANG_RE='EMU(WATCHDOG|HANG)|watchdog|HANG:|lost wakeup|no runnable'
