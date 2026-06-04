@@ -27,7 +27,7 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | filesystem | ✅ | `ls /` (host tree via `-r`), `cat`, `/dev/user`→tyler, `/dev/sysname`, `pwd` |
 | process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
 | namespace | ✅ | `ns` shows full bind/mount: `#U` hostfs, `#c` cons, `#p` prog, `#d` fd, `#I` ip, `#e` env |
-| networking (dial/styx) | 🟡 | headless tests/lp64/30_styxnet pass (TCP loopback + 9P); GUI net apps untested |
+| networking (IP/styx) | ✅ | `/net` stack live (arp/tcp/udp/ndb); `cat /net/tcp/clone` allocates a conn; + headless 30_styxnet TCP loopback + 9P pass. GUI net apps not individually driven |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
 (The headless TAP suites in `tests/lp64/suites/` already cover VM/lang/concur/
