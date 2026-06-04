@@ -452,6 +452,10 @@ extern	int		killgrp(Prog*, char*);
 extern	Modlink*	linkmod(Module*, Import*, int);
 extern	Modlink*	mklinkmod(Module*, int);
 extern	Module*		load(char*);
+/* .dis decoding primitives (disops.c) */
+extern	int		operand(uchar**);
+extern	ulong		disw(uchar**);
+extern	double		canontod(ulong[2]);
 extern	Module*		lookmod(char*);
 extern	long	magic(void);
 extern	void		markarray(Type*, void*);
