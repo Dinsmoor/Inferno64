@@ -22,7 +22,7 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | wm/clock | ✅ | renders + runs (self-test) |
 | acme (editor) | ✅ | **was crashing at 24-bit; fixed** (BUG-1). Fully interactive at 24-bit: renders tag/columns/dir-listing, opens files via button-3 (verified opening Makefile), no fault under xdotool input. Needs a writable /tmp (now default, below) |
 | wm apps (20) | ✅ | gui_sweep launch @24-bit: about/bounce/clock/coffee/colors/collide/memory/polyhedra/reversi/snake/stopwatch/sweeper/task/tetris/mand/pen/view/edit/brutus/calendar all ok |
-| charon (browser) | 🟡 | launches clean (gui_sweep); interactive browsing not yet exercised |
+| charon (browser) | ✅ | renders a local HTML page at 24-bit (H1 heading, bold/italic inline, bulleted list, toolbar + URL bar), no crash. UTF-8 chars mojibake (`café`→`cafÃ©`) — that's the separate `charon-modernization` branch's UTF-8 work, not an LP64 defect on this branch |
 | sh (shell) | ✅ | echo, pipes, `` `{} `` cmd-substitution, multi-cmd scripts |
 | filesystem | ✅ | `ls /` (host tree via `-r`), `cat`, `/dev/user`→tyler, `/dev/sysname`, `pwd` |
 | process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
