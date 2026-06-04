@@ -23,9 +23,11 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | acme (editor) | ✅ | **was crashing at 24-bit; fixed** (BUG-1: aarch64 release barrier). Launches clean in the GUI sweep |
 | wm apps (20) | ✅ | gui_sweep launch @24-bit: about/bounce/clock/coffee/colors/collide/memory/polyhedra/reversi/snake/stopwatch/sweeper/task/tetris/mand/pen/view/edit/brutus/calendar all ok |
 | charon (browser) | 🟡 | launches clean (gui_sweep); interactive browsing not yet exercised |
-| sh + core commands | ⏳ | |
-| file ops / namespace | ⏳ | |
-| networking (dial/styx) | 🟡 | headless tests/lp64/30_styxnet pass; GUI net apps untested |
+| sh (shell) | ✅ | echo, pipes, `` `{} `` cmd-substitution, multi-cmd scripts |
+| filesystem | ✅ | `ls /` (host tree via `-r`), `cat`, `/dev/user`→tyler, `/dev/sysname`, `pwd` |
+| process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
+| namespace | ✅ | `ns` shows full bind/mount: `#U` hostfs, `#c` cons, `#p` prog, `#d` fd, `#I` ip, `#e` env |
+| networking (dial/styx) | 🟡 | headless tests/lp64/30_styxnet pass (TCP loopback + 9P); GUI net apps untested |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
 (The headless TAP suites in `tests/lp64/suites/` already cover VM/lang/concur/
@@ -60,12 +62,21 @@ crypto/styx/loader — see `tests/lp64/README.md`. This document is about the
   Pure addition of a memory barrier (release fence in `unlock()`); cannot change
   userspace semantics, only removes the race. x86 keeps `nofence` (TSO).
 - **Validation:** TAP suites 178/178 (incl. 10_concur GC churn); cunit all pass;
-  gui_sweep @24-bit 22/22 launch ok, 0 crashes. NOTE: a clean dynamic before/
-  after on acme isn't possible — any rebuild perturbs layout and masks the flaky
-  race (pristine rebuild was already 0/20), so the proof is the static
-  correctness argument + zero userspace regressions. 32-bit ARM Linux emu has
-  the same latent bug (its `_tas` has DMB but `coherence` is `nofence`); the fix
-  could extend there if/when that target is exercised.
+  gui_sweep @24-bit 22/22 launch ok, 0 crashes; **interactive** acme @24-bit
+  driven with xdotool keyboard input stayed alive with no fault/core. NOTE: a
+  clean dynamic before/after on acme isn't possible — any rebuild perturbs layout
+  and masks the flaky race (pristine rebuild was already 0/20), so the proof is
+  the static correctness argument + zero userspace regressions. 32-bit ARM Linux
+  emu has the same latent bug (its `_tas` has DMB but `coherence` is `nofence`);
+  the fix could extend there if/when that target is exercised.
+
+### Note: acme/full-desktop apps need /tmp + plumber  🟡 (environmental, not a bug)
+A bare `wm/wm /dis/acme/acme.dis` launch logs `can't read /chan/plumb.edit`
+(no plumber) and `can't create temp file` (no writable `/tmp` in the default
+namespace), so acme comes up degraded for editing. This is environment setup,
+not an LP64/port defect — `scripts/headless_vnc.sh`'s full desktop (wmsetup)
+binds `/tmp` and starts the plumber. Follow-up: have `scenario.sh` optionally
+set up `/tmp`+plumber for true interactive-app testing.
 
 ## Method notes
 
