@@ -150,3 +150,16 @@ lint-all:
 
 lint-update:
 	@$(LINT_RUN) --update
+
+# Debug build of the "Valgrind for Dis pointers" checker (#5): rebuild
+# libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates
+# every GC-reachable Dis pointer slot (via its type's pointer map) against the
+# live heap and reports a truncated/corrupt pointer the first GC after it is
+# installed. Slow; debug only. Run `make emu` afterwards to restore production.
+.PHONY: emu-disptrcheck
+emu-disptrcheck:
+	@cc=`sed -n 's/^CC=[ 	]*//p' $(ROOT)/mkfiles/mkfile-$(SYSTARG)-$(OBJTYPE)`; \
+	rm -f $(ROOT)/libinterp/gc.o $(ROOT)/emu/$(SYSTARG)/o.emu; \
+	(cd $(ROOT)/libinterp && $(MK) $(MKARGS) "CC=$$cc -DDISPTRCHECK" install) && \
+	(cd $(ROOT)/emu/$(SYSTARG) && $(MK) $(EMUARGS) install) && \
+	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make emu' to revert."
