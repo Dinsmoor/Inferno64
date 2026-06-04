@@ -36,7 +36,29 @@ char *hosttype = "Linux";
 typedef sem_t	Sem;
 
 extern int dflag;
+
+/*
+ * Memory-ordering barrier used by unlock() (emu/port/lock.c) as the release
+ * fence between a critical section's stores and clearing the lock word.
+ *
+ * aarch64 is weakly ordered, so this MUST be a real barrier: without it the
+ * next thread's _tas() can observe the lock free (its own dmb is only an
+ * acquire fence) while the writes the lock protected are not yet visible,
+ * leaving it to act on stale shared state -- e.g. the pool free-tree root/links
+ * (emu/port/alloc.c), which surfaces as rare, flaky, layout-dependent heap
+ * corruption.  __sync_synchronize() emits `dmb ish`.  On x86 (TSO) the store
+ * ordering unlock needs is free, so nofence remains correct there.
+ */
+#ifdef LINUX_AARCH64
+static void
+fencecoherence(void)
+{
+	__sync_synchronize();
+}
+void (*coherence)(void) = fencecoherence;
+#else
 void (*coherence)(void) = nofence;
+#endif
 
 int	gidnobody = -1;
 int	uidnobody = -1;
