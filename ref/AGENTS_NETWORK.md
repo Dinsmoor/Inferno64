@@ -258,6 +258,38 @@ udp=dns     port=53
 
 The connection server source is `appl/cmd/ndb/cs.b`.
 
+## DNS / Name Resolution
+
+Names are resolved by the DNS server `appl/cmd/ndb/dns.b`, which serves
+`/net/dns` (a `file2chan`). `cs` forwards name queries to it; you can also query
+it directly with `ndb/dnsquery <name>`. Both `cs` and `dns` are normally started
+by the wm desktop (`lib/wmsetup`); start them by hand with `ndb/cs &` then
+`ndb/dns -r &`.
+
+Resolution order inside `dns.b` (the important part for hosted Inferno):
+
+1. **Host resolver first** — with the default `usehost=1`, `dns` loads `$Srv`
+   (`emu/port/srv.c`) and calls `srv->iph2a(name)`, which drops the VM token and
+   calls the host's `getaddrinfo` (`ipif6-posix.c`). On hosted emu this means
+   **name resolution works out of the box with zero Inferno-side config** — it
+   uses the host's `/etc/resolv.conf`. (`ndb/dns -h` disables this.)
+2. **Recursive fallback** — if the host map returns nothing, `dns` does real DNS
+   queries against the resolvers listed in `lib/ndb/local`:
+   ```
+   dns=8.8.8.8    # forward-to resolver (Google public DNS)
+   dns=1.1.1.1    # backup (Cloudflare)
+   ```
+   The shipped defaults make recursion work without editing ndb; replace them
+   with a site resolver if you prefer.
+
+> **LP64 note:** the `$Srv` builtin path was historically broken on 64-bit by a
+> stale, 32-bit-ABI `emu/Linux/srv.h`/`srvm.h` (wrong frame offsets → a truncated
+> `String*` argument → wild-address fault in `Srv_iph2a`, observed as a "DNS
+> hang"). Fixed by regenerating those headers per-ABI; see AGENTS_INPRO.md.
+
+`webgrab` (an HTTP `curl` substitute, below) and `dial` of any `net!host!svc`
+both depend on this path via `cs`.
+
 ## Hosting a 9P Service over the Network: styxlisten Pattern
 
 `appl/cmd/styxlisten.b` is the canonical pattern for serving a 9P file tree to network clients. Read it. The core idea:

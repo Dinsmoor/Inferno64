@@ -156,6 +156,26 @@ stk := debug->stack(p);         # returns array of Frame adts
 debug->kill(p);
 ```
 
+### Windowed debugger (`wm/deb`)
+
+`appl/wm/deb.b` is the graphical debugger (its window title is `spark:Wmdeb`).
+It drives the same `/prog/PID/dbgctl` protocol above through `appl/lib/debug.b`,
+with a thread picker (File → Thread…), a Threads/Break list, a source/disassembly
+pane and a Stack window. Source-level view needs the module's `.sbl` (compile with
+`limbo -g`); without it you still get disassembly + the stack.
+
+**Caveat — never stop a GUI proc; it self-deadlocks the desktop.** Adding a target
+writes `stop` to its `dbgctl`. If that target is `Wm`/`Wmsrv`/`Toolbar` (the
+window-manager group, usually grp 1 / grp 8) or any Tk client, the whole desktop
+hard-freezes: the compositor that draws the debugger's own window and dispatches
+input is now halted, so you can't even click "unstop"/"detach". The emu stays
+healthy (all threads idle on futex, no fault/spin) — it's a pure suspension
+deadlock, and on hosted emu there's no host-side `/prog` access to write `start`
+back, so recovery is restarting that emu. The "Wmdeb Thread List" picker also
+**auto-refreshes/reorders**, so a select-then-"Add Thread" can grab the wrong pid
+(an easy way to stop `Wmsrv` by accident). Use `wm/deb` on non-GUI / headless
+Limbo programs; pick targets by their own `grp`, never the wm group.
+
 ---
 
 ## disdump — Disassembling .dis Files

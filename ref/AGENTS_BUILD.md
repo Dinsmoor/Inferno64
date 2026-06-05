@@ -166,6 +166,32 @@ The `Linux/aarch64/include/` directory must contain architecture-specific header
 
 Copy these from `Linux/arm/include/` and adjust for aarch64 (64-bit pointer sizes, AArch64 FP register layout).
 
+## Iterating on a running system: Dis tree vs the emu binary
+
+The system has two halves that rebuild very differently, which matters when a
+desktop (`wm/wm`) is live and you don't want to disturb it:
+
+- **Limbo / Dis changes** (anything under `appl/` — charon, wm, sh, acme, the
+  libraries) compile to `.dis` files that the running emu loads *lazily at launch*.
+  So you can `mk` the new `.dis` (or `make dis`), then **just relaunch that app
+  inside the live desktop** to pick up the change — **no emu/VNC restart needed**.
+  (An already-running instance keeps the old `.dis`; close and reopen it.)
+
+- **C changes** (the emu VM itself, devices, or a builtin like `srv.c`) require
+  rebuilding and reinstalling the **emu binary**, and installing is
+  `cp o.emu → $OBJDIR/bin/emu`. Linux refuses to overwrite a **running**
+  executable: the `cp` fails with `ETXTBSY` ("text file busy"), so `make emu`
+  ends in `cp ... : exit status=exit(1)` while a desktop is using that binary.
+  The compile itself succeeded — `emu/$SYSTARG/o.emu` is the fresh binary. To
+  finish you must stop the running emu first (kill it by its **specific pid**,
+  never `pkill -x emu`, which would also kill any other emu/desktop sessions),
+  or test the new build by running `o.emu` directly from `emu/$SYSTARG/`.
+
+> Generated, ABI-specific headers (`emu/Linux/srv.h`/`srvm.h`, `libinterp`'s
+> `runt.h`/`*mod.h`) are removed on `clean`/`nuke` so a full `make` always
+> regenerates them with the current-ABI `limbo`. See AGENTS_INPRO.md for why this
+> matters across a 32↔64-bit switch.
+
 ## mk Syntax vs make
 
 | Concept | mk | make |
