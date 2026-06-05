@@ -365,6 +365,34 @@ if(sslfd == nil)
 
 The algorithm string (`"rc4_256 sha1"`, `"des_56_cbc sha1"`, etc.) is negotiated between client and server before pushing SSL.
 
+### TLS modernization design (in progress)
+
+The stack above is SSL 3.0 / TLS 1.0 only (`ssl3.b` handshake + `devssl` record
+layer: RC4/DES/3DES, RSA key exchange) and `libsec` lacks the modern primitives
+(ECC/X25519, AEAD/GCM, HKDF, SNI). Modern servers reject all of it, so Charon
+can't load real https.
+
+**Decision: vendor mbedTLS (Apache-2.0) rather than hand-roll modern crypto in
+libsec.** Spike confirmed mbedTLS 3.6.2 builds on aarch64 and does TLS 1.3 +
+cert verification to a live host. Follows the `libfreetype/libfreetype`
+vendoring precedent.
+
+**Shape: a `devtls` device, not a builtin module** — TLS should be a namespace
+capability for the *whole system* (sh, `dial`, `webgrab`, 9P-over-TLS, Charon),
+exactly the way `devssl` already layers onto a connection. Use it like devssl:
+attach the dialed fd (`ctl ← "fd <n>"`), set `servername`/`alpn`/`verify` via
+ctl, read/write the `data` file as the cleartext stream, read peer cert/version
+from a `status`/`cert` file (for Charon's lock icon).
+
+**Why the device doesn't limit Charon:** protocols *layered on top of* TLS —
+**`wss`**, HTTP/2 framing, etc. — ride above the plaintext `data` fd and need no
+TLS-context threading (wss is just an HTTP `Upgrade` over the clear stream).
+Only TLS-*layer* control/introspection (ALPN, client certs, exported keying,
+cert details) lives at the TLS layer, and the device exposes all of it via
+ctl/status files. If/when richer ergonomics are wanted, add a thin typed Limbo
+`Tls` module *over* the device files — additive, not a redesign. So: device as
+the system-wide substrate, optional Limbo wrapper kept in reserve.
+
 ## Error Handling
 
 `dial->dial` returns `nil` on failure. Get the reason with `sys->sprint("%r")`. The dial library automatically tries `/net` and then `/net.alt` before giving up, and picks the more informative error string.
