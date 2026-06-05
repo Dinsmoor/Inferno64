@@ -18,6 +18,16 @@
 #   VNC_BIND=local     'local' binds to 127.0.0.1 (use an SSH tunnel - default,
 #                      recommended); 'lan' binds to all interfaces and REQUIRES a
 #                      VNC password (~/.vnc/passwd, created with `vncpasswd`).
+#   FAULTCRASH=1       max-sensitivity fault catching (default ON).  On a wild-
+#                      address fault, emu dumps every Dis proc's stack to the emu
+#                      log AND re-raises to drop a core at the exact C site, so
+#                      "check the logs" after a crash gives a full backtrace plus
+#                      a core for gdb.  Set FAULTCRASH=0 for a desktop that
+#                      survives a single glitch (fault stays a soft Dis exception).
+#                      Ordinary Limbo nil-derefs are unaffected (always soft).
+#   WATCHDOG=60        seconds the VM may stall with work queued before emu dumps
+#                      all procs (and aborts for a core if FAULTCRASH=1).  0
+#                      disables.  An idle desktop never trips it (empty run queue).
 #
 # Security: this host may have public addresses, and VNC is unencrypted.  The
 # default (VNC_BIND=local) is reachable only via localhost; connect through an
@@ -43,7 +53,23 @@ EMU="$ROOT/Linux/$ARCH/bin/emu"
 GEOM=${GEOM:-1280x800}
 DEPTH=${DEPTH:-24}
 VNC_BIND=${VNC_BIND:-local}
+FAULTCRASH=${FAULTCRASH:-1}
+WATCHDOG=${WATCHDOG:-60}
 CMD=${1:-start}
+
+# Where the kernel writes cores (from core_pattern), so we can surface them after
+# a crash.  A leading '|' means cores are piped to a handler (eg systemd-coredump)
+# -> use coredumpctl; an absolute pattern -> that directory; else emu's cwd.
+COREDIR=""
+core_info() {
+	local pat
+	pat=$(cat /proc/sys/kernel/core_pattern 2>/dev/null)
+	case "$pat" in
+	'|'*) COREDIR="" ;;                                  # piped to a handler
+	/*)   COREDIR=$(dirname "$pat"); mkdir -p "$COREDIR" 2>/dev/null ;;
+	*)    COREDIR="emu working dir ($ROOT)" ;;
+	esac
+}
 
 # Was a display explicitly requested?
 if [ -n "${DISP:-}" ]; then DISP_EXPLICIT=1; else DISP_EXPLICIT=0; fi
@@ -198,7 +224,17 @@ start_xserver() {
 # --- start the Inferno desktop ------------------------------------------------
 start_emu() {
 	[ -n "$EMU" ] && [ -x "$EMU" ] || die "GUI emu not found under $ROOT/Linux/*/bin/emu (build: cd emu/Linux && mk install)"
-	DISPLAY="$DISP" "$EMU" -r"$ROOT" -g"$GEOM" wm/wm >"$EMULOG" 2>&1 &
+	core_info
+	# Let the faulting emu actually write a core (subshell ulimit propagates to
+	# the backgrounded child).  Harmless if cores are piped to a handler.
+	ulimit -c unlimited 2>/dev/null || true
+	if [ "$FAULTCRASH" = 1 ]; then
+		DISPLAY="$DISP" EMUCRASH=1 EMUWATCHDOG="$WATCHDOG" \
+			"$EMU" -r"$ROOT" -g"$GEOM" wm/wm >"$EMULOG" 2>&1 &
+	else
+		DISPLAY="$DISP" EMUWATCHDOG="$WATCHDOG" \
+			"$EMU" -r"$ROOT" -g"$GEOM" wm/wm >"$EMULOG" 2>&1 &
+	fi
 	echo $! >"$EMUPIDF"
 	sleep 1
 	alive "$(catf "$EMUPIDF")" || { tail -n 20 "$EMULOG" >&2; die "emu exited immediately (see $EMULOG)"; }
@@ -219,6 +255,13 @@ print_instructions() {
 	echo " emu      : $EMU"
 	echo " logs     : $XLOG"
 	echo "            $EMULOG"
+	[ -z "$COREDIR" ] && core_info
+	if [ "$FAULTCRASH" = 1 ]; then
+		echo " faults   : EMUCRASH on, watchdog ${WATCHDOG}s -- on a crash, the emu log"
+		echo "            holds a full Dis backtrace; a core lands in $COREDIR"
+	else
+		echo " faults   : EMUCRASH off (soft Dis exceptions), watchdog ${WATCHDOG}s"
+	fi
 	echo
 	if [ "$VNC_BIND" = lan ]; then
 		echo " Connect a VNC client (password required) to:"
@@ -291,6 +334,12 @@ do_status() {
 	if ours_running; then say "  emu/wm   : running (pid $(catf "$EMUPIDF"))"; else say "  emu/wm   : not running"; fi
 	if command -v ss >/dev/null 2>&1; then
 		ss -ltn 2>/dev/null | grep -q ":$PORT " && say "  VNC port : $PORT listening" || say "  VNC port : $PORT not listening"
+	fi
+	core_info
+	if [ -d "$COREDIR" ]; then
+		local c
+		c=$(ls -t "$COREDIR"/core.* 2>/dev/null | head -n1)
+		[ -n "$c" ] && say "  last core: $c  (gdb $EMU $c)"
 	fi
 }
 

@@ -345,6 +345,10 @@ faultmoninit(void)
 	if(e != nil)
 		faultmonsec = atoi(e);
 
+	e = getenv("EMUPOOLCHECK");	/* free-tree audit cadence (GCs); 0 disables */
+	if(e != nil)
+		poolcheckfreq = atoi(e);
+
 	memset(&act, 0, sizeof(act));
 	act.sa_handler = trapUSR2;
 	sigaction(SIGUSR2, &act, nil);

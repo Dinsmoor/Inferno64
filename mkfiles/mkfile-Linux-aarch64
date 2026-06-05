@@ -12,11 +12,12 @@ AS=		gcc -c -march=armv8-a
 ASFLAGS=
 
 CC=		gcc -c -march=armv8-a
-CFLAGS=		-O\
+CFLAGS=		-g -O\
 		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
 		-I$ROOT/Linux/aarch64/include\
 		-I$ROOT/include\
-		-DLINUX_AARCH64
+		-DLINUX_AARCH64\
+		-DDISPTRCHECK
 
 ANSICPP=
 LD=		gcc -march=armv8-a

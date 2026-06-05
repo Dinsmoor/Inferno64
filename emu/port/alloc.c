@@ -214,6 +214,64 @@ ptrinpool(Pool *p, void *a)
 	return 0;
 }
 
+/*
+ * Free-tree integrity audit -- LP64 stray-pointer catcher.  A free block keeps
+ * its allocator tree node (parent/left/right) and same-size list (fwd/prev) in
+ * the block body via the Bhdr union; every one of those links must be nil, the
+ * block itself, or another block in the SAME pool.  A 64->32 truncated or
+ * otherwise stray pointer scribbled over a free block fails this.  We catch it
+ * the next GC -- naming the block, the offending field and the bad value --
+ * long before the allocator chases the pointer and faults somewhere unrelated.
+ *
+ * Cost is a full linear walk of every arena, so it runs every poolcheckfreq-th
+ * GC (default 64; EMUPOOLCHECK=N, 0 disables, 1 = every GC for max sensitivity).
+ * On a hit it prints the evidence and abort()s for a core at the detection site.
+ */
+int		poolcheckfreq = 64;
+static uvlong	poolcheckcalls;
+
+static char*
+_poolcheckblk(int pnum, Bhdr *b)
+{
+	Pool *p;
+	Bhdr *bad;
+	char *fld;
+
+	if(b->magic != MAGIC_F)
+		return nil;
+	p = &table.pool[pnum];
+	bad = nil;
+	fld = nil;
+	if(b->parent != nil && !ptrinpool(p, b->parent))     { fld = "parent"; bad = b->parent; }
+	else if(b->left != nil && !ptrinpool(p, b->left))    { fld = "left";   bad = b->left; }
+	else if(b->right != nil && !ptrinpool(p, b->right))  { fld = "right";  bad = b->right; }
+	else if(b->fwd != b && !ptrinpool(p, b->fwd))        { fld = "fwd";    bad = b->fwd; }
+	else if(b->prev != b && !ptrinpool(p, b->prev))      { fld = "prev";   bad = b->prev; }
+	if(fld == nil)
+		return nil;
+	print("POOLCHECK: pool %s free block %#p (size %lud) has stray %s = %#p\n"
+		"  parent=%#p left=%#p right=%#p fwd=%#p prev=%#p\n",
+		p->name, b, (ulong)b->size, fld, bad,
+		b->parent, b->left, b->right, b->fwd, b->prev);
+	return "corrupt free-tree pointer";
+}
+
+void
+poolcheck(void)
+{
+	char *e;
+
+	if(poolcheckfreq <= 0)
+		return;
+	if(++poolcheckcalls % (uvlong)poolcheckfreq)
+		return;
+	e = poolaudit(_poolcheckblk);
+	if(e != nil){
+		print("POOLCHECK: %s -- abort()ing for a core\n", e);
+		abort();
+	}
+}
+
 void
 pooldel(Pool *p, Bhdr *t)
 {

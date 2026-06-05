@@ -356,6 +356,7 @@ rungc(Prog *p)
 		gchalted++;
 		return;
 	}
+	poolcheck();	/* periodic free-tree integrity audit (LP64 stray-pointer catcher) */
 	if(base == nil) {
 		gcsweeps++;
 		b = poolchain(heapmem);
