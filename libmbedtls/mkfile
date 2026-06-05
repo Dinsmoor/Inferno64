@@ -1,0 +1,130 @@
+<../mkconfig
+
+# Vendored mbedTLS 3.6.2 (Apache-2.0), built as one static lib for emu.
+# Upstream sources live under libmbedtls/mbedtls/{include,library}; this
+# mkfile compiles every library/*.c with the Inferno CC, mirroring the
+# libfreetype vendoring pattern. They are plain ISO C and must NOT pull in
+# Inferno's lib9.h (they only include libc + their own headers).
+
+LIB=libmbedtls.a
+
+OFILES=\
+	aes.$O\
+	aesce.$O\
+	aesni.$O\
+	aria.$O\
+	asn1parse.$O\
+	asn1write.$O\
+	base64.$O\
+	bignum.$O\
+	bignum_core.$O\
+	bignum_mod.$O\
+	bignum_mod_raw.$O\
+	block_cipher.$O\
+	camellia.$O\
+	ccm.$O\
+	chacha20.$O\
+	chachapoly.$O\
+	cipher.$O\
+	cipher_wrap.$O\
+	cmac.$O\
+	constant_time.$O\
+	ctr_drbg.$O\
+	debug.$O\
+	des.$O\
+	dhm.$O\
+	ecdh.$O\
+	ecdsa.$O\
+	ecjpake.$O\
+	ecp.$O\
+	ecp_curves.$O\
+	ecp_curves_new.$O\
+	entropy.$O\
+	entropy_poll.$O\
+	error.$O\
+	gcm.$O\
+	hkdf.$O\
+	hmac_drbg.$O\
+	lmots.$O\
+	lms.$O\
+	md5.$O\
+	md.$O\
+	memory_buffer_alloc.$O\
+	mps_reader.$O\
+	mps_trace.$O\
+	net_sockets.$O\
+	nist_kw.$O\
+	oid.$O\
+	padlock.$O\
+	pem.$O\
+	pk.$O\
+	pkcs12.$O\
+	pkcs5.$O\
+	pkcs7.$O\
+	pk_ecc.$O\
+	pkparse.$O\
+	pk_wrap.$O\
+	pkwrite.$O\
+	platform.$O\
+	platform_util.$O\
+	poly1305.$O\
+	psa_crypto_aead.$O\
+	psa_crypto.$O\
+	psa_crypto_cipher.$O\
+	psa_crypto_client.$O\
+	psa_crypto_driver_wrappers_no_static.$O\
+	psa_crypto_ecp.$O\
+	psa_crypto_ffdh.$O\
+	psa_crypto_hash.$O\
+	psa_crypto_mac.$O\
+	psa_crypto_pake.$O\
+	psa_crypto_rsa.$O\
+	psa_crypto_se.$O\
+	psa_crypto_slot_management.$O\
+	psa_crypto_storage.$O\
+	psa_its_file.$O\
+	psa_util.$O\
+	ripemd160.$O\
+	rsa_alt_helpers.$O\
+	rsa.$O\
+	sha1.$O\
+	sha256.$O\
+	sha3.$O\
+	sha512.$O\
+	ssl_cache.$O\
+	ssl_ciphersuites.$O\
+	ssl_client.$O\
+	ssl_cookie.$O\
+	ssl_debug_helpers_generated.$O\
+	ssl_msg.$O\
+	ssl_ticket.$O\
+	ssl_tls12_client.$O\
+	ssl_tls12_server.$O\
+	ssl_tls13_client.$O\
+	ssl_tls13_generic.$O\
+	ssl_tls13_keys.$O\
+	ssl_tls13_server.$O\
+	ssl_tls.$O\
+	threading.$O\
+	timing.$O\
+	version.$O\
+	version_features.$O\
+	x509.$O\
+	x509_create.$O\
+	x509_crl.$O\
+	x509_crt.$O\
+	x509_csr.$O\
+	x509write.$O\
+	x509write_crt.$O\
+	x509write_csr.$O\
+
+# Paths are relative to this mkfile's dir (libmbedtls/); the vendored upstream
+# tree is libmbedtls/mbedtls/, so from here that is just mbedtls/.
+%.$O: mbedtls/library/%.c
+	$CC $CFLAGS -o $target $prereq
+
+<$ROOT/mkfiles/mksyslib-$SHELLTYPE
+
+# mbedTLS needs only its own include dir; keep the rest of $CFLAGS (arch
+# flags) but add the vendored headers.
+CFLAGS= $CFLAGS -Imbedtls/include

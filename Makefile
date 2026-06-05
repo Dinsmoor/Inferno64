@@ -50,6 +50,7 @@ EMUDIRS := \
 	libprefab   \
 	libtk       \
 	libfreetype \
+	libmbedtls  \
 	libmemdraw  \
 	libmemlayer \
 	utils/data2c \
