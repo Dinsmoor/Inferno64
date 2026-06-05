@@ -15,6 +15,7 @@ Item: adt
 	anchorid:	int;			# if nonzero, which anchor we're in
 	state:	int;			# flags and values (see below)
 	genattr:	ref Genattr;	# generic attributes and events
+	bg:		int;			# CSS background-color pixel for this item's box, or -1
 
 	pick {
 		Itext =>

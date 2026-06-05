@@ -356,37 +356,37 @@ copyitem(oldf, f : ref Frame, item: ref Item): ref Item
 	pick it := item {
 	Itext =>
 		return ref Item.Itext(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			it.s, it.fnt, it.fg, it.voff, it.ul);
 	Irule =>
 		return ref Item.Irule(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			it.align, it.noshade, it.size, it.wspec);
 	Iimage =>
 		# need to copy the image to prevent
 		# ongoing image fetches from messing up our layout
 		ci := copycimage(it.ci);
 		return ref Item.Iimage(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			it.imageid, ci, it.imwidth, it.imheight, it.altrep,
 			nil, it.name, -1, it.align, it.hspace, it.vspace, it.border);
 	Iformfield =>
 		return ref Item.Iformfield(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			copyformfield(oldf, f, it.formfield)
 		);
 	Itable =>
 		return ref Item.Itable(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			copytable(oldf, f, it.table));
 	Ifloat =>
 		items := copyitem(oldf, f, it.item);
 		return ref Item.Ifloat(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			items, it.x, it.y, it.side, byte 0);
 	Ispacer =>
 		return ref Item.Ispacer(
-			nil, it.width, it.height, it.ascent, 0, it.state, nil,
+			nil, it.width, it.height, it.ascent, 0, it.state, nil, it.bg,
 			it.spkind, it.fnt);
 	* =>
 		return nil;

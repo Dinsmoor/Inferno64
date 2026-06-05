@@ -288,7 +288,7 @@ layout(f: ref Frame, bsmain: ref ByteSource, linkclick: int) : array of byte
 		ci := CImage.new(url, nil, 0, 0);
 		simage := ref Source.Simage(bsmain, 0, ci, nil, imsrc);
 		sources = Sources.new(simage);
-		it := ref Item.Iimage(nil, 0, 0, 0, 0, 0, nil, len di.images, ci, 0, 0, "", nil, nil, -1, Abottom, byte 0, byte 0, byte 0);
+		it := ref Item.Iimage(nil, 0, 0, 0, 0, 0, nil, -1, len di.images, ci, 0, 0, "", nil, nil, -1, Abottom, byte 0, byte 0, byte 0);
 		di.images = it :: nil;
 		appenditems(f, l, it);
 		simage.itl = it :: nil;
@@ -2059,6 +2059,12 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 	# note: drawimg must always be called to update
 	# draw point of animated images
 	for(it := l.items; it != nil; it = it.next) {
+		# CSS per-element background: fill the item's box if it has a
+		# background-color distinct from the line's background (the page/cell
+		# bg is already painted, so only distinct element boxes need filling).
+		if(inview && it.bg >= 0 && it.bg != lay.background.color && it.width > 0)
+			im.draw(Rect(Point(x, y), Point(x+it.width, y+l.height)),
+				colorimage(it.bg), nil, zp);
 		pick i := it {
 		Itext =>
 			if (!inview || i.s == nil)

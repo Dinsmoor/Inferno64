@@ -1861,6 +1861,8 @@ additem(ps: ref Pstate, it: ref Item, tok: ref LX->Token)
 	}
 	it.anchorid = ps.curanchor;
 	it.state |= ps.curstate;
+	if(csson && cssstk != nil)
+		it.bg = (hd cssstk).ovbg;	# effective CSS background-color for this item
 	if(tok != nil)
 		it.genattr = getgenattr(tok);
 	ps.curstate &= ~(IFbrk|IFbrksp|IFnobrk|IFcleft|IFcright);
@@ -2018,6 +2020,7 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 		fr.ovfg = p.ovfg;
 		fr.ovstyle = p.ovstyle;
 		fr.ovsize = p.ovsize;
+		fr.ovbg = p.ovbg;	# effective background propagates down for painting
 	}
 
 	# Flow: a grid/flex (or inline-*) container lays its children out in a row
@@ -3008,12 +3011,12 @@ stringstate(state: int) : string
 
 Item.newtext(s: string, fnt, fg, voff: int, ul: byte) : ref Item
 {
-	return ref Item.Itext(nil, 0, 0, 0, 0, 0, nil, s, fnt, fg, byte voff, ul);
+	return ref Item.Itext(nil, 0, 0, 0, 0, 0, nil, -1, s, fnt, fg, byte voff, ul);
 }
 
 Item.newrule(align: byte, size, noshade: int, wspec: Dimen) : ref Item
 {
-	return ref Item.Irule(nil, 0, 0, 0, 0, 0, nil, align, byte noshade, size, wspec);
+	return ref Item.Irule(nil, 0, 0, 0, 0, 0, nil, -1, align, byte noshade, size, wspec);
 }
 
 Item.newimage(di: ref Docinfo, src: ref Parsedurl, lowsrc: ref Parsedurl, altrep: string,
@@ -3026,28 +3029,28 @@ Item.newimage(di: ref Docinfo, src: ref Parsedurl, lowsrc: ref Parsedurl, altrep
 		state = IFsmap;
 	if (isbkg)
 		state = IFbkg;
-	return ref Item.Iimage(nil, 0, 0, 0, 0, state, genattr, len di.images,
+	return ref Item.Iimage(nil, 0, 0, 0, 0, state, genattr, -1, len di.images,
 			ci, width, height, altrep, map, name, -1, align, byte hspace, byte vspace, byte border);
 }
 
 Item.newformfield(ff: ref Formfield) : ref Item
 {
-	return ref Item.Iformfield(nil, 0, 0, 0, 0, 0, nil, ff);
+	return ref Item.Iformfield(nil, 0, 0, 0, 0, 0, nil, -1, ff);
 }
 
 Item.newtable(t: ref Table) : ref Item
 {
-	return ref Item.Itable(nil, 0, 0, 0, 0, 0, nil, t);
+	return ref Item.Itable(nil, 0, 0, 0, 0, 0, nil, -1, t);
 }
 
 Item.newfloat(it: ref Item, side: byte) : ref Item
 {
-	return ref Item.Ifloat(nil, 0, 0, 0, 0, IFwrap, nil, it, 0, 0, side, byte 0);
+	return ref Item.Ifloat(nil, 0, 0, 0, 0, IFwrap, nil, -1, it, 0, 0, side, byte 0);
 }
 
 Item.newspacer(spkind, font: int) : ref Item
 {
-	return ref Item.Ispacer(nil, 0, 0, 0, 0, 0, nil, spkind, font);
+	return ref Item.Ispacer(nil, 0, 0, 0, 0, 0, nil, -1, spkind, font);
 }
 
 Item.revlist(itl: list of ref Item) : list of ref Item
