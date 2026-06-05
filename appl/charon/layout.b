@@ -2062,9 +2062,13 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 		# CSS per-element background: fill the item's box if it has a
 		# background-color distinct from the line's background (the page/cell
 		# bg is already painted, so only distinct element boxes need filling).
-		if(inview && it.bg >= 0 && it.bg != lay.background.color && it.width > 0)
-			im.draw(Rect(Point(x, y), Point(x+it.width, y+l.height)),
+		# Inflate horizontally into the inter-cell gap so chips have a little
+		# padding rather than the text touching the box edge.
+		if(inview && it.bg >= 0 && it.bg != lay.background.color && it.width > 0){
+			BGPADX: con 3;
+			im.draw(Rect(Point(x-BGPADX, y), Point(x+it.width+BGPADX, y+l.height)),
 				colorimage(it.bg), nil, zp);
+		}
 		pick i := it {
 		Itext =>
 			if (!inview || i.s == nil)
