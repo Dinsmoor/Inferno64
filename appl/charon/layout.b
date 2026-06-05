@@ -2064,13 +2064,31 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 		# bg is already painted, so only distinct element boxes need filling).
 		# Inflate horizontally into the inter-cell gap so chips have a little
 		# padding rather than the text touching the box edge.
-		if(inview && it.box != nil && it.box.bg >= 0 && it.box.bg != lay.background.color && it.width > 0){
+		dofill := it.box != nil && it.box.bg >= 0 && it.box.bg != lay.background.color;
+		if(inview && it.box != nil && it.width > 0 && (dofill || it.box.borderw > 0)){
 			BGPADX: con 3;
 			pad := it.box.padx;
 			if(pad <= 0)
 				pad = BGPADX;
-			im.draw(Rect(Point(x-pad, y), Point(x+it.width+pad, y+l.height)),
-				colorimage(it.box.bg), nil, zp);
+			pady := it.box.pady;
+			bx0 := x - pad;
+			by0 := y - pady;
+			bx1 := x + it.width + pad;
+			by1 := y + l.height + pady;
+			if(dofill)
+				im.draw(Rect(Point(bx0, by0), Point(bx1, by1)),
+					colorimage(it.box.bg), nil, zp);
+			bw := it.box.borderw;
+			if(bw > 0){
+				bc := it.box.bordercolor;
+				if(bc < 0)
+					bc = 0;	# unspecified border-color -> black (currentColor approx)
+				bci := colorimage(bc);
+				im.draw(Rect(Point(bx0, by0), Point(bx1, by0+bw)), bci, nil, zp);	# top
+				im.draw(Rect(Point(bx0, by1-bw), Point(bx1, by1)), bci, nil, zp);	# bottom
+				im.draw(Rect(Point(bx0, by0), Point(bx0+bw, by1)), bci, nil, zp);	# left
+				im.draw(Rect(Point(bx1-bw, by0), Point(bx1, by1)), bci, nil, zp);	# right
+			}
 		}
 		pick i := it {
 		Itext =>

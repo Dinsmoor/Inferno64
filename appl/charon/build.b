@@ -2052,12 +2052,14 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	if(cfound)
 		fr.ovfg = rgb(r, g, b);
 	(br, bgc, bb, bgfound) := props.color("background-color");
-	if(bgfound) {
+	if(bgfound)
 		fr.ovbg = rgb(br, bgc, bb);
-		# this element declares its own background: give it a fresh box so the
-		# fill is stamped on its items (children inherit this box ref via fr.box).
-		fr.box = ref Cssbox(fr.ovbg, 0, 0, 0, -1);
-	}
+	# build this element's own box if it declares any box decoration of its own
+	# (background, padding, or border).  The box carries the *effective* bg so
+	# nested styled runs keep filling; children inherit this ref via fr.box.
+	nb := cssbox(props, fr.ovbg, bgfound);
+	if(nb != nil)
+		fr.box = nb;
 	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
 	if(schg)
 		fr.ovstyle = nstyle;
@@ -2142,6 +2144,51 @@ cssfontsize(props: ref Props): (int, int)
 	"%" =>		return (emsize(v / 100), 1);
 	}
 	return (Normal, 0);
+}
+
+# Build a Cssbox for an element from its computed style, or nil if it declares
+# no box decoration of its own (so it just inherits the parent box ref).  bg is
+# the element's *effective* background pixel (inherited or own); bgown says
+# whether this element set background-color itself.  Padding/border lengths are
+# resolved generically by csseng; Charon's line-based layout uses padx/pady to
+# inflate the painted box (no content reflow) and draws a border outline.
+cssbox(props: ref Props, bg, bgown: int): ref Cssbox
+{
+	BASE: con 16;	# reference px for em/ex/% resolution of box lengths
+
+	# padding: longhand wins; else the `padding` shorthand (top = value 0,
+	# left = value 1, or value 0 when only one length was given).
+	(pady, pyf) := props.lengthpx("padding-top", BASE);
+	if(!pyf)
+		(pady, nil) = props.nthlengthpx("padding", 0, BASE);
+	(padx, pxf) := props.lengthpx("padding-left", BASE);
+	if(!pxf){
+		f: int;
+		(padx, f) = props.nthlengthpx("padding", 1, BASE);
+		if(!f)
+			(padx, nil) = props.nthlengthpx("padding", 0, BASE);
+	}
+
+	# border width: border-width, then the `border` shorthand's length, then a
+	# single side's width.
+	(borderw, bwf) := props.lengthpx("border-width", BASE);
+	if(!bwf)
+		(borderw, bwf) = props.nthlengthpx("border", 0, BASE);
+	if(!bwf)
+		(borderw, nil) = props.lengthpx("border-left-width", BASE);
+
+	bordercolor := -1;
+	(cr, cg, cb, cf) := props.anycolor("border-color");
+	if(!cf)
+		(cr, cg, cb, cf) = props.anycolor("border");
+	if(!cf)
+		(cr, cg, cb, cf) = props.anycolor("border-top-color");
+	if(cf)
+		bordercolor = rgb(cr, cg, cb);
+
+	if(!bgown && padx <= 0 && pady <= 0 && borderw <= 0)
+		return nil;	# nothing of its own -> inherit parent's box
+	return ref Cssbox(bg, padx, pady, borderw, bordercolor);
 }
 
 # true if the named margin property is a substantial positive length (>= ~0.5em

@@ -60,7 +60,10 @@ init(nil: ref Draw->Context, nil: list of string)
 		".ppt     { padding-left: 12pt; }\n" +		# 12pt = 16px
 		".wem     { width: 2em; }\n" +			# 2 * 16 = 32
 		".mpc     { margin-left: 50%; }\n" +		# 50% of 16 = 8
-		".wex     { width: 1ex; }\n";			# ~0.5em of 16 = 8
+		".wex     { width: 1ex; }\n" +			# ~0.5em of 16 = 8
+		".pad2    { padding: 8px 16px; }\n" +		# top/bottom 8, left/right 16
+		".bsh     { border: 2px solid red; }\n" +	# shorthand: width 2, color red
+		".bnamed  { border-color: navy; }\n";
 	(ass, aerr) := css->parse(author);
 	t->ok(aerr == nil || aerr == "", "author sheet parsed");
 	eng.addsheet(ass, Csseng->AUTHOR);
@@ -84,6 +87,25 @@ init(nil: ref Draw->Context, nil: list of string)
 	pp := eng.compute(Elem.mk("div", "", "wem", nil), nil);
 	(nil, found) := pp.lengthpx("padding-top", BASE);
 	t->ok(found == 0, "absent length -> not found");
+
+	# --- shorthand-aware helpers (box model) -----------------------------
+	pad := eng.compute(Elem.mk("div", "", "pad2", nil), nil);
+	(p0, f0) := pad.nthlengthpx("padding", 0, BASE);
+	(p1, f1) := pad.nthlengthpx("padding", 1, BASE);
+	(nil, f2) := pad.nthlengthpx("padding", 2, BASE);
+	t->ok(f0 && p0 == 8,  "padding shorthand value 0 -> 8px");
+	t->ok(f1 && p1 == 16, "padding shorthand value 1 -> 16px");
+	t->ok(f2 == 0, "padding shorthand value 2 -> absent");
+
+	bsh := eng.compute(Elem.mk("div", "", "bsh", nil), nil);
+	(bw, bwf) := bsh.nthlengthpx("border", 0, BASE);
+	t->ok(bwf && bw == 2, "border shorthand width -> 2px");
+	(rr, rg, rb, rf) := bsh.anycolor("border");
+	t->ok(rf && rr == 255 && rg == 0 && rb == 0, "border shorthand color -> red");
+
+	bn := eng.compute(Elem.mk("div", "", "bnamed", nil), nil);
+	(nr, ng, nb, nf) := bn.anycolor("border-color");
+	t->ok(nf && nr == 0 && ng == 0 && nb == 128, "border-color named navy -> #000080");
 
 	t->summary();
 }

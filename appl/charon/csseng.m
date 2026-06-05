@@ -53,6 +53,11 @@ Csseng: module
 		# reference size for relative units (em/rem/ex against the element's
 		# font, % against basepx).  Charon-independent; box-model consumers use it.
 		lengthpx: fn(p: self ref Props, name: string, basepx: int): (int, int);
+		# the n-th (0-based) <length> of a possibly-multi-value declaration,
+		# resolved to px: handles shorthands (padding: 8px 16px, border: 1px ...)
+		nthlengthpx: fn(p: self ref Props, name: string, n, basepx: int): (int, int);
+		# first colour anywhere in a declaration's value list (border: 1px solid red)
+		anycolor: fn(p: self ref Props, name: string): (int, int, int, int);
 		# normalised CSS font-weight: 0 = unspecified, else 100..900
 		# (normal->400, bold/bolder->700, lighter->300, numeric kept as-is)
 		fontweight: fn(p: self ref Props, name: string): int;

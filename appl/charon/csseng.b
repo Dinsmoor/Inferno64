@@ -637,12 +637,7 @@ Props.unit(p: self ref Props, name: string): (int, string, int)
 	(vals, found) := p.val(name);
 	if(!found || vals == nil)
 		return (0, "", 0);
-	pick x := hd vals {
-	Unit =>		return (milli(x.value), tolower(x.units), 1);
-	Number =>	return (milli(x.value), "", 1);
-	Percentage =>	return (milli(x.value), "%", 1);
-	}
-	return (0, "", 0);
+	return valunit(hd vals);
 }
 
 Props.lengthpx(p: self ref Props, name: string, basepx: int): (int, int)
@@ -650,15 +645,51 @@ Props.lengthpx(p: self ref Props, name: string, basepx: int): (int, int)
 	(v, units, found) := p.unit(name);	# v in milli-units
 	if(!found)
 		return (0, 0);
-	case units {
-	"px" =>			return (v / 1000, 1);
-	"pt" =>			return ((v * 96) / (72 * 1000), 1);
-	"em" or "rem" =>	return ((v * basepx) / 1000, 1);
-	"ex" =>			return ((v * basepx) / 2000, 1);	# ~0.5em
-	"%" =>			return ((v * basepx) / (100 * 1000), 1);
-	"" =>			return (v / 1000, 1);	# unitless (0, or treat as px)
+	return resolvelen(v, units, basepx);
+}
+
+# Like lengthpx but resolves the n-th (0-based) length-like value in the
+# declaration, so it understands shorthands such as `padding: 8px 16px` and
+# `border: 1px solid red`.  found=0 if there are fewer than n+1 length tokens.
+Props.nthlengthpx(p: self ref Props, name: string, n, basepx: int): (int, int)
+{
+	(vals, found) := p.val(name);
+	if(!found)
+		return (0, 0);
+	i := 0;
+	for(; vals != nil; vals = tl vals){
+		(v, units, ok) := valunit(hd vals);
+		if(!ok)
+			continue;
+		if(i == n)
+			return resolvelen(v, units, basepx);
+		i++;
 	}
 	return (0, 0);
+}
+
+# Scan all values of a declaration for its first colour, so a shorthand like
+# `border: 1px solid #ccc` yields #ccc.  found=0 if no colour present.
+Props.anycolor(p: self ref Props, name: string): (int, int, int, int)
+{
+	(vals, found) := p.val(name);
+	if(!found)
+		return (0, 0, 0, 0);
+	for(; vals != nil; vals = tl vals){
+		pick x := hd vals {
+		Hexcolour =>
+			(r, g, b) := x.rgb;
+			return (r, g, b, 1);
+		RGB =>
+			(r, g, b) := x.rgb;
+			return (r, g, b, 1);
+		Ident =>
+			(r, g, b, ok) := namedcolor(tolower(x.name));
+			if(ok)
+				return (r, g, b, 1);
+		}
+	}
+	return (0, 0, 0, 0);
 }
 
 Props.fontweight(p: self ref Props, name: string): int
@@ -735,6 +766,33 @@ valstr(v: ref CSS->Value): string
 # --- small helpers -------------------------------------------------------
 
 # parse a CSS number string into integer milli-units (1.33 -> 1330)
+# extract a numeric magnitude (in milli-units) and unit suffix from one CSS
+# value; ok=0 if it is not a length/number/percentage.
+valunit(v: ref CSS->Value): (int, string, int)
+{
+	pick x := v {
+	Unit =>		return (milli(x.value), tolower(x.units), 1);
+	Number =>	return (milli(x.value), "", 1);
+	Percentage =>	return (milli(x.value), "%", 1);
+	}
+	return (0, "", 0);
+}
+
+# resolve a length (milli-units + unit) to integer pixels; em/rem/ex/% are
+# resolved against basepx.  found=0 only for an unrecognised unit.
+resolvelen(v: int, units: string, basepx: int): (int, int)
+{
+	case units {
+	"px" =>			return (v / 1000, 1);
+	"pt" =>			return ((v * 96) / (72 * 1000), 1);
+	"em" or "rem" =>	return ((v * basepx) / 1000, 1);
+	"ex" =>			return ((v * basepx) / 2000, 1);	# ~0.5em
+	"%" =>			return ((v * basepx) / (100 * 1000), 1);
+	"" =>			return (v / 1000, 1);	# unitless (0, or treat as px)
+	}
+	return (0, 0);
+}
+
 milli(s: string): int
 {
 	i := 0;
