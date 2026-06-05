@@ -697,6 +697,17 @@ addrun(Prog *p)
 		isched.runtl->link = p;
 
 	isched.runtl = p;
+
+	/*
+	 * Wake a vmachine that has gone idle asleep on irend: it holds the VM but
+	 * parked because nothing was runnable, and only acquire() used to wake it.
+	 * Without this, a prog made runnable here (by a kproc that is not the idle
+	 * holder -- e.g. host-I/O completion, a timer, an exception, GC) is left on
+	 * the run queue with no one to run it: a lost-wakeup deadlock (run queue
+	 * non-empty, holder asleep).  Wakeup is a no-op when no one sleeps on irend,
+	 * so this never creates a second runner.
+	 */
+	Wakeup(&isched.irend);
 }
 
 Prog*
