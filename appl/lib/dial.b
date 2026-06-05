@@ -368,6 +368,49 @@ netinfo(c: ref Connection): ref Conninfo
 	return ci;
 }
 
+# Layer modern TLS onto an already-connected fd using the #T (devtls) device.
+pushtls(fd: ref Sys->FD, servername: string): (ref Sys->FD, ref Sys->FD, string)
+{
+	if(sys == nil)
+		sys = load Sys Sys->PATH;
+	cfd := sys->open("#T/clone", Sys->ORDWR);
+	if(cfd == nil)
+		return (nil, nil, sys->sprint("tls: open #T/clone: %r"));
+	buf := array[32] of byte;
+	n := sys->read(cfd, buf, len buf);
+	if(n <= 0)
+		return (nil, nil, "tls: cannot read conversation number");
+	conv := string buf[0:n];
+	while(conv != nil && (conv[len conv-1]=='\n' || conv[len conv-1]==' '))
+		conv = conv[0:len conv-1];
+	if(sys->fprint(cfd, "fd %d", fd.fd) < 0)
+		return (nil, nil, sys->sprint("tls: attach fd: %r"));
+	if(servername != nil && sys->fprint(cfd, "servername %s", servername) < 0)
+		return (nil, nil, sys->sprint("tls: servername: %r"));
+	# force the handshake so cert/handshake failures surface here
+	if(sys->fprint(cfd, "handshake") < 0)
+		return (nil, nil, sys->sprint("tls: handshake: %r"));
+	dfd := sys->open("#T/" + conv + "/data", Sys->ORDWR);
+	if(dfd == nil)
+		return (nil, nil, sys->sprint("tls: open data: %r"));
+	return (dfd, cfd, nil);
+}
+
+# dial + pushtls.  c.dfd is cleartext; keep the returned ctl fd open.
+dialtls(addr, local, servername: string): (ref Connection, ref Sys->FD, string)
+{
+	if(sys == nil)
+		sys = load Sys Sys->PATH;
+	c := dial(addr, local);
+	if(c == nil)
+		return (nil, nil, sys->sprint("%r"));
+	(dfd, cfd, err) := pushtls(c.dfd, servername);
+	if(err != nil)
+		return (nil, nil, err);
+	c.dfd = dfd;
+	return (c, cfd, nil);
+}
+
 getendpoint(dir: string, file: string): (string, string)
 {
 	fd := sys->open(dir+"/"+file, Sys->OREAD);

@@ -268,33 +268,6 @@ init(cu: CharonUtils)
 	warn = dbg || int (CU->config).dbg['w'];
 }
 
-# Push the devtls (#T) device onto an already-dialed connection fd and complete
-# the TLS handshake.  Returns (cleartext data fd, ctl fd to keep open, err).
-pushtls(fd: ref Sys->FD, host: string): (ref Sys->FD, ref Sys->FD, string)
-{
-	cfd := sys->open("#T/clone", Sys->ORDWR);
-	if(cfd == nil)
-		return (nil, nil, sys->sprint("tls: open #T/clone: %r"));
-	b := array[32] of byte;
-	n := sys->read(cfd, b, len b);
-	if(n <= 0)
-		return (nil, nil, "tls: cannot read conversation number");
-	conv := string b[0:n];
-	while(conv != nil && (conv[len conv-1]=='\n' || conv[len conv-1]==' '))
-		conv = conv[0:len conv-1];
-	if(sys->fprint(cfd, "fd %d", fd.fd) < 0)
-		return (nil, nil, sys->sprint("tls: attach fd: %r"));
-	if(host != nil && sys->fprint(cfd, "servername %s", host) < 0)
-		return (nil, nil, sys->sprint("tls: servername: %r"));
-	# force the handshake now so cert/handshake failures surface here
-	if(sys->fprint(cfd, "handshake") < 0)
-		return (nil, nil, sys->sprint("tls: handshake: %r"));
-	dfd := sys->open("#T/" + conv + "/data", Sys->ORDWR);
-	if(dfd == nil)
-		return (nil, nil, sys->sprint("tls: open data: %r"));
-	return (dfd, cfd, nil);
-}
-
 connect(nc: ref Netconn, bs: ref ByteSource)
 {
 	if(nc.scheme == "https")
@@ -334,7 +307,7 @@ connect(nc: ref Netconn, bs: ref ByteSource)
 			if(nc.tstate&TProxy) # tunnelling TLS through a CONNECT proxy
 				err = tunnel_ssl(nc);
 			if(err == "") {
-				(pfd, ctlfd, terr) := pushtls(nc.conn.dfd, nc.host);
+				(pfd, ctlfd, terr) := DI->pushtls(nc.conn.dfd, nc.host);
 				if(terr != nil)
 					err = terr;
 				else {

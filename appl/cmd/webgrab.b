@@ -47,6 +47,7 @@ postbody : string;
 
 httpproxy: ref Url->ParsedUrl;
 noproxydoms: list of string;	# domains that don't require proxy
+tlsctl: ref FD;			# #T (devtls) ctl fd for https; held open program-life
 
 init(nil: ref Draw->Context, args: list of string)
 {
@@ -372,7 +373,10 @@ httpget(u: ref ParsedUrl) : (string, array of byte, ref Sys->FD, ref ParsedUrl)
 	
 	for(redir := 0; redir < 10; redir++) {
 		if(u.port == "")
-			u.port = "80";	# default IP port for HTTP
+			if(u.scheme == U->HTTPS)
+				u.port = "443";	# default IP port for HTTPS
+			else
+				u.port = "80";	# default IP port for HTTP
 		if(verbose)
 			sys->fprint(stderr, "connecting to %s\n", u.host);
 		dialhost, port: string;
@@ -389,7 +393,18 @@ httpget(u: ref ParsedUrl) : (string, array of byte, ref Sys->FD, ref ParsedUrl)
 		net := D->dial(dest, nil);
 		if(net == nil)
 			return (sys->sprint("can't dial %s: %r", dest), nil, nil, nil);
-			
+
+		# https: layer modern TLS onto the connection via #T (devtls).
+		# net.dfd becomes cleartext; tlsctl (global) holds the conversation
+		# open for the program's life (webgrab is one-shot).
+		if(u.scheme == U->HTTPS && (httpproxy == nil || !need_proxy(u.host))){
+			(pfd, cfd, terr) := D->pushtls(net.dfd, u.host);
+			if(terr != nil)
+				return (terr, nil, nil, nil);
+			net.dfd = pfd;
+			tlsctl = cfd;
+		}
+
 		# prepare request
 		if(u.query != ""){
 			u.query = "?" + u.query;

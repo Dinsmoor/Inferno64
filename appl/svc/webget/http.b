@@ -190,7 +190,7 @@ connect(c: ref Fid, r: ref Req, donec: chan of ref Fid)
 	io: ref Iobuf = nil;
 	redir := 1;
 	usessl := 0;
-	sslx : ref Context;
+	tlsctl: ref Sys->FD;	# #T (devtls) ctl fd; held open until the body is read
 
     redirloop:
 	for(nredir := 0; redir && nredir < MAXREDIR; nredir++) {
@@ -199,14 +199,8 @@ connect(c: ref Fid, r: ref Req, donec: chan of ref Fid)
 		cachemrep = nil;
 		io = nil;
 		validate = "";
-		if(u.scheme == Url->HTTPS) {
+		if(u.scheme == Url->HTTPS)
 			usessl = 1;
-			if(ssl3 == nil) {
-				ssl3 = load SSL3 SSL3->PATH;
-				ssl3->init();
-				sslx = ssl3->Context.new();
-			}
-		}
 		cacheit := usecache;
 		if(r.cachectl == "no-cache" || usessl)
 			cacheit = 0;
@@ -247,14 +241,15 @@ connect(c: ref Fid, r: ref Req, donec: chan of ref Fid)
 			W->log(c, "http: connected");
 			e: string;
 			if(usessl) {
-				vers := 3;
-				info := ref SSL3->Authinfo(ssl_suites, ssl_comprs, nil, 0, nil, nil, nil);
-				(e, vers) = sslx.client(net.dfd, addr, vers, info);
-				if(e != "") {
-					mrep = W->usererr(r, e);
+				# modern TLS via the #T devtls device; net.dfd becomes cleartext
+				(pfd, cfd, terr) := DI->pushtls(net.dfd, u.host);
+				if(terr != nil) {
+					mrep = W->usererr(r, terr);
 					break redirloop;
 				}
-				W->log(c, "https: ssl handshake complete");
+				net.dfd = pfd;
+				tlsctl = cfd;	# keep the conversation open through the body read
+				W->log(c, "https: TLS handshake complete");
 			}
 
 			#
