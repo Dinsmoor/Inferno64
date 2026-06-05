@@ -56,6 +56,21 @@ MODULES=\
 
 <$ROOT/mkfiles/mksyslib-$SHELLTYPE
 
+# limbo-generated, ABI-specific activation-record / module-table headers.
+# They encode pointer-sized frame offsets (IBY2PTR), so a 32<->64-bit ABI
+# switch makes them stale -- but mk's rules key off the .m source, which does
+# not change across an ABI switch, so it would relink the wrong-ABI struct.
+# Remove them on clean/nuke so a full rebuild always regenerates them with the
+# current-ABI limbo (the top-level Makefile nukes this dir before rebuilding).
+GENHFILES=runt.h sysmod.h keyring.h keyringif.h drawmod.h prefabmod.h tkmod.h\
+	mathmod.h loadermod.h freetypemod.h ipintsmod.h benchmod.h bench.h cryptmod.h
+
+clean:V:	cleangenh
+nuke:V:		cleangenh
+
+cleangenh:V:
+	rm -f $GENHFILES
+
 runt.h:D: $MODULES
 	rm -f $target && limbo -a -I../module ../module/runt.m > $target
 
