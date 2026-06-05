@@ -1,73 +1,81 @@
 # Inferno64 — Inferno with a 64-bit (LP64) Dis ABI
 
-**IMPORTANT:** THIS PORT IS NOT PROVED TO WORK RIGHT YET. This will boot into
-the emu on aarch64 and you can do *some* desktop GUI work, but certain things
-are still broken. Don't even try it until this notice goes away.
+**IMPORTANT:** THIS PORT IS NOT PROVED TO BE BUG FREE. This will boot into
+the emu on aarch64 and you can do *most* desktop GUI work, but certain things
+may still be broken. Feel free to try it, and if you do run into a crash or
+emu or wm freezes, then report it in a reproducable way and I'll see if I can
+fix it.
 
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
 **64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream
 Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
-Dis ABI itself 64-bit-clean, including a from-scratch **AArch64 (ARM64) JIT**.
+Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
 
-## One source tree, either ABI
 
-The same source tree builds for **either** Dis ABI, chosen automatically by the
-host's pointer width — build on a 32-bit system and you get the 32-bit ABI, build
-on a 64-bit system and you get the 64-bit ABI:
+## Goals for Inferno64
 
-- `include/isa.h` defines `IBY2PTR = sizeof(void*)` — the size of a Dis
-  pointer/register slot. All width-dependent layout (frame slots, pointer-typed
-  fields, GC pointer-map granularity) is expressed symbolically in terms of
-  `IBY2PTR` versus `IBY2WD` (the 4-byte Dis word, unchanged).
-- The `.dis` object magic carries a pointer-width tag: a 32-bit build stamps and
-  accepts `XMAGIC`/`SMAGIC`, a 64-bit build uses `XMAGIC8`/`SMAGIC8`. The magic is
-  stamped by the compiler (`limbo/com.c`) and checked by the loader
-  (`libinterp/load.c`), so a VM never silently executes a foreign-layout module;
-  a wrong-width module is rejected (`exDiswidth`) and the shell recompiles it from
-  source when available.
-- A compile-time assertion in `libinterp/xec.c` (`sizeof(void*) == IBY2PTR`) makes
-  any width mismatch a build error rather than a memory-corruption bug.
+1. Make it run natively on a LP64 ABI
+2. Implement JIT compilers for some major LP64 archetectures
+3. Make a proper test suite and harnesses to find memory bugs fast and make debugging easier
+4. Modernize some of the userspace applications to where 'i like them'
+4a. Charon - modern tls, minimal CSS3 and HTML5 and JS engines.
+4b. Acme - merge some of the work from the 9front weirdos if it's any good
+4c. Sh - take some of the good from bash (readline, autocomplete, etc) to make it nicer to use
+5. Make some improvements to Limbo (flesh out the undocumented Generics feature
+6. Improve ease of access to 'basically how does this work' style documentation
+7. Whatever else I want
 
-The two ABIs' `.dis` binaries are not interchangeable, but `.b`/`.m` Limbo source,
-the test suites, and the build tooling are shared — there is no separate branch to
-maintain per ABI.
+## Demon Machine based Development
 
-## What was done
+I found it fitting to use the demon machine (claude mostly) to actually do the
+implementation for most of the mechanical work, building out tests, and the like.
+Considering this OS is hell themed, I figure it is fitting thatan evil machine
+spirit would be forced to work on its own prison, unlike TempleOS, which only
+should be touched by the hands of those with Divine Intellect.
 
-- LP64-correct Dis VM and loader (pointer/word width discipline, big/real
-  constant encoding, exception unwinding, string-case tables, GC maps).
-- A complete **AArch64 hosted emulator** (`emu`/`emu-g`) and host toolchain
-  (`limbo`, `mk`, `iyacc`), plus `Linux/amd64` glue.
-- A from-scratch **AArch64 Dis JIT** (`libinterp/comp-aarch64.c`) — the first
-  64-bit JIT back-end for Inferno. Off by default (interpreter); enabled with
-  `emu -c1`/`-c2`.
-- The GUI stack (draw, Tk, prefab, vendored FreeType) runs under X11 on LP64.
+I have been programming for about 12 years, and only 2 of those have been with a
+demon machine, and I have found great utility in this tool's workflow. So, another
+part of this is the 'how to work on very complex software with this tool, effectively.'
 
-The regression battery in `tests/lp64/` (8 suites, 166 assertions) passes 166/166
-both interpreted and JIT-compiled (`-c1`) on the AArch64 host, including the Limbo
-compiler compiling itself.
+I use a few workflows, depending on the work :^)
 
-Both the C compiler and the self-hosting Limbo compiler implement a compile-time
-`sizeof(type)` operator, so the Dis pointer width is auto-derived on both sides
-with no per-ABI source edits: `include/isa.h` uses `IBY2PTR = sizeof(void*)` and
-`appl/cmd/limbo/isa.m` uses `con sizeof(string)` (a heap reference is one pointer
-slot).  Each folds to the pointer width of whichever compiler builds it.
+However, the main ones all center around an effective debugging harness that allows
+a vision model to actually drive the graphical desktop, attach a debugger to processes,
+and not get caught up by inferno's kind of crappy mk build tool.
 
-For implementation detail and the durable engineering notes, see `ref/AGENTS_*.md`
-(start with `ref/AGENTS_INPRO.md`).
+For the graphical desktop work, I do the inferno development on a DGX Spark on the
+network, and set up emu under a x virtual framebuffer and display, which is hosted
+by a vnc server. The demon machine can use xdotool and interact with the display while
+I can simultaniously view and interact with the desktop over VNC. It makes "hey
+charon's navigation buttons aren't working, look" super simple, and makes it easier
+to catch when the demon machine is getting something wrong.
+
+For the debugging and actually catching and dumping cores, we have to run emu with
+some build options and just make sure the demon machine knows about them, and it
+can use a gdb-mcp server (written by this dude: https://github.com/Ipiano/gdb-mcp 
+to work with gdb efficiently. This has been the main workflow for dealing with LP64
+related bugs when using the desktop normally. It's very hard to track down some
+of these, as there's a few interface layers between Limbo's Dis VM, the C space,
+and just finding where the actual root cause of a problem is. I am sure this is
+standard method for finding these issues in a port, I'm just writing about it
+since that's what I did.
+
+Inferno's mk tool is quite picky and had to be extended to pick up on local changes
+without having to `mk nuke` every time (I ended up just nuking every time because
+inferno takes less than a minute to compile from scratch)
 
 ## Credits
 
-This fork stands on others' work:
+This fork includes some others' work:
 
 - **Limbo by Example** (`ref/limbobyexample/`) is by Sean "henesy" Hinchee —
-  <https://github.com/henesy/limbobyexample> — included here as reference
-  material for learning the Limbo language (MIT licensed; see its `LICENSE`).
+  <https://github.com/henesy/limbobyexample>
 - The LP64 regression suite under `tests/lp64/` draws on the test programs in
-  caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab> — which
-  we adapt and run as the standing correctness net for the 64-bit port.
+  caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab>
+
+Mostly these are included here for convenience
 
 ---
 
