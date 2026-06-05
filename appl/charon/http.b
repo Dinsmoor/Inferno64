@@ -268,6 +268,33 @@ init(cu: CharonUtils)
 	warn = dbg || int (CU->config).dbg['w'];
 }
 
+# Push the devtls (#T) device onto an already-dialed connection fd and complete
+# the TLS handshake.  Returns (cleartext data fd, ctl fd to keep open, err).
+pushtls(fd: ref Sys->FD, host: string): (ref Sys->FD, ref Sys->FD, string)
+{
+	cfd := sys->open("#T/clone", Sys->ORDWR);
+	if(cfd == nil)
+		return (nil, nil, sys->sprint("tls: open #T/clone: %r"));
+	b := array[32] of byte;
+	n := sys->read(cfd, b, len b);
+	if(n <= 0)
+		return (nil, nil, "tls: cannot read conversation number");
+	conv := string b[0:n];
+	while(conv != nil && (conv[len conv-1]=='\n' || conv[len conv-1]==' '))
+		conv = conv[0:len conv-1];
+	if(sys->fprint(cfd, "fd %d", fd.fd) < 0)
+		return (nil, nil, sys->sprint("tls: attach fd: %r"));
+	if(host != nil && sys->fprint(cfd, "servername %s", host) < 0)
+		return (nil, nil, sys->sprint("tls: servername: %r"));
+	# force the handshake now so cert/handshake failures surface here
+	if(sys->fprint(cfd, "handshake") < 0)
+		return (nil, nil, sys->sprint("tls: handshake: %r"));
+	dfd := sys->open("#T/" + conv + "/data", Sys->ORDWR);
+	if(dfd == nil)
+		return (nil, nil, sys->sprint("tls: open data: %r"));
+	return (dfd, cfd, nil);
+}
+
 connect(nc: ref Netconn, bs: ref ByteSource)
 {
 	if(nc.scheme == "https")
@@ -300,44 +327,21 @@ connect(nc: ref Netconn, bs: ref ByteSource)
 		if(dbg)
 			sys->print("http %d: connected\n", nc.id);
 		if(nc.tstate&TSSL) {
-			#if(sslhs == nil) {
-			#	sslhs = load SSLHS SSLHS->PATH;
-			#	if(sslhs == nil)
-			#		err = sys->sprint("can't load SSLHS: %r");
-			#	else
-			#		sslhs->init(2);
-			#}
-			#if(err == "")
-			#	(err, nc.conn) = sslhs->client(nc.conn.dfd, addr);
-			if(nc.tstate&TProxy) # tunelling SSL through proxy
+			# Modern TLS via the #T (devtls/mbedTLS) device: push it onto
+			# the dialed connection, then read/write nc.conn.dfd as cleartext
+			# (sslx stays nil, so the normal fd I/O path is used).  Replaces
+			# the obsolete SSL3-only handshake.
+			if(nc.tstate&TProxy) # tunnelling TLS through a CONNECT proxy
 				err = tunnel_ssl(nc);
-	 		vers := 0;
- 			if(err == "") {
-				if(ssl3 == nil) {
-	 				m := load SSL3 SSL3->PATH;
- 					if(m == nil)
- 						err = "can't load SSL3 module";
-					else if((err = m->init()) == nil)
-						ssl3 = m;
+			if(err == "") {
+				(pfd, ctlfd, terr) := pushtls(nc.conn.dfd, nc.host);
+				if(terr != nil)
+					err = terr;
+				else {
+					nc.conn.dfd = pfd;	# now cleartext
+					nc.tlsctl = ctlfd;	# keep the conversation open
 				}
-				if(config.usessl == CU->NOSSL)
-					err = "ssl is configured off";
-				else if((config.usessl & CU->SSLV23) == CU->SSLV23)
-					vers = 23;
-	 			else if(config.usessl & CU->SSLV2)
-					vers = 2;
-	 			else if(config.usessl & CU->SSLV3)
-					vers = 3;
 			}
- 			if(err == "") {
- 				nc.sslx = ssl3->Context.new();
- 				if(config.devssl)
- 					nc.sslx.use_devssl();
- 				info := ref SSL3->Authinfo(ssl_suites, ssl_comprs, nil, 
- 						0, nil, nil, nil);
-vers = 3;
- 				(err, nc.vers) =  nc.sslx.client(nc.conn.dfd, addr, vers, info);
- 			}
 		}
 	}
 	if(err == "") {
@@ -1006,6 +1010,7 @@ closeconn(nc: ref Netconn)
 	nc.conn = nil;
 	nc.connected = 0;
 	nc.sslx = nil;
+	nc.tlsctl = nil;	# closes the #T conversation (frees TLS + underlying socket)
 }
 
 ssl_getline(sslx: ref SSL3->Context, buf: array of byte, bstart, bend: int)

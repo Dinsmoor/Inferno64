@@ -981,6 +981,7 @@ Netconn.new(id: int) : ref Netconn
 			ref Dial->Connection(nil, nil, ""),	# conn
 			nil,		# ssl context
 			0,		# undetermined ssl version
+			nil,		# tlsctl (devtls ctl fd)
 			NCfree,	# state
 			array[10] of ref ByteSource,	# queue
 			0,		# qlen
