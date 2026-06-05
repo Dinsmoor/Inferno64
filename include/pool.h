@@ -59,6 +59,7 @@ extern	void	poolinit(void);
 extern	void*	poolalloc(Pool*, ulong);
 extern	void	poolfree(Pool*, void*);
 extern	Bhdr*	poolchain(Pool*);
+extern	int	ptrinpool(Pool*, void*);
 extern	int	poolcompact(Pool*);
 extern	void	poolimmutable(void*);
 extern	ulong	poolmsize(Pool*, void*);

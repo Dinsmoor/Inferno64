@@ -102,6 +102,46 @@ noptrs(Type *t, void *vw)
 
 static int markdepth;
 
+#ifdef DISPTRCHECK
+/*
+ * "Valgrind for Dis pointers" (#5).  A debug build (-DDISPTRCHECK) validates
+ * every map-marked pointer slot against the live heap as the GC walks it: a
+ * real Dis reference is either H or points just past a Heap header inside a
+ * heap arena, with a sane GC colour.  A 64->32 truncated pointer fails all of
+ * these, so it is reported (type, byte offset of the slot, value) the first
+ * GC after it was installed — instead of crashing layers away when chased.
+ * The slot is then skipped, so the validator can't itself fault on it.
+ */
+extern	Pool*	heapmem;
+uvlong		disptrbadcount;
+
+static int
+disheapok(void *p)
+{
+	Heap *h;
+
+	if(p == H || p == nil)
+		return 1;
+	if(((uintptr)p & (sizeof(void*)-1)) != 0)	/* misaligned */
+		return 0;
+	if(!ptrinpool(heapmem, p))			/* not in any heap arena */
+		return 0;
+	h = D2H(p);
+	if((ulong)h->color > propagator)		/* colour out of 0..3 */
+		return 0;
+	return 1;
+}
+
+static void
+disptrbad(Type *t, void *base, WORD **slot, void *val)
+{
+	disptrbadcount++;
+	print("DISPTRCHECK: bad Dis pointer %#p in object %#p type %#p "
+		"(size %d, np %d) at slot +%ld — truncated/corrupt; skipping\n",
+		val, base, t, t->size, t->np, (long)((uchar*)slot - (uchar*)base));
+}
+#endif
+
 /* code simpler with a depth search compared to a width search*/
 void
 markheap(Type *t, void *vw)
@@ -124,13 +164,20 @@ markheap(Type *t, void *vw)
 			q = w;
 			for(m = 0x80; m != 0; m >>= 1) {
 				if((c & m) && *q != H) {
-					h = D2H(*q);
-					Setmark(h);
-					if(h->color == propagator && --visit >= 0 && markdepth < 64){
-						gce--;
-						h->color = mutator;
-						if((t1 = h->t) != nil)
-							t1->mark(t1, H2D(void*, h));
+#ifdef DISPTRCHECK
+					if(!disheapok(*q))
+						disptrbad(t, vw, q, *q);
+					else
+#endif
+					{
+						h = D2H(*q);
+						Setmark(h);
+						if(h->color == propagator && --visit >= 0 && markdepth < 64){
+							gce--;
+							h->color = mutator;
+							if((t1 = h->t) != nil)
+								t1->mark(t1, H2D(void*, h));
+						}
 					}
 				}
 				q++;
@@ -324,6 +371,7 @@ rungc(Prog *p)
 		return;
 	}
 
+	VG_MM_BEGIN;	/* collector mark+sweep legitimately reads freed-but-present objects */
 	for(visit = quanta; visit > 0; ) {
 		if(ptr->magic == MAGIC_A) {
 			visit--;
@@ -364,6 +412,7 @@ rungc(Prog *p)
 			limit = B2LIMIT(base);
 		}
 	}
+	VG_MM_END;
 
 	quanta = (MaxQuanta+Quanta)/2 + ((MaxQuanta-Quanta)/20)*((100*gce)/gct);
 	if(quanta < Quanta)
@@ -376,7 +425,9 @@ rungc(Prog *p)
 	if(nprop == 0) {	/* Completed the epoch ? */
 		gcepochs++;
 		gccolor++;
+		VG_MM_BEGIN;	/* rootset marks live objects; tolerate any dangling root */
 		rootset(p);
+		VG_MM_END;
 		gce = 0;
 		gct = 1;
 		return;

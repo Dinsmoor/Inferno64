@@ -115,6 +115,14 @@ drawmodinit(void)
 	TImage = dtype(freedrawimage, sizeof(DImage), imagemap, sizeof(imagemap));
 	TScreen = dtype(freedrawscreen, sizeof(DScreen), screenmap, sizeof(screenmap));
 	TDisplay = dtype(freedrawdisplay, sizeof(DDisplay), displaymap, sizeof(displaymap));
+
+	/* #4c: the generated ADT maps must agree with the ADT layout the runtime
+	 * uses; a mismatch here is a silent GC pointer-tracing bug under LP64. */
+	verifyctype("Draw->Font", TFont, sizeof(Draw_Font));
+	verifyctype("Draw->Image", TImage, sizeof(Draw_Image));
+	verifyctype("Draw->Screen", TScreen, sizeof(Draw_Screen));
+	verifyctype("Draw->Display", TDisplay, sizeof(Draw_Display));
+
 	builtinmod("$Draw", Drawmodtab, Drawmodlen);
 }
 

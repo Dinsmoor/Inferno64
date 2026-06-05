@@ -69,7 +69,10 @@ sh-lib%.a:VQ:
 		done
 
 clean:V:	cleanconf-$SHELLTYPE
-		rm -f *.[$OS] *.root.[shc] errstr.h *.out *.obj
+		# srv.h/srvm.h are limbo-generated and ABI-specific; remove them here
+		# (like errstr.h) so a full rebuild always regenerates them with the
+		# current-ABI limbo and a 32<->64-bit switch can't leave a stale stub.
+		rm -f *.[$OS] *.root.[shc] errstr.h srv.h srvm.h *.out *.obj
 
 cleanconf-sh:V:
 		for i in $CONFLIST $CLEANCONFLIST
@@ -100,7 +103,6 @@ nuke-rc nuke-nt:QV:
 		}
 
 nuke:V:		clean nuke-$SHELLTYPE
-		rm -f srv.h srvm.h
 
 $CONF.c:	../port/mkdevc $CONF
 		$SHELLNAME ../port/mkdevc $CONF > $CONF.c
@@ -163,8 +165,15 @@ $CONF.root.c $CONF.root.h: $CONF ../port/mkroot $ROOTFILES
 audio.c:N:	../port/audio-tbls.c
 audio.c:N:	../port/audio.h
 
+# srv.h/srvm.h are limbo-generated C activation-record headers and encode
+# ABI-specific frame offsets (pointer/register-slot size, MaxTemp).  They MUST
+# be regenerated whenever the limbo compiler's target ABI changes, so the rule
+# depends on the limbo binary itself -- not just the module source -- otherwise
+# an incremental 32<->64-bit rebuild leaves a stale header and srv.c reads its
+# arguments at the wrong offset (truncated String* -> wild-address fault in
+# Srv_iph2a, &c).  clean also removes them so a full rebuild regenerates them.
 srv.$O:			srv.h srvm.h
-srv.h srvm.h:D:		$ROOT/module/srvrunt.b $ROOT/module/srv.m
+srv.h srvm.h:D:		$ROOT/module/srvrunt.b $ROOT/module/srv.m $ROOT/$OBJDIR/bin/limbo
 			rm -f $alltarget
 			limbo -a -I$ROOT/module $ROOT/module/srvrunt.b >srv.h
 			limbo -t Srv -I$ROOT/module $ROOT/module/srvrunt.b >srvm.h

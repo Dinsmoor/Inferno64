@@ -1,0 +1,49 @@
+# Valgrind/Memcheck suppressions for the Inferno emu allocator, used with the
+# -DVALGRIND build (see ref/AGENTS_DEBUGGING.md):
+#   valgrind --suppressions=libinterp/valgrind-inferno.supp \
+#            --error-limit=no emu -g1024x768 wm/wm /dis/<app>.dis
+#
+# Most of the allocator/collector's legitimate reads of freed-but-not-yet-reused
+# memory are handled in C, not here: VG_MM_BEGIN/VG_MM_END
+# (VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING) bracket the GC mark/sweep (rungc),
+# the refcount free-cascade (destroy's t->free) and the pool tree/coalesce
+# (poolalloc/poolfree) so those phases don't report, while the objects stay
+# FREELIKE-poisoned -- so a MUTATOR read of a freed object (the real
+# use-after-free the isptr=0 tptr/tbig untraced slots can cause) is still caught.
+# A genuine UAF therefore appears as a report from a VM frame (Sys_*, xec,
+# string/font ops) whose address is "inside a block ... free'd" (not "after/
+# before a block", which is the benign redzone-0 boundary case).
+#
+# This file mops up only the few allocator paths that are NOT phase-bracketed:
+#
+# - smalloc: under Valgrind, libc malloc is intercepted (emu's pool malloc is
+#   bypassed), so emu's Bhdr-header arithmetic writes/reads in malloc's redzone.
+#   A Valgrind-only interposition artifact -- production uses emu's pool.
+# - poolread / poolmsize: the /prog pool inspector and size query read in-band
+#   free-block metadata directly, outside any alloc/free operation.
+
+{
+   inferno-smalloc-redzone-write
+   Memcheck:Addr8
+   fun:smalloc
+}
+{
+   inferno-smalloc-redzone-write4
+   Memcheck:Addr4
+   fun:smalloc
+}
+{
+   inferno-smalloc-redzone-write1
+   Memcheck:Addr1
+   fun:smalloc
+}
+{
+   inferno-poolread-addr
+   Memcheck:Addr8
+   fun:poolread
+}
+{
+   inferno-poolmsize-addr
+   Memcheck:Addr8
+   fun:poolmsize
+}

@@ -3,6 +3,13 @@
 # mk's dependency tracking is unreliable for incremental changes, so this
 # Makefile always nukes object files before rebuilding each component.
 # Build order matches EMUDIRS in the top-level mkfile.
+#
+# `make all` builds BOTH halves of the system:
+#   1. the C side  -- libraries, the limbo compiler, and the emu binary;
+#   2. the Dis tree -- the Limbo source under appl/ compiled to .dis with the
+#      compiler just built.  .dis are build output (gitignored), not tracked,
+#      so they must be regenerated from source; this is what makes a compiler
+#      fix actually reach the running system.
 
 ROOT    := $(realpath $(dir $(firstword $(MAKEFILE_LIST))))
 SYSHOST := Linux
@@ -49,9 +56,26 @@ EMUDIRS := \
 	utils/ndate \
 	emu
 
-.PHONY: all emu clean nuke
+# The Limbo source tree.  appl/mkfile descends (via mksubdirs) into acme,
+# charon, cmd, lib, math, wm, ... and each leaf compiles its .b to .dis and
+# installs them under $(ROOT)/dis/.
+APPLDIR := appl
 
-all emu:
+.PHONY: all emu dis clean nuke test_all_unit lint lint-update lint-all
+
+# C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
+#   make test_lib9_unit      run one section's tests
+#   make test_all_unit       run every section that has tests
+# Tests link against the already-built static libs in $(OBJDIR)/lib, so build
+# the C side first (make emu / make all).
+TEST_RUN := ROOT=$(ROOT) OBJDIR=$(OBJDIR) sh $(ROOT)/tests/cunit/run.sh
+
+# Full system: C side first (so the limbo compiler exists), then the Dis tree.
+all: emu dis
+	@echo
+	@echo "Build complete (emu + Dis tree): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+emu:
 	@set -e; \
 	for dir in $(EMUDIRS); do \
 		echo; \
@@ -65,7 +89,19 @@ all emu:
 		fi; \
 	done
 	@echo
-	@echo "Build complete: $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+	@echo "C build complete: $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+# Compile the Limbo source tree to .dis with the freshly built compiler.
+# Requires the C side (the limbo binary) to be built first; `make all` ensures
+# this, or run `make emu` before `make dis`.  nuke clears stale .dis (in both
+# the source dirs and dis/) so the tree is rebuilt clean from source.
+dis:
+	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
+	@set -e; \
+	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke); \
+	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) install)
+	@echo
+	@echo "Dis tree complete: $(ROOT)/dis"
 
 clean:
 	@set -e; \
@@ -73,6 +109,8 @@ clean:
 		echo "--- clean $$dir ---"; \
 		(cd $(ROOT)/$$dir && $(MK) $(MKARGS) clean) || true; \
 	done
+	@echo "--- clean $(APPLDIR) ---"
+	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) clean) || true
 
 nuke:
 	@set -e; \
@@ -84,3 +122,44 @@ nuke:
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke) || true; \
 		fi; \
 	done
+	@echo "--- nuke $(APPLDIR) ---"
+	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke) || true
+
+# Run a single section's unit tests, e.g. `make test_lib9_unit`.
+test_%_unit:
+	@$(TEST_RUN) $*
+
+# Run every section that has a tests/cunit/<section>/ directory.
+test_all_unit:
+	@secs=`for d in $(ROOT)/tests/cunit/*/; do [ -d "$$d" ] && basename "$$d"; done`; \
+	$(TEST_RUN) $$secs
+
+# clang -Wshorten-64-to-32 narrowing lint (LP64 bug class). Replays the real
+# per-file compile flags through clang; diffs against tests/lint/baseline.txt.
+#   make lint          report NEW narrowings vs baseline (nonzero if any)
+#   make lint-all      list every narrowing site
+#   make lint-update   regenerate the baseline (after triaging)
+# Requires clang and a built tree (make emu) so `mk -n -a` can report flags.
+LINT_RUN := $(MKARGS) MK=$(MK) sh $(ROOT)/tests/lint/run.sh
+
+lint:
+	@$(LINT_RUN)
+
+lint-all:
+	@$(LINT_RUN) --all
+
+lint-update:
+	@$(LINT_RUN) --update
+
+# Debug build of the "Valgrind for Dis pointers" checker (#5): rebuild
+# libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates
+# every GC-reachable Dis pointer slot (via its type's pointer map) against the
+# live heap and reports a truncated/corrupt pointer the first GC after it is
+# installed. Slow; debug only. Run `make emu` afterwards to restore production.
+.PHONY: emu-disptrcheck
+emu-disptrcheck:
+	@cc=`sed -n 's/^CC=[ 	]*//p' $(ROOT)/mkfiles/mkfile-$(SYSTARG)-$(OBJTYPE)`; \
+	rm -f $(ROOT)/libinterp/gc.o $(ROOT)/emu/$(SYSTARG)/o.emu; \
+	(cd $(ROOT)/libinterp && $(MK) $(MKARGS) "CC=$$cc -DDISPTRCHECK" install) && \
+	(cd $(ROOT)/emu/$(SYSTARG) && $(MK) $(EMUARGS) install) && \
+	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make emu' to revert."

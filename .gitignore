@@ -23,7 +23,8 @@ y.debug
 /keydb/signed
 /keydb/signerkey
 
-/appl/**/*.dis
+# compiled Dis is build output; rebuild from source rather than tracking it
+*.dis
 /appl/**/*.sbl
 
 # generated C headers for built-in modules

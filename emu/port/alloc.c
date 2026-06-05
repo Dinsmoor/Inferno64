@@ -14,6 +14,23 @@
  * the pool's own Bhdr/free-tree metadata must remain writable.
  */
 #include <sys/mman.h>
+#include <valgrind/memcheck.h>
+/*
+ * The pool reads its in-band free-tree node (Bhdr.u.s, overlaying B2D) and the
+ * Btail of neighbouring free blocks while searching/coalescing -- memory a
+ * Dis-heap VGHEAP_FREE poisoned.  That is allocator activity, not a mutator
+ * use-after-free, so bracket the pool's freed-memory-touching work with
+ * VG_MM_BEGIN/VG_MM_END (VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING, nestable):
+ * reports are silenced while the pool runs, but the blocks stay poisoned, so a
+ * *mutator* read of a freed object is still caught.  Unlike un-poisoning the
+ * node region, this keeps the whole freed object protected.  See
+ * libinterp/vgheap.h for the matching GC/refcount brackets.
+ */
+#define VG_MM_BEGIN	VALGRIND_DISABLE_ERROR_REPORTING
+#define VG_MM_END	VALGRIND_ENABLE_ERROR_REPORTING
+#else
+#define VG_MM_BEGIN	do { } while(0)
+#define VG_MM_END	do { } while(0)
 #endif
 
 enum
@@ -176,6 +193,25 @@ Bhdr*
 poolchain(Pool *p)
 {
 	return p->chain;
+}
+
+/*
+ * Is address a inside one of pool p's arenas?  A cheap, fault-free membership
+ * test (a handful of arenas) used by the Dis pointer checker (#5) to decide
+ * whether a map-marked slot holds a real heap reference before dereferencing
+ * its Heap header — a truncated/garbage pointer lands outside every arena.
+ */
+int
+ptrinpool(Pool *p, void *a)
+{
+	Bhdr *b;
+	uchar *u;
+
+	u = a;
+	for(b = p->chain; b != nil; b = b->clink)
+		if(u >= (uchar*)b && u < (uchar*)B2LIMIT(b))
+			return 1;
+	return 0;
 }
 
 void
@@ -482,9 +518,14 @@ poolalloc(Pool *p, ulong asize)
 {
 	Prog *prog;
 
+	void *v;
+
 	if(p->cursize > p->ressize && (prog = currun()) != nil && prog->flags&Prestricted)
 		return nil;
-	return dopoolalloc(p, asize, getcallerpc(&p));
+	VG_MM_BEGIN;	/* the free-tree search reads poisoned in-band nodes of free blocks */
+	v = dopoolalloc(p, asize, getcallerpc(&p));
+	VG_MM_END;
+	return v;
 }
 
 void
@@ -494,6 +535,7 @@ poolfree(Pool *p, void *v)
 	extern Bhdr *ptr;
 
 	D2B(b, v);
+	VG_MM_BEGIN;	/* coalescing reads neighbouring free blocks' poisoned node/tail */
 	if(p->monitor)
 		MM(p->pnum|(1<<8), getcallerpc(&p), (ulong)v, b->size);
 
@@ -522,6 +564,7 @@ poolfree(Pool *p, void *v)
 	}
 	pooladd(p, b);
 	unlock(&p->l);
+	VG_MM_END;
 }
 
 void *

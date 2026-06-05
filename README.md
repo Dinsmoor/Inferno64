@@ -1,5 +1,9 @@
 # Inferno64 — Inferno with a 64-bit (LP64) Dis ABI
 
+**IMPORTANT:** THIS PORT IS NOT PROVED TO WORK RIGHT YET. This will boot into
+the emu on aarch64 and you can do *some* desktop GUI work, but certain things
+are still broken. Don't even try it until this notice goes away.
+
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
 **64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream

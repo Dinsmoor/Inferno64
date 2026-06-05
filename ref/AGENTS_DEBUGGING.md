@@ -156,6 +156,26 @@ stk := debug->stack(p);         # returns array of Frame adts
 debug->kill(p);
 ```
 
+### Windowed debugger (`wm/deb`)
+
+`appl/wm/deb.b` is the graphical debugger (its window title is `spark:Wmdeb`).
+It drives the same `/prog/PID/dbgctl` protocol above through `appl/lib/debug.b`,
+with a thread picker (File → Thread…), a Threads/Break list, a source/disassembly
+pane and a Stack window. Source-level view needs the module's `.sbl` (compile with
+`limbo -g`); without it you still get disassembly + the stack.
+
+**Caveat — never stop a GUI proc; it self-deadlocks the desktop.** Adding a target
+writes `stop` to its `dbgctl`. If that target is `Wm`/`Wmsrv`/`Toolbar` (the
+window-manager group, usually grp 1 / grp 8) or any Tk client, the whole desktop
+hard-freezes: the compositor that draws the debugger's own window and dispatches
+input is now halted, so you can't even click "unstop"/"detach". The emu stays
+healthy (all threads idle on futex, no fault/spin) — it's a pure suspension
+deadlock, and on hosted emu there's no host-side `/prog` access to write `start`
+back, so recovery is restarting that emu. The "Wmdeb Thread List" picker also
+**auto-refreshes/reorders**, so a select-then-"Add Thread" can grab the wrong pid
+(an easy way to stop `Wmsrv` by accident). Use `wm/deb` on non-GUI / headless
+Limbo programs; pick targets by their own `grp`, never the wm group.
+
 ---
 
 ## disdump — Disassembling .dis Files
@@ -249,24 +269,47 @@ interceptor already breaks emu at boot), so this is Valgrind-only — the right 
 since wiring ASan would require renaming emu's allocator across every hosted
 platform.
 
-**Reality check (verified 2026-06): the basic patch reports real UAF with full
-alloc/free/GC stacks, but is NOISY because Inferno's memory model legitimately
-touches freed memory in three places, all of which trip a naive `FREELIKE`
-poison:** (1) the pool stores its **free-tree node in-band** inside freed blocks
-(`Bhdr.u.s` overlays `B2D` = the object region), so `pooldel`/`pooladd`/
-`dopoolalloc`/`smalloc` read/write poisoned bytes during normal allocation; (2) the
-**mark-sweep GC walks the whole arena**, reading every block's `Heap` header/color
-*including free ones* (`rungc`); (3) `poolcompact` `memmove`s free blocks. Plus the
-Dis-proc C stacks (run via `tramp`/`kproc-pthreads`) throw ~1000 false "Invalid
-write" reports. So today you must filter: a *genuine* Dis-object UAF is an `Invalid
-read/write` whose **top frame is VM/Limbo code** (a `Sys_*` builtin, `xec`, font/
-string ops) — *not* `pooldel`/`pooladd`/`dopoolalloc`/`poolfree`/`smalloc`/`rungc`/
-`destroy`/`memmove`. Making it genuinely clean is a bounded follow-up: wrap those
-pool/GC free-block accesses with `VALGRIND_MAKE_MEM_DEFINED`/re-poison, and
-`VALGRIND_STACK_REGISTER` the Dis proc stacks. Until then it is best used to
-confirm/deny a *specific* suspected UAF, not as a zero-noise sweep. (Caveat for
-intermittent races: Valgrind's ~30× slowdown perturbs timing — the brutus/charon
-`Tkclient[$Sys]` intermittent did **not** fire under it.)
+**Accuracy to Inferno's memory model — GC-phase-aware (this is what makes it
+usable).** A naive `FREELIKE` poison is swamped with false positives because the
+memory manager *itself* legitimately reads freed-but-not-yet-reused memory, and by
+memory access alone that is **indistinguishable from a real dangling-pointer UAF —
+the only difference is WHO reads: the manager (legitimate) vs. the mutator (a
+bug).** So the fix is phase-based, not frame-based:
+
+1. **`VG_MM_BEGIN`/`VG_MM_END`** (`VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING`,
+   nestable; defined in `vgheap.h`/`alloc.c`) bracket the manager's
+   freed-memory-touching phases — the **GC mark+sweep** (`rungc`'s loop and
+   `rootset`, which covers the `markheap`/`markarray`/`marklist` callbacks too),
+   the **refcount free-cascade** (`destroy`'s `t->free`/`freeptrs`), and the
+   **pool tree/coalesce** (`poolalloc`'s `dopoolalloc`, `poolfree`'s body). While
+   the manager runs, freed reads are not reported; **the object stays
+   `FREELIKE`-poisoned, so a *mutator* read of it IS still caught** outside the
+   bracket. This keeps the whole object protected (no un-poisoning).
+2. **Bhdr registration** (`VGHEAP_HDR` in `vgheap.h`): the pool's `Bhdr` header
+   sits 16 bytes *before* `B2D`, and `D2B`'s consistency check reads it in plain
+   mutator context. `VGHEAP_ALLOC` marks it `DEFINED` so those reads are clean —
+   without un-poisoning any object byte, so a `destroy` that reads a *genuinely*
+   freed child's `->ref` still fires (the real signal).
+3. **Full-block registration**: `VGHEAP_ALLOC` registers the block's actual
+   `poolmsize` extent, not `sizeof(Heap)+n` — a String's C-terminator write at
+   `s->Sascii[s->len]` runs to the rounded block end, so the smaller size made
+   that legitimate write look like "N bytes after the block".
+4. **`libinterp/valgrind-inferno.supp`** mops up only the few un-bracketed paths:
+   `smalloc` (the libc-malloc interposition artifact — production uses emu's pool)
+   and the `poolread`/`poolmsize` `/prog` inspectors. Run with
+   `--suppressions=libinterp/valgrind-inferno.supp`.
+
+Measured on a charon launch (full GUI): **389 → 1** Invalid read/write reports
+(the one residual is a benign boundary read). **Validated** that it still catches
+real bugs: a synthetic mutator UAF (`newstring`; `destroy`; read `s->len` in
+`Sys_write`) is reported as the *only* error — "Invalid read … inside a block …
+free'd at `destroy`", top frame `Sys_write ← mcall ← xec` (a VM/mutator frame) with
+both alloc and free stacks. **So a genuine UAF = a report reading *inside* a freed
+block from a VM frame** (`Sys_*`/`xec`/string/font ops); the manager's own freed
+reads are silenced, not conflated. (Caveat for intermittent races: Valgrind's ~30×
+slowdown perturbs timing — the brutus/charon `Tkclient[$Sys]` intermittent did
+**not** fire under it; chase that one via the deterministic `0xa8c2…` address with
+`/prog`/gdb instead.)
 
 **Triage note (what's a real bug vs benign):** a left-shift/overflow finding is a
 real LP64 bug only when the value **sign-extends into a wider (64-bit) field used
@@ -276,6 +319,140 @@ If the result is stored into a 32-bit field, masked, or truncated, it is benign
 byte-assembly, the string hash, `operand()`, and `memmove(x,nil,0)` are all benign
 (verified: correct render + crypto vectors); the real ones found this way were the
 sign-extending `mode`/9P-field/`disw` family below.
+
+---
+
+## Runtime observability — catching LP64 faults and hangs
+
+LP64 bugs (a 64-bit value truncated to 32 bits) usually surface as a *wild
+pointer* that faults far from its cause, or as a *hang* (a truncated value
+sends a loop or scheduler into a state it never leaves). The emu has three
+built-in hooks to make both legible. All output goes to the host's **stderr
+(fd 2)** and is **async-signal-safe** (only `write(2)`, no malloc/locks/`print`),
+so it works even mid-fault or mid-deadlock. Implemented in `emu/Linux/os.c`
+(`disbacktrace`/`dumpallprogs`/`faultmon`/`syscrash`) and `emu/port/dis.c`
+(`schedprogress`/`schedbusy`/`schedidlecheck`).
+
+### `kill -USR2 <emu>` — JVM-style thread dump (always on)
+
+Dumps every Dis prog: pid, scheduler state (`alt`/`send`/`recv`/`debug`/
+`ready`/`release`/`exiting`/`broken`), and a per-frame backtrace
+(`module pc=<dis-offset> op=<opcode>`) walked from the prog's registers down
+the `Frame` chain. The running prog uses the live global `R`; blocked progs
+use their saved `p->R`. Every pointer is validated (`faultprobe`, via a
+`write` to `/dev/null` that returns `EFAULT` on a bad address) before deref,
+and the walk is depth-capped (64) — safe to fire at any time. Example:
+
+```
+=== Dis proc dump (SIGUSR2) ===
+prog 1 [release]
+	$Sys pc=0x... op=45
+	Bufio pc=147 op=45
+	Sh pc=5348 op=93
+	...
+	Emuinit pc=55 op=12
+=== end dump ===
+```
+
+`op=12` is `IRET` (see `isa.h`); a wild pointer reported in an `IRET` frame is
+a truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
+
+> SIGUSR1 is **not** used for this — it is reserved for unblocking
+> interruptible host I/O (`trapUSR1`). The dump is on USR2.
+
+### `EMUCRASH=1` — fault → backtrace → core (opt-in)
+
+By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis
+exception (`sysfault`→`disfault`), so corruption surfaces benignly layers
+later. With `EMUCRASH=1`, a *wild-address* fault (non-nil — an ordinary nil
+deref still becomes the normal Limbo exception) instead prints the one-line
+diagnostic + a full `dumpallprogs` backtrace, then restores the default signal
+disposition and **returns**, so the faulting instruction re-executes and the
+OS drops a core at the exact C site. Then:
+
+```sh
+ulimit -c unlimited           # and ensure /proc/sys/kernel/core_pattern keeps the core
+EMUCRASH=1 emu ... ; gdb emu core
+```
+
+gives the precise truncating C op-handler offline. SIGILL is routed the same
+way (a corrupt/truncated code pointer).
+
+### `EMUWATCHDOG=<secs>` — hang detector (default 60s)
+
+A watchdog kproc (`faultmon`, spawned from `disinit`) samples the scheduler
+heartbeat `schedprogress`, which `vmachine` bumps each time it runs a prog. If
+progress stops advancing **while a prog is still on the run queue**
+(`schedbusy()`), a prog entered the interpreter and never came back (a C-level
+infinite loop or a lock cycle) — a real hang, distinct from an idle system
+(run queue empty, blocked on I/O, which is *not* flagged). It prints `HANG:
+...` + a full dump; under `EMUCRASH` it also `abort()`s for a core.
+`EMUWATCHDOG=0` disables it. (Note: a pure channel-deadlock where every prog is
+blocked looks identical to idle and is *not* caught here — that needs I/O
+accounting; see the plan.)
+
+Separately, `schedidlecheck()` asserts a scheduler invariant whenever the VM
+goes idle: a `Pready` prog must be linked on the run queue, so a `Pready` prog
+found while the queue is empty is a **lost wakeup** (classic deadlock
+signature) and triggers a one-shot dump.
+
+> Native `/prog` inspection (above) is still the first tool for a *broken*
+> proc you can reach; these hooks are for faults/hangs that kill or freeze the
+> system before you can `cat /prog/*/status`.
+
+---
+
+## Catching LP64 width bugs statically and semantically
+
+Complementing the runtime hooks above, four layers catch a 64→32 truncation
+*before* it corrupts anything — at compile, link/load, and (debug) run time.
+
+### `make lint` — clang 64→32 narrowing lint
+
+clang's `-Wshorten-64-to-32` is exactly the LP64 bug class as a warning, and
+gcc has no equivalent. `tests/lint/run.sh` (via `make lint`) asks `mk -n -a`
+for the real per-file compile flags of every host C file (libs + emu) and
+replays each through clang in `-fsyntax-only` mode with only that warning on,
+diffing against `tests/lint/baseline.txt` so a **new** narrowing fails the run
+while the ~246 pre-existing (mostly benign) ones stay quiet. gcc remains the
+production compiler. `make lint-all` lists every site; `make lint-update`
+re-baselines after triage. See `tests/lint/README.md`.
+
+### `genmove` width assertion (limbo compiler, #4b)
+
+The move/cons opcode the code generator picks from a type's kind has a fixed
+width (`IMOVW`=4, `IMOVL`=8, `IMOVP`=`IBY2PTR`, …); it must equal the type's
+size or the emitted code moves the wrong number of bytes — the truncation
+class. `genmove` (both `limbo/gen.c` and `appl/cmd/limbo/gen.b`) asserts
+`movewidth(op) == mt->size`, a compile-time guard against type/optab/size
+drift. (`tptr = IBY2PTR==IBY2LG ? tbig : tint` is what keeps pointer temps in
+step across both ABIs — see `ref/AGENTS_INPRO.md`.)
+
+### GC pointer-map vs layout (libinterp, #4c/#4d)
+
+`markheap` traces the pointer at every set bit of a type's map, at byte offset
+`slot*IBY2PTR`. `verifytype()` (`heap.c`) asserts every set bit lies wholly
+within the object's size; the `.dis` loader (`load.c`) runs it on each type
+descriptor (**#4d**) — a module that parses but whose maps are inconsistent for
+this ABI is rejected up front, naming the module. `verifyctype()` runs at init
+for the C-registered draw types (**#4c**), additionally requiring a generated
+ADT map to stay within the Limbo ADT prefix it describes (the C-only tail
+pointers are deliberately untraced) — a mismatch panics at boot.
+
+### `make emu-disptrcheck` — "Valgrind for Dis pointers" (#5)
+
+A `-DDISPTRCHECK` build validates every map-marked pointer slot against the
+live heap as the GC walks it: a real reference is `H`, or points just past a
+`Heap` header inside a heap arena (`ptrinpool`), with a sane GC colour. A
+64→32 truncated pointer fails all three and is reported (type, object, byte
+offset, value) at the first GC after it is installed, instead of crashing
+layers away when chased; the slot is then skipped. Debug only (slow); `make
+emu` reverts to production. This is the dynamic analog of #4c/#4d.
+
+> Layering: `make lint` + the `genmove` assert catch width bugs at build time;
+> `verifytype`/`verifyctype` at load/init; `DISPTRCHECK` at run time; and the
+> runtime hooks above (`EMUCRASH`/USR2/`EMUWATCHDOG`) when one still gets
+> through and faults or hangs.
 
 ---
 

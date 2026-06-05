@@ -69,6 +69,22 @@ make all              # builds Linux/aarch64/bin/emu (full GUI; the default)
 make all CONF=emu-g   # graphics-less headless build (faster; tests run under this)
 ```
 
+> **Build hazard — stale generated module headers across an ABI switch.** The C
+> activation-record headers for builtin modules (`limbo -a`/`limbo -t` output:
+> `libinterp/runt.h`, `sysmod.h`, … and `emu/Linux/srv.h`/`srvm.h`) encode
+> ABI-specific frame offsets (pointer/register-slot size, `MaxTemp`, frame
+> `size`). Their mk rules historically depended only on the module *source*, so
+> switching the build ABI (32↔64-bit) rebuilds `limbo` but does **not** touch the
+> `.m`/`.b` source — `mk` then keeps the wrong-ABI headers and links them into the
+> new emu, so a builtin reads its arguments at the wrong frame offset (truncated
+> pointer → wild-address fault). This caused the long-mislabelled "DNS hang"
+> (stale 32-bit `srv.h`/`srvm.h`: `WORD regs`/`temps[12]`/`size=40` vs the LP64
+> `void* regs`/`temps[24]`/`size=72`, faulting in `string2c ← Srv_iph2a`). The
+> `srv.h`/`srvm.h` rule now lists the `limbo` binary as a prerequisite so an ABI
+> change forces regeneration; **the other generated headers share the latent
+> flaw, so after any ABI switch on an existing tree do a clean rebuild
+> (`mk nuke`) rather than an incremental one.**
+
 ---
 
 ## Fixes (correct, not stubs — listed for context)

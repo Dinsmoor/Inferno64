@@ -57,6 +57,30 @@ die()   { printf 'error: %s\n' "$*" >&2; exit 1; }
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
 catf()  { [ -f "$1" ] && cat "$1" 2>/dev/null; }
 
+# emu runs each kproc as a pthread (one TGID, many threads).  A plain SIGTERM to
+# the leader pid can leave the leader a zombie while its sibling threads keep
+# running -- which keeps the emu binary ETXTBSY (so a rebuild can't reinstall it)
+# and leaves the desktop half-up.  emu_threads_alive/kill_emu reap the WHOLE
+# thread group: TERM, wait, then escalate to SIGKILL on the TGID until /proc shows
+# no surviving task threads.
+emu_threads_alive() {  # $1 = tgid (== emu leader pid); true if any thread remains
+	[ -n "${1:-}" ] && [ -d "/proc/$1/task" ] && [ -n "$(ls "/proc/$1/task" 2>/dev/null)" ]
+}
+
+kill_emu() {  # $1 = emu leader pid; returns 0 once every thread is gone
+	local p=$1 i
+	[ -n "$p" ] || return 0
+	kill "$p" 2>/dev/null
+	for i in $(seq 1 15); do emu_threads_alive "$p" || return 0; sleep 0.2; done
+	kill -9 "$p" 2>/dev/null                       # leader (or a live sibling) gets SIGKILL
+	for i in $(seq 1 15); do emu_threads_alive "$p" || return 0; sleep 0.2; done
+	# last resort: signal each surviving thread id directly
+	local t
+	for t in $(ls "/proc/$p/task" 2>/dev/null); do kill -9 "$t" 2>/dev/null; done
+	for i in $(seq 1 10); do emu_threads_alive "$p" || return 0; sleep 0.2; done
+	return 1
+}
+
 sock_exists() { [ -S "/tmp/.X11-unix/X$1" ]; }
 
 # Compute all per-display paths/vars from a display number.
@@ -247,7 +271,11 @@ resolve_target() {  # for stop/status: explicit DISP, else recorded current, els
 do_stop() {
 	resolve_target
 	local p
-	p=$(catf "$EMUPIDF"); alive "$p" && { kill "$p" 2>/dev/null; say "stopped emu ($p)"; }
+	p=$(catf "$EMUPIDF")
+	if alive "$p" || emu_threads_alive "$p"; then
+		if kill_emu "$p"; then say "stopped emu ($p)"
+		else say "warning: emu ($p) has threads that would not die (see ps -L $p)" >&2; fi
+	fi
 	command -v x11vnc >/dev/null 2>&1 && pkill -f "x11vnc -display $DISP " 2>/dev/null && say "stopped x11vnc on $DISP"
 	p=$(catf "$XPIDF");    alive "$p" && { kill "$p" 2>/dev/null; say "stopped Xtigervnc ($p)"; }
 	p=$(catf "$XVFBPIDF"); alive "$p" && { kill "$p" 2>/dev/null; say "stopped Xvfb ($p)"; }
