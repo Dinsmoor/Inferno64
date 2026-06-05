@@ -30,6 +30,7 @@ enum
 {
 	DELETE	= 0x7f,
 	CTRLC	= 'C'-'@',
+	CTRLBS	= '\\'-'@',	/* ^\ : force-quit emu (the old ^C behaviour) */
 	NSTACKSPERALLOC = 16,
 	X11STACK=	256*1024
 };
@@ -680,9 +681,16 @@ readkbd(void)
 	case DELETE:
 		buf[0] = 'H' - '@';
 		break;
-	case CTRLC:
+	case CTRLBS:
+		/* hard kill of the whole emu, the escape hatch that ^C used
+		 * to provide. */
 		cleanexit(0);
 		break;
+	/*
+	 * ^C is intentionally NOT a hard kill any more: it is passed through
+	 * as a normal byte so the interactive shell/line-editor can treat it
+	 * like bash does (cancel the current input line).
+	 */
 	}
 	return buf[0];
 }

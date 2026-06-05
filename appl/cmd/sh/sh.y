@@ -14,6 +14,8 @@ include "env.m";
 include "sh.m";
 	myself: Sh;
 	myselfbuiltin: Shellbuiltin;
+include "readline.m";
+	rdl: Readline;
 
 YYSTYPE: adt {
 	node:	ref Node;
@@ -39,6 +41,9 @@ YYLEX: adt {
 	f:			ref Bufio->Iobuf;
 	s:			string;
 	strpos: 		int;			# string pos/cbuf index
+
+	rl:			ref Readline->Reader;	# interactive line editor (nil if not a console)
+	prompt1:		string;			# primary (top-level) prompt, for rl
 
 	linenum:		int;
 	prompt:		string;
@@ -310,6 +315,42 @@ isconsole(fd: ref Sys->FD): int
 	return d1.dtype == d2.dtype && d1.qid.path == d2.qid.path;
 }
 
+histpath(): string
+{
+	h: string;
+	if (env != nil)
+		h = env->getenv("home");
+	if (h == nil)
+		h = "/tmp";
+	return h + "/lib/sh_history";
+}
+
+# Attach the raw-mode line editor to an interactive console lexer.  On any
+# failure the lexer is left in its normal cooked, line-buffered mode.
+setupreadline(lex: ref YYLEX, fd: ref Sys->FD)
+{
+	# Some consoles are not ANSI terminals (notably the wm/sh Tk window,
+	# which does its own editing); they set $noreadline to opt out so we
+	# don't spray escape sequences at them.
+	if (env != nil && env->getenv("noreadline") != nil)
+		return;
+	if (rdl == nil) {
+		rdl = load Readline Readline->PATH;
+		if (rdl != nil)
+			rdl->init();
+	}
+	if (rdl == nil)
+		return;
+	r := rdl->open(fd, 200);
+	if (r == nil)
+		return;
+	rdl->r.loadhist(histpath());
+	lex.rl = r;
+	lex.f = nil;		# getc now refills a line at a time via the editor
+	lex.s = "";
+	lex.strpos = 0;
+}
+
 # run commands from file _path_
 runscript(ctxt: ref Context, path: string, args: list of ref Listnode, reporterr: int)
 {
@@ -336,6 +377,8 @@ runfile(ctxt: ref Context, fd: ref Sys->FD, path: string, args: list of ref List
 		ctxt.setlocal("0", stringlist2list(path :: nil));
 		ctxt.setlocal("*", args);
 		lex := YYLEX.initfile(fd, path);
+		if ((ctxt.options() & ctxt.INTERACTIVE) && isconsole(fd))
+			setupreadline(lex, fd);
 		if (DEBUG) debug(sprint("parse(interactive == %d)", (ctxt.options() & ctxt.INTERACTIVE) != 0));
 		prompt := "" :: "" :: nil;
 		laststatus: string;
@@ -345,11 +388,14 @@ runfile(ctxt: ref Context, fd: ref Sys->FD, path: string, args: list of ref List
 				prompt = list2stringlist(ctxt.get("prompt"));
 				if (prompt == nil)
 					prompt = "; " :: "" :: nil;
-	
-				sys->fprint(stderr(), "%s", hd prompt);
 				if (tl prompt == nil) {
 					prompt = hd prompt :: "" :: nil;
 				}
+				lex.prompt1 = hd prompt;
+				# the editor draws its own prompt; only echo it
+				# ourselves when reading a cooked (non-editor) console.
+				if (lex.rl == nil)
+					sys->fprint(stderr(), "%s", hd prompt);
 			}
 			(n, err) := doparse(lex, hd tl prompt, !interactive);
 			if (err != nil) {
@@ -2568,10 +2614,28 @@ YYLEX.getc(lex: self ref YYLEX): int
 		}
 	} else {
 		if (lex.strpos >= len lex.s) {
-			lex.eof = 1;
-			c = lex.EOF;
-		} else
-			c = lex.s[lex.strpos++];
+			if (lex.rl != nil) {
+				# interactive: pull the next edited line.  Use the
+				# secondary prompt mid-command (after a newline), the
+				# primary prompt otherwise.
+				p := lex.prompt1;
+				if (lex.lastnl)
+					p = lex.prompt;
+				ns := rdl->lex.rl.readline(p);
+				if (ns == nil) {
+					lex.eof = 1;
+					return lex.EOF;
+				}
+				lex.s = ns;
+				lex.strpos = 0;
+				lex.linenum++;
+			} else {
+				lex.eof = 1;
+				return lex.EOF;
+			}
+		}
+		c = lex.s[lex.strpos++];
+		lex.lastnl = (c == '\n');
 	}
 	return c;
 }

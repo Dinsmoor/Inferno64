@@ -14,6 +14,7 @@ TARG=sh.dis\
 	echo.dis\
 	csv.dis\
 	test.dis\
+	readline.dis\
 
 INS=	$ROOT/dis/sh.dis\
 	$ROOT/dis/sh/arg.dis\
@@ -28,6 +29,7 @@ INS=	$ROOT/dis/sh.dis\
 	$ROOT/dis/sh/echo.dis\
 	$ROOT/dis/sh/csv.dis\
 	$ROOT/dis/sh/test.dis\
+	$ROOT/dis/sh/readline.dis\
 
 SYSMODULES=\
 	bufio.m\
@@ -35,6 +37,7 @@ SYSMODULES=\
 	env.m\
 	filepat.m\
 	lock.m\
+	readline.m\
 	sexprs.m\
 	sh.m\
 	string.m\

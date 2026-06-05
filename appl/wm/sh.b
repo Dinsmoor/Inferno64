@@ -36,6 +36,9 @@ BSW:		con 23;		# ^w bacspace word
 BSL:		con 21;		# ^u backspace line
 EOT:		con 4;		# ^d end of file
 ESC:		con 27;		# hold mode
+HISTPREV:	con 16;		# ^p recall previous history line
+HISTNEXT:	con 14;		# ^n recall next history line
+COMPLETE:	con 9;		# tab complete current word
 
 # XXX line-based limits are inadequate - memory is still
 # blown if a client writes a very long line.
@@ -75,6 +78,8 @@ shwin_cfg := array[] of {
 	"bind .ft.t <Control-h> {send keys {%A}}",
 	"bind .ft.t <Control-w> {send keys {%A}}",
 	"bind .ft.t <Control-u> {send keys {%A}}",
+	"bind .ft.t <Control-p> {send keys {%A}}",	# history previous
+	"bind .ft.t <Control-n> {send keys {%A}}",	# history next
 	"bind .ft.t <Button-1> +{send but1 pressed}",
 	"bind .ft.t <Double-Button-1> +{send but1 pressed}",
 	"bind .ft.t <ButtonRelease-1> +{send but1 released}",
@@ -100,6 +105,12 @@ scrolling := 1;
 partialread: array of byte;
 cwd := "";
 width, height, font: string;
+
+# command-line history (oldest .. newest) and Tab-completion state
+history: array of string;
+nhistory := 0;
+histpos := 0;		# == nhistory means "the live, not-yet-recalled line"
+histsave := "";		# live line stashed while browsing history
 
 events: list of string;
 evrdreq: list of Rdreq;
@@ -289,6 +300,8 @@ main(ctxt: ref Draw->Context, argv: list of string)
 			cmd(t, ".ft.t insert insert "+c);
 		'\n' or
 		EOT =>
+			if(char == '\n' && !rawon)
+				addhistory(tk->cmd(t, ".ft.t get outpoint insert"));
 			cmd(t, ".ft.t insert insert "+c);
 			sendinput(t);
 		'\b' =>
@@ -297,6 +310,12 @@ main(ctxt: ref Draw->Context, argv: list of string)
 			cmd(t, ".ft.t tkTextDelIns -l");
 		BSW =>
 			cmd(t, ".ft.t tkTextDelIns -w");
+		HISTPREV =>
+			histmove(t, "up");
+		HISTNEXT =>
+			histmove(t, "down");
+		COMPLETE =>
+			completeline(t);
 		ESC =>
 			setholding(t, !holding);
 		}
@@ -848,6 +867,12 @@ newsh(ctxt: ref Context, ioc: chan of (int, ref FileIO, ref FileIO, string, ref 
 	fd1 := sys->open("/dev/cons", sys->OWRITE);
 	fd2 := sys->open("/dev/cons", sys->OWRITE);
 
+	# This Tk window is not an ANSI terminal; tell the inner shell not to
+	# use its raw-mode line editor.  Editing/history/completion here are
+	# provided by the Tk text widget and our key bindings instead.
+	if((envfd := sys->create("/env/noreadline", Sys->OWRITE, 8r600)) != nil)
+		sys->fprint(envfd, "1");
+
 	{
 		sh->init(ctxt, "sh" :: "-n" :: args);
 	}exception{
@@ -871,4 +896,193 @@ itemsize(top: ref Tk->Toplevel, item: string): (int, int)
 	h := int tk->cmd(top, item + " cget -actheight");
 	b := int tk->cmd(top, item + " cget -borderwidth");
 	return (w+b, h+b);
+}
+
+# ---- QoL: command history and Tab completion for the wm terminal ----
+
+iswhite(c: int): int
+{
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+histstrip(s: string): string
+{
+	i := 0;
+	while(i < len s && iswhite(s[i]))
+		i++;
+	j := len s;
+	while(j > i && iswhite(s[j-1]))
+		j--;
+	return s[i:j];
+}
+
+addhistory(line: string)
+{
+	line = histstrip(line);
+	histpos = nhistory;
+	if(len line == 0)
+		return;
+	if(nhistory > 0 && history[nhistory-1] == line)
+		return;
+	if(history == nil)
+		history = array[64] of string;
+	if(nhistory >= len history){
+		ng := array[2*len history] of string;
+		ng[0:] = history;
+		history = ng;
+	}
+	history[nhistory++] = line;
+	histpos = nhistory;
+}
+
+setinputline(t: ref Tk->Toplevel, s: string)
+{
+	cmd(t, ".ft.t delete outpoint insert");
+	cmd(t, ".ft.t insert insert '" + s);
+	cmd(t, ".ft.t see insert; update");
+}
+
+histmove(t: ref Tk->Toplevel, dir: string)
+{
+	if(rawon || nhistory == 0)
+		return;
+	cur := histstrip(tk->cmd(t, ".ft.t get outpoint insert"));
+	if(dir == "up"){
+		if(histpos == nhistory)
+			histsave = cur;
+		if(histpos > 0)
+			histpos--;
+	} else {
+		if(histpos < nhistory)
+			histpos++;
+	}
+	txt: string;
+	if(histpos >= nhistory)
+		txt = histsave;
+	else
+		txt = history[histpos];
+	setinputline(t, txt);
+}
+
+completeline(t: ref Tk->Toplevel)
+{
+	if(rawon)
+		return;
+	line := tk->cmd(t, ".ft.t get outpoint insert");
+	(nl, ok) := completetail(line);
+	if(!ok)
+		return;
+	cmd(t, ".ft.t delete outpoint insert");
+	cmd(t, ".ft.t insert insert '" + nl);
+	cmd(t, ".ft.t see insert; update");
+}
+
+completetail(line: string): (string, int)
+{
+	i := len line;
+	while(i > 0 && !iswhite(line[i-1]))
+		i--;
+	tok := line[i:];
+
+	cmdpos := 1;
+	for(j := 0; j < i; j++)
+		if(!iswhite(line[j])){
+			cmdpos = 0;
+			break;
+		}
+
+	(dir, base) := splitp(tok);
+	m := listdir(dir, base);
+	if(cmdpos && nopathq(tok))
+		m = concatarr(m, listdir("/dis/", base));
+	if(len m == 0)
+		return (line, 0);
+
+	repl: string;
+	if(len m == 1){
+		repl = m[0];
+		if(len repl == 0 || repl[len repl-1] != '/')
+			repl += " ";
+	} else {
+		common := lcparr(m);
+		if(len common > len base)
+			repl = common;
+		else
+			return (line, 0);
+	}
+	pre := tok[0:len tok - len base];
+	return (line[0:i] + pre + repl, 1);
+}
+
+nopathq(s: string): int
+{
+	for(i := 0; i < len s; i++)
+		if(s[i] == '/')
+			return 0;
+	return 1;
+}
+
+splitp(tok: string): (string, string)
+{
+	k := -1;
+	for(j := 0; j < len tok; j++)
+		if(tok[j] == '/')
+			k = j;
+	if(k < 0)
+		return (".", tok);
+	return (tok[0:k+1], tok[k+1:]);
+}
+
+listdir(dir, base: string): array of string
+{
+	fd := sys->open(dir, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	res: list of string;
+	nres := 0;
+	for(;;){
+		(n, d) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(j := 0; j < n; j++){
+			nm := d[j].name;
+			if(len nm >= len base && nm[0:len base] == base){
+				if(d[j].mode & Sys->DMDIR)
+					nm += "/";
+				res = nm :: res;
+				nres++;
+			}
+		}
+	}
+	a := array[nres] of string;
+	k := 0;
+	for(; res != nil; res = tl res)
+		a[k++] = hd res;
+	return a;
+}
+
+concatarr(a, b: array of string): array of string
+{
+	c := array[len a + len b] of string;
+	k := 0;
+	for(i := 0; i < len a; i++)
+		c[k++] = a[i];
+	for(j := 0; j < len b; j++)
+		c[k++] = b[j];
+	return c;
+}
+
+lcparr(a: array of string): string
+{
+	if(len a == 0)
+		return "";
+	p := a[0];
+	for(i := 1; i < len a; i++){
+		s := a[i];
+		j := 0;
+		while(j < len p && j < len s && p[j] == s[j])
+			j++;
+		p = p[0:j];
+	}
+	return p;
 }
