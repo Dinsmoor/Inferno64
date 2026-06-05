@@ -62,21 +62,40 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis clean nuke test_all_unit lint lint-update lint-all
+.PHONY: all emu dis _emu _dis guard-half clean nuke test_all_unit lint lint-update lint-all
 
 # C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
 #   make test_lib9_unit      run one section's tests
 #   make test_all_unit       run every section that has tests
 # Tests link against the already-built static libs in $(OBJDIR)/lib, so build
-# the C side first (make emu / make all).
+# the C side first (make all).
 TEST_RUN := ROOT=$(ROOT) OBJDIR=$(OBJDIR) sh $(ROOT)/tests/cunit/run.sh
 
 # Full system: C side first (so the limbo compiler exists), then the Dis tree.
-all: emu dis
+# This is the ONLY coherent build and should be your default.
+all: _emu _dis
 	@echo
 	@echo "Build complete (emu + Dis tree): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
 
-emu:
+# Half builds are GATED.  `make emu` (C side only) and `make dis` (Dis tree
+# only) each leave the two halves out of sync -- a stale .dis against a freshly
+# built compiler/ABI is the exact incoherence that caused the truncated-pointer
+# crash (mismatched Transport signature).  So the bare targets refuse to run;
+# the coherent path is `make all`.  To force a deliberate half build, opt in:
+#   make emu FORCE=1
+#   make dis FORCE=1
+guard-half:
+	@if [ -z "$(FORCE)" ]; then \
+		echo "refusing half build '$(MAKECMDGOALS)': rebuilds only one half and" >&2; \
+		echo "leaves emu and the .dis tree out of sync (stale-.dis ABI skew)." >&2; \
+		echo "Use 'make all' (coherent full build), or force: make $(MAKECMDGOALS) FORCE=1" >&2; \
+		exit 2; \
+	fi
+
+emu: guard-half _emu
+dis: guard-half _dis
+
+_emu:
 	@set -e; \
 	for dir in $(EMUDIRS); do \
 		echo; \
@@ -94,9 +113,9 @@ emu:
 
 # Compile the Limbo source tree to .dis with the freshly built compiler.
 # Requires the C side (the limbo binary) to be built first; `make all` ensures
-# this, or run `make emu` before `make dis`.  nuke clears stale .dis (in both
+# this; `make all` ensures it.  nuke clears stale .dis (in both
 # the source dirs and dis/) so the tree is rebuilt clean from source.
-dis:
+_dis:
 	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
 	@set -e; \
 	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke); \
@@ -140,7 +159,7 @@ test_all_unit:
 #   make lint          report NEW narrowings vs baseline (nonzero if any)
 #   make lint-all      list every narrowing site
 #   make lint-update   regenerate the baseline (after triaging)
-# Requires clang and a built tree (make emu) so `mk -n -a` can report flags.
+# Requires clang and a built tree (make all) so `mk -n -a` can report flags.
 LINT_RUN := $(MKARGS) MK=$(MK) sh $(ROOT)/tests/lint/run.sh
 
 lint:
@@ -156,11 +175,11 @@ lint-update:
 # libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates
 # every GC-reachable Dis pointer slot (via its type's pointer map) against the
 # live heap and reports a truncated/corrupt pointer the first GC after it is
-# installed. Slow; debug only. Run `make emu` afterwards to restore production.
+# installed. Slow; debug only. Run `make all` afterwards to restore production.
 .PHONY: emu-disptrcheck
 emu-disptrcheck:
 	@cc=`sed -n 's/^CC=[ 	]*//p' $(ROOT)/mkfiles/mkfile-$(SYSTARG)-$(OBJTYPE)`; \
 	rm -f $(ROOT)/libinterp/gc.o $(ROOT)/emu/$(SYSTARG)/o.emu; \
 	(cd $(ROOT)/libinterp && $(MK) $(MKARGS) "CC=$$cc -DDISPTRCHECK" install) && \
 	(cd $(ROOT)/emu/$(SYSTARG) && $(MK) $(EMUARGS) install) && \
-	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make emu' to revert."
+	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make all' to revert."
