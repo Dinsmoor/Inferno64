@@ -28,7 +28,7 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
 | namespace | ✅ | `ns` shows full bind/mount: `#U` hostfs, `#c` cons, `#p` prog, `#d` fd, `#I` ip, `#e` env |
 | networking (IP/styx) | ✅ | `/net` stack live (arp/tcp/udp/ndb); `cat /net/tcp/clone` allocates a conn; emu reaches external hosts (TCP+UDP dial to 8.8.8.8/1.1.1.1); + headless 30_styxnet TCP loopback + 9P pass |
-| DNS resolution | 🟡 | network + raw DNS-over-UDP **work** (hand-built query to 8.8.8.8 → valid answer); ndb resolver configured; but the cs/dns resolver **service hangs** on queries (BUG-3, open) |
+| DNS resolution | 🟡 | network + raw/headers-mode DNS-over-UDP **work** (resolves example.com end-to-end); root-caused the resolver hang to a **scheduler VM-token deadlock** in `acquire()` after the host-resolver bridge's `release()`+`getaddrinfo`+`acquire()` (BUG-3, open — scheduler fix held for review) |
 | plumber | ✅ | **was failing for non-"inferno" users; fixed** (BUG-2). Desktop plumber now runs (2 procs) with all ports (`/chan/plumb.{edit,web,view,dir,man,auplay,input}`) |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
@@ -98,17 +98,31 @@ works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
   round-trip read was inconclusive due to test-harness buffering, but the daemon
   is functional and acme's `plumb.edit` now exists.)
 
-### BUG-3 — cs/dns resolver service hangs on queries  ❌ OPEN
-- **Symptom:** `ndb/dnsquery`/`ndb/csquery` never return (in bare shell *and* the
-  full desktop, with cs+dns running).
-- **Established:** emu networking is fine — TCP+UDP dial to external hosts works,
-  and a hand-built DNS query to 8.8.8.8 returns a valid answer (`ancount=2`).
-  `ndb/dns` reads the configured resolvers (`servers: 8.8.8.8 1.1.1.1`).
-  `file2chan` create/bind works. So this is **not** a network or LP64-width bug.
-- **Suspected:** the file2chan **request data path** (the read/write reply path
-  shared by all srv services) — a minimal file2chan data round-trip test could
-  not complete. Same path the plumber uses for delivery. Needs focused work;
-  network capability itself is proven (see `dialtest`/`udptest` in `_build`).
+### BUG-3 — DNS hangs in a scheduler VM-token deadlock (NOT getaddrinfo)  ❌ OPEN (root-caused)
+- **Symptom:** `ndb/dnsquery`/`ndb/csquery` never return; charon/dial can't
+  resolve names.
+- **Every network/DNS/srv primitive is PROVEN working** (so NOT a port/LP64/
+  network/file2chan bug): TCP+UDP dial to external hosts (`dialtest`); connected-
+  UDP DNS to 8.8.8.8 returns a valid answer (`udptest`); **headers-mode UDP** —
+  the exact mechanism dns uses — resolves example.com end-to-end (`hdrudp`,
+  `ancount=2`); `file2chan` data round-trip (`f2cecho` `ROUNDTRIP-OK`).
+- **Root cause (gdb on the hung emu, ptrace_scope=0):** the dns query path goes
+  `dnslookup → srv->iph2a` ("try host's map first"), a C builtin `Srv_iph2a`
+  (`emu/port/srv.c`) that does `release()` (drop the VM token) → `getaddrinfo()`
+  (the host resolver, which **completes fine**) → **`acquire()`** to re-take the
+  token. The backtrace of the hung thread is `osblock ← acquire ← Srv_iph2a ←
+  mcall ← xec ← vmachine` — it's **stuck forever in `acquire()`/`osblock()`
+  (sem_wait) re-acquiring the VM token.** Live `isched` state: `idle=0` (token
+  "taken") yet `runhd != nil` (a prog is **runnable**) and `vmq`+`idlevmq` have
+  waiting procs — but **no thread is running `vmachine`**. That's a scheduler
+  **VM-token hand-off / lost-token deadlock** in `release()`/`acquire()`
+  (`emu/port/dis.c`), triggered by the `release`+blocking-host-call+`acquire`
+  pattern. Same concurrency class as BUG-1 (the aarch64 barrier), distinct race.
+- **Fix:** a careful scheduler-concurrency fix in `release()`/`acquire()`/the
+  `creating`/`idle` token hand-off (high blast radius — must not be done blind).
+  Held for review. `EMUWATCHDOG` detects this stall; `schedidlecheck` does not
+  (it only checks `runhd==nil`, and here `runhd!=nil`).
+- (Test programs `dialtest`/`udptest`/`hdrudp`/`f2cecho`/`srvtest` in `tests/lp64/_build/`.)
 
 ## Method notes
 
