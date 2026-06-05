@@ -51,7 +51,7 @@ init()
 
 new(): ref Engine
 {
-	return ref Engine(nil, 0);
+	return ref Engine(nil, 0, nil);
 }
 
 # --- Elem ----------------------------------------------------------------
@@ -360,6 +360,226 @@ beats(l1, s1, o1, l2, s2, o2: int): int
 	if(s1 != s2)
 		return s1 > s2;
 	return o1 >= o2;	# later source order wins ties
+}
+
+# --- CSS custom properties / var() (CSS3, textual preprocess) ------------
+#
+# The W3C CSS2.1 parser drops `--x` declarations and var() values, so we
+# resolve them textually BEFORE parsing: addvars() harvests every
+# `--name: value` definition from a sheet into the engine (whole-sheet scan,
+# so within-sheet forward refs work; called per sheet, so cross-sheet refs
+# work when the defining sheet precedes the using one).  flatten() then
+# rewrites var(--name[, fallback]) using that map.
+
+Engine.addvars(e: self ref Engine, text: string)
+{
+	s := stripcomments(text);
+	n := len s;
+	i := 0;
+	while(i < n){
+		# a custom property starts with "--"
+		if(i+1 < n && s[i] == '-' && s[i+1] == '-'){
+			j := i;
+			while(j < n && isnamec(s[j]))
+				j++;
+			name := s[i:j];
+			k := j;
+			while(k < n && isws(s[k]))
+				k++;
+			if(k < n && s[k] == ':' && j > i+2){
+				k++;
+				v0 := k;
+				depth := 0;
+				while(k < n){
+					c := s[k];
+					if(c == '(')
+						depth++;
+					else if(c == ')'){
+						if(depth > 0)
+							depth--;
+					} else if((c == ';' || c == '}') && depth <= 0)
+						break;
+					k++;
+				}
+				setvar(e, name, trim(s[v0:k]));
+				i = k;
+				continue;
+			}
+		}
+		i++;
+	}
+}
+
+Engine.flatten(e: self ref Engine, text: string): string
+{
+	# strip comments, drop the --name:value definitions (the 2.1 lexer can't
+	# tokenise a `--` ident and would mis-parse the following rule), then
+	# substitute var() occurrences.
+	return subvars(e, stripdefs(stripcomments(text)), 0);
+}
+
+# remove custom-property declarations (--name: value) from a sheet's text
+stripdefs(s: string): string
+{
+	out := "";
+	n := len s;
+	i := 0;
+	while(i < n){
+		if(i+1 < n && s[i] == '-' && s[i+1] == '-'){
+			j := i;
+			while(j < n && isnamec(s[j]))
+				j++;
+			k := j;
+			while(k < n && isws(s[k]))
+				k++;
+			if(k < n && s[k] == ':' && j > i+2){
+				k++;
+				depth := 0;
+				while(k < n){
+					c := s[k];
+					if(c == '(')
+						depth++;
+					else if(c == ')'){
+						if(depth > 0)
+							depth--;
+					} else if(c == ';' && depth <= 0){
+						k++;		# consume the terminator
+						break;
+					} else if(c == '}' && depth <= 0)
+						break;		# leave the block close
+					k++;
+				}
+				i = k;
+				continue;
+			}
+		}
+		out += s[i:i+1];
+		i++;
+	}
+	return out;
+}
+
+subvars(e: ref Engine, s: string, depth: int): string
+{
+	if(depth > 16)			# guard against cyclic var() definitions
+		return s;
+	out := "";
+	n := len s;
+	i := 0;
+	while(i < n){
+		if(i+4 <= n && s[i:i+4] == "var("){
+			k := i+4;
+			d := 1;
+			astart := k;
+			while(k < n && d > 0){
+				if(s[k] == '(')
+					d++;
+				else if(s[k] == ')'){
+					d--;
+					if(d == 0)
+						break;
+				}
+				k++;
+			}
+			args := s[astart:k];		# inside var(...)
+			(name, fallback) := splitcomma(args);
+			(val, found) := getvar(e, trim(name));
+			rep: string;
+			if(found)
+				rep = val;
+			else
+				rep = trim(fallback);
+			out += subvars(e, rep, depth+1);	# value may itself use var()
+			i = k+1;			# skip past ')'
+		} else {
+			out += s[i:i+1];
+			i++;
+		}
+	}
+	return out;
+}
+
+setvar(e: ref Engine, name, val: string)
+{
+	for(l := e.vars; l != nil; l = tl l){
+		(n, nil) := hd l;
+		if(n == name){
+			# replace in place by rebuilding (rare; lists are short)
+			nv: list of (string, string);
+			for(m := e.vars; m != nil; m = tl m){
+				(mn, mv) := hd m;
+				if(mn == name)
+					nv = (name, val) :: nv;
+				else
+					nv = (mn, mv) :: nv;
+			}
+			e.vars = nv;
+			return;
+		}
+	}
+	e.vars = (name, val) :: e.vars;
+}
+
+getvar(e: ref Engine, name: string): (string, int)
+{
+	for(l := e.vars; l != nil; l = tl l){
+		(n, v) := hd l;
+		if(n == name)
+			return (v, 1);
+	}
+	return ("", 0);
+}
+
+# split "a, b" into ("a","b"); no comma -> ("a","")
+splitcomma(s: string): (string, string)
+{
+	depth := 0;
+	for(i := 0; i < len s; i++){
+		c := s[i];
+		if(c == '(')
+			depth++;
+		else if(c == ')')
+			depth--;
+		else if(c == ',' && depth <= 0)
+			return (s[0:i], s[i+1:]);
+	}
+	return (s, "");
+}
+
+stripcomments(s: string): string
+{
+	out := "";
+	n := len s;
+	i := 0;
+	while(i < n){
+		if(i+1 < n && s[i] == '/' && s[i+1] == '*'){
+			i += 2;
+			while(i+1 < n && !(s[i] == '*' && s[i+1] == '/'))
+				i++;
+			i += 2;
+		} else {
+			out += s[i:i+1];
+			i++;
+		}
+	}
+	return out;
+}
+
+isnamec(c: int): int
+{
+	return c == '-' || c == '_' || (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+}
+
+trim(s: string): string
+{
+	i := 0;
+	j := len s;
+	while(i < j && isws(s[i]))
+		i++;
+	while(j > i && isws(s[j-1]))
+		j--;
+	return s[i:j];
 }
 
 # --- Props accessors -----------------------------------------------------

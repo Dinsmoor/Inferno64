@@ -63,10 +63,17 @@ Csseng: module
 	Engine: adt {
 		rules:	list of ref Rule;	# source order
 		nrules:	int;
+		vars:	list of (string, string);	# CSS custom properties (--name -> value)
 
 		addsheet:	fn(e: self ref Engine, ss: ref CSS->Stylesheet, origin: int);
 		# compute the cascaded properties for el; inline = parsed `style=` decls
 		compute:	fn(e: self ref Engine, el: ref Elem, inline: list of ref CSS->Decl): ref Props;
+
+		# CSS3 custom-property support (textual preprocess before the 2.1 parser):
+		# collect --name: value definitions from a sheet's text into the engine,
+		addvars:	fn(e: self ref Engine, csstext: string);
+		# then substitute var(--name[, fallback]) occurrences using them.
+		flatten:	fn(e: self ref Engine, csstext: string): string;
 	};
 
 	init:	fn();

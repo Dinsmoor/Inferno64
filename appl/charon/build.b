@@ -39,6 +39,7 @@ Csframe: adt {
 	ovfg:	int;	# foreground pixel override, or -1 (= inherit Charon's curfg)
 	ovstyle: int;	# font style override (FntR/I/B/T), or -1
 	ovsize:	int;	# font size override (Tiny..Verylarge), or -1
+	ovbg:	int;	# background-color pixel for this element, or -1 (NOT inherited)
 	skip:	int;	# 1 if this element is display:none
 };
 
@@ -435,6 +436,15 @@ TokLoop:
 			di.link = color(aval(tok, LX->Alink), di.link);
 			di.vlink = color(aval(tok, LX->Avlink), di.vlink);
 			di.alink = color(aval(tok, LX->Aalink), di.alink);
+			# CSS body { background-color / color } overrides the page defaults
+			# (cssenter pushed this <body>'s frame just before this handler)
+			if(csson && cssstk != nil) {
+				bfr := hd cssstk;
+				if(bfr.ovbg >= 0)
+					di.background = ps.curbg = Background(nil, bfr.ovbg);
+				if(bfr.ovfg >= 0)
+					di.text = bfr.ovfg;
+			}
 			if(doscripts) {
 				ga := getgenattr(tok);
 				if(ga != nil && ga.events != nil) {
@@ -1254,6 +1264,24 @@ TokLoop:
 		LX->Tstyle+RBRA =>
 			;
 
+		# <!ELEMENT LINK - O EMPTY>  external stylesheet: <link rel=stylesheet href=..>
+		# Fetched via the same reqdurl/reqddata re-entry path as <script src>.
+		LX->Tlink =>
+			if(csson && css != nil) {
+				if(is.reqddata != nil) {
+					cssaddsheet(string is.reqddata);
+					is.reqddata = nil;
+					is.reqdurl = nil;
+				} else if(is.reqdurl == nil &&
+					   S->tolower(astrval(tok, LX->Arel, "")) == "stylesheet") {
+					href := aurlval(tok, LX->Ahref, nil, di.base);
+					if(href != nil) {
+						is.reqdurl = href;
+						break TokLoop;	# fetch; resume at this <link> with reqddata set
+					}
+				}
+			}
+
 		# <!ELEMENT (SUB|SUP) - - (%text)*>
 		LX->Tsub or LX->Tsup =>
 			if(tag == LX->Tsub)
@@ -1566,7 +1594,7 @@ TokLoop:
 		or LX->Tinput+RBRA
 		or LX->Tisindex+RBRA
 		or LX->Tli+RBRA
-		or LX->Tlink or LX->Tlink+RBRA
+		or LX->Tlink+RBRA
 		or LX->Tmeta+RBRA
 		or LX->Toption+RBRA
 		or LX->Tparam+RBRA
@@ -1917,6 +1945,8 @@ cssaddsheet(text: string)
 		return;
 	if(csseng == nil)
 		csseng = cssengine->new();
+	csseng.addvars(text);		# harvest --custom-properties (CSS3)
+	text = csseng.flatten(text);	# resolve var(...) before the 2.1 parser
 	(ss, err) := css->parse(text);
 	if(err != nil && err != "" && warn)
 		sys->print("warning: CSS parse: %s\n", err);
@@ -1974,12 +2004,13 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 
 	inlinedecls: list of ref CSS->Decl;
 	if(sty != "" && css != nil)
-		(inlinedecls, nil) = css->parsedecl(sty);
+		(inlinedecls, nil) = css->parsedecl(csseng.flatten(sty));
 
 	props := csseng.compute(el, inlinedecls);
 
-	# inherit parent frame's effective overrides, then apply this element's
-	fr := ref Csframe(tag, el, -1, -1, -1, 0);
+	# inherit parent frame's effective overrides, then apply this element's.
+	# (colour and font inherit in CSS; background-color does not.)
+	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0);
 	if(cssstk != nil) {
 		p := hd cssstk;
 		fr.ovfg = p.ovfg;
@@ -1989,6 +2020,9 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
 		fr.ovfg = color(sys->sprint("#%2.2x%2.2x%2.2x", r, g, b), ps.curfg);
+	(br, bgc, bb, bgfound) := props.color("background-color");
+	if(bgfound)
+		fr.ovbg = color(sys->sprint("#%2.2x%2.2x%2.2x", br, bgc, bb), 0);
 	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
 	if(schg)
 		fr.ovstyle = nstyle;
