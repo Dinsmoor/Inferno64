@@ -58,6 +58,12 @@ Csseng: module
 		nthlengthpx: fn(p: self ref Props, name: string, n, basepx: int): (int, int);
 		# first colour anywhere in a declaration's value list (border: 1px solid red)
 		anycolor: fn(p: self ref Props, name: string): (int, int, int, int);
+		# parse grid-template-columns into (mincolpx, count, found):
+		#   repeat(auto-fill|auto-fit, minmax(MIN, ...))  -> (MINpx, 0, 1)   (auto-fill)
+		#   repeat(N, ...)                                -> (0,     N, 1)
+		#   explicit track list (e.g. 1fr 1fr 200px)      -> (firstfixedpx, ntracks, 1)
+		# count 0 means "derive column count from mincolpx and the available width".
+		gridtrack: fn(p: self ref Props, basepx: int): (int, int, int);
 		# normalised CSS font-weight: 0 = unspecified, else 100..900
 		# (normal->400, bold/bolder->700, lighter->300, numeric kept as-is)
 		fontweight: fn(p: self ref Props, name: string): int;

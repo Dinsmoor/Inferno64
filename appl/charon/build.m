@@ -14,6 +14,16 @@ Cssbox: adt
 	pady:		int;	# vertical padding
 	borderw:	int;	# border width (0 = no border)
 	bordercolor:	int;	# border Pixel, or -1
+	# CSS grid track: when this item is a grid cell, its width is laid out to
+	# fill one column track (computed at layout time from the frame width).
+	colmin:		int;	# grid-template auto-fill track minimum, px (0 = not auto-fill)
+	colcount:	int;	# fixed column count (repeat(N)/explicit list), 0 = derive from colmin
+	colgap:		int;	# grid column gap, px
+	# reflow=1: padding/border reserve real layout space and content is drawn
+	# inset (used for inline-block chips and grid cells, where one box maps to
+	# one item).  reflow=0: legacy paint-only box (background fill / inherited
+	# bg / block elements) inflated around the item without reserving space.
+	reflow:		int;
 };
 
 # Item layout is dictated by desire to have all but formfield and table

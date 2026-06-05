@@ -692,6 +692,91 @@ Props.anycolor(p: self ref Props, name: string): (int, int, int, int)
 	return (0, 0, 0, 0);
 }
 
+Props.gridtrack(p: self ref Props, basepx: int): (int, int, int)
+{
+	(vals, found) := p.val("grid-template-columns");
+	if(!found || vals == nil)
+		return (0, 0, 0);
+	# repeat(count-spec, track-list...)
+	pick x := hd vals {
+	Function =>
+		if(tolower(x.name) == "repeat")
+			return repeattrack(x.args, basepx);
+	}
+	# explicit track list: count = number of track values, mincol = first fixed one
+	cnt := 0;
+	mn := 0;
+	for(l := vals; l != nil; l = tl l){
+		cnt++;
+		if(mn == 0){
+			(m, ok) := tracklen(hd l, basepx);
+			if(ok)
+				mn = m;
+		}
+	}
+	if(cnt == 0)
+		return (0, 0, 0);
+	return (mn, cnt, 1);
+}
+
+# repeat(): first arg is the count (a Number, or auto-fill/auto-fit -> 0); the
+# remaining args are the repeated track list, scanned for a minimum length.
+repeattrack(args: list of ref CSS->Value, basepx: int): (int, int, int)
+{
+	if(args == nil)
+		return (0, 0, 0);
+	cnt := 0;
+	pick c := hd args {
+	Number =>
+		(cv, ok) := parseuint(trimnum(c.value));
+		if(ok)
+			cnt = cv;
+	Unit =>
+		(cv, ok) := parseuint(trimnum(c.value));
+		if(ok)
+			cnt = cv;
+	Ident =>
+		cnt = 0;	# auto-fill / auto-fit -> derive from width
+	}
+	mn := 0;
+	for(l := tl args; l != nil; l = tl l){
+		(m, ok) := tracklen(hd l, basepx);
+		if(ok && (mn == 0 || m < mn))
+			mn = m;
+	}
+	return (mn, cnt, 1);
+}
+
+# a single track size to px: a fixed length, or the minimum of a minmax(); fr /
+# auto / percentage tracks have no fixed pixel minimum (ok=0).
+tracklen(v: ref CSS->Value, basepx: int): (int, int)
+{
+	pick x := v {
+	Function =>
+		if(tolower(x.name) == "minmax" && x.args != nil)
+			return tracklen(hd x.args, basepx);
+		return (0, 0);
+	* =>
+		(mv, units, uok) := valunit(v);
+		if(!uok)
+			return (0, 0);
+		case units {
+		"px" or "pt" or "em" or "rem" or "ex" =>
+			return resolvelen(mv, units, basepx);
+		}
+		return (0, 0);
+	}
+}
+
+# leading integer of a numeric string ("3" / "3.0" -> "3")
+trimnum(s: string): string
+{
+	for(i := 0; i < len s; i++)
+		if(s[i] < '0' || s[i] > '9')
+			return s[0:i];
+	return s;
+}
+
 Props.fontweight(p: self ref Props, name: string): int
 {
 	w := p.ident(name);		# bold/bolder/lighter/normal, lower-cased

@@ -774,9 +774,13 @@ mergetext(l: ref Line)
 				break; #pick
 			pick pi := lastit {
 			Itext =>
-				# ignore item state flags as fixlinegeom() 
+				# ignore item state flags as fixlinegeom()
 				# will have taken account of them.
-				if (pi.anchorid == i.anchorid &&
+				# Items carrying distinct CSS boxes (grid cells, inline-block
+				# chips) must stay separate — merging them would coalesce two
+				# adjacent column cells into one wide box.
+				if (pi.box == i.box &&
+				pi.anchorid == i.anchorid &&
 				pi.fnt == i.fnt && pi.fg == i.fg && pi.voff == i.voff && pi.ul == i.ul) {
 					# compatible - merge
 					pi.s += i.s;
@@ -1168,7 +1172,55 @@ measure(fr: ref Frame, items: ref Item)
 				it.width = fonts[t.fnt].spw;
 			}
 		}
+		# CSS box model with content reflow: for atomic inline-level boxes and
+		# grid cells (box.reflow), padding+border reserve real layout space and
+		# grid cells are sized to fill one computed column track.  Plain/inherited
+		# background boxes (reflow=0) are painted around the item by drawline
+		# without reserving space (legacy behaviour).  Floats/tables size
+		# themselves elsewhere.
+		if(it.box != nil && it.box.reflow && tagof it != tagof Item.Ifloat && tagof it != tagof Item.Itable){
+			b := it.box;
+			px := b.padx + b.borderw;	# left/right inset
+			py := b.pady + b.borderw;	# top/bottom inset
+			if(py > 0){
+				it.height += 2*py;
+				it.ascent += py;
+			}
+			if(b.colmin > 0 || b.colcount > 0){
+				cw := gridcellw(fr, b);
+				base := it.width + 2*px;
+				if(cw > base)
+					it.width = cw;	# fill the track (don't shrink oversized content)
+				else
+					it.width = base;
+			} else if(px > 0)
+				it.width += 2*px;
+		}
 	}
+}
+
+# CSS grid: width of one cell (= column track + its trailing column gap) for a
+# grid item whose box carries the track parameters.  Auto-fill derives the
+# column count from the track minimum and the frame's content width; a fixed
+# repeat(N)/explicit list uses N directly.  N cells of this width tile the
+# available width with the gaps falling between tracks.
+gridcellw(fr: ref Frame, b: ref Build->Cssbox): int
+{
+	availw := fr.cr.dx();
+	if(availw <= 0)
+		return 0;
+	gap := b.colgap;
+	n: int;
+	if(b.colcount > 0)
+		n = b.colcount;
+	else {
+		if(b.colmin <= 0)
+			return 0;
+		n = (availw + gap) / (b.colmin + gap);
+	}
+	if(n < 1)
+		n = 1;
+	return availw / n;
 }
 
 # Set the dimensions of an image item
@@ -1239,6 +1291,11 @@ trybreak(bit: ref Item, availw, iw, noneok: int) : (int, int)
 {
 	if(iw <= 0)
 		return (1, iw);
+	# A grid cell is a fixed-width atomic unit (its width was forced to a column
+	# track): never split it mid-word — wrap the whole cell to the next row,
+	# just as a fixed-width image wraps.
+	if(bit.box != nil && (bit.box.colmin > 0 || bit.box.colcount > 0))
+		return (!noneok, iw);
 	if(availw < 0) {
 		if(noneok)
 			return (0, iw);
@@ -2058,36 +2115,59 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 
 	# note: drawimg must always be called to update
 	# draw point of animated images
+	BGPADX: con 3;	# matches measure(): default padding for a plain background chip
 	for(it := l.items; it != nil; it = it.next) {
-		# CSS per-element background: fill the item's box if it has a
-		# background-color distinct from the line's background (the page/cell
-		# bg is already painted, so only distinct element boxes need filling).
-		# Inflate horizontally into the inter-cell gap so chips have a little
-		# padding rather than the text touching the box edge.
-		dofill := it.box != nil && it.box.bg >= 0 && it.box.bg != lay.background.color;
-		if(inview && it.box != nil && it.width > 0 && (dofill || it.box.borderw > 0)){
-			BGPADX: con 3;
-			pad := it.box.padx;
-			if(pad <= 0)
-				pad = BGPADX;
-			pady := it.box.pady;
-			bx0 := x - pad;
-			by0 := y - pady;
-			bx1 := x + it.width + pad;
-			by1 := y + l.height + pady;
-			if(dofill)
-				im.draw(Rect(Point(bx0, by0), Point(bx1, by1)),
-					colorimage(it.box.bg), nil, zp);
-			bw := it.box.borderw;
-			if(bw > 0){
-				bc := it.box.bordercolor;
-				if(bc < 0)
-					bc = 0;	# unspecified border-color -> black (currentColor approx)
-				bci := colorimage(bc);
-				im.draw(Rect(Point(bx0, by0), Point(bx1, by0+bw)), bci, nil, zp);	# top
-				im.draw(Rect(Point(bx0, by1-bw), Point(bx1, by1)), bci, nil, zp);	# bottom
-				im.draw(Rect(Point(bx0, by0), Point(bx0+bw, by1)), bci, nil, zp);	# left
-				im.draw(Rect(Point(bx1-bw, by0), Point(bx1, by1)), bci, nil, zp);	# right
+		# CSS box (background/border/padding).  measure() has already reserved
+		# padding+border in it.width/height/ascent (content reflow), so the box
+		# is painted over the item's full rect and the content is drawn inset.
+		# cx is the content origin; grid cells leave their trailing column gap
+		# unpainted so adjacent tracks are visually separated.
+		cx := x;
+		if(it.box != nil && tagof it != tagof Item.Ifloat && tagof it != tagof Item.Itable){
+			b := it.box;
+			dofill := b.bg >= 0 && b.bg != lay.background.color;
+			bx0, by0, bx1, by1: int;
+			if(b.reflow){
+				# content reflow: measure() reserved padding+border inside
+				# it.width/height/ascent, so paint over the item's full rect and
+				# draw the content inset by px.  Grid cells leave the trailing
+				# column gap unpainted to separate adjacent tracks.
+				px := b.padx + b.borderw;
+				cx = x + px;
+				boxw := it.width;
+				if(b.colmin > 0 || b.colcount > 0)
+					boxw -= b.colgap;
+				bx0 = x;
+				by0 = y + l.ascent - it.ascent;
+				bx1 = x + boxw;
+				by1 = by0 + it.height;
+			} else {
+				# legacy paint-only box: inflate around the item (no reserved
+				# space); content stays at x.
+				BGPADX: con 3;
+				pad := b.padx;
+				if(pad <= 0)
+					pad = BGPADX;
+				bx0 = x - pad;
+				by0 = y - b.pady;
+				bx1 = x + it.width + pad;
+				by1 = y + l.height + b.pady;
+			}
+			if(inview && it.width > 0 && (dofill || b.borderw > 0)){
+				if(dofill)
+					im.draw(Rect(Point(bx0, by0), Point(bx1, by1)),
+						colorimage(b.bg), nil, zp);
+				bw := b.borderw;
+				if(bw > 0){
+					bc := b.bordercolor;
+					if(bc < 0)
+						bc = 0;	# unspecified border-color -> black (currentColor approx)
+					bci := colorimage(bc);
+					im.draw(Rect(Point(bx0, by0), Point(bx1, by0+bw)), bci, nil, zp);	# top
+					im.draw(Rect(Point(bx0, by1-bw), Point(bx1, by1)), bci, nil, zp);	# bottom
+					im.draw(Rect(Point(bx0, by0), Point(bx0+bw, by1)), bci, nil, zp);	# left
+					im.draw(Rect(Point(bx1-bw, by0), Point(bx1, by1)), bci, nil, zp);	# right
+				}
 			}
 		}
 		pick i := it {
@@ -2095,7 +2175,6 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 			if (!inview || i.s == nil)
 				break;
 			fnt := fonts[i.fnt];
-			width := i.width;
 			yy := y+l.ascent - fnt.f.ascent + (int i.voff) - Voffbias;
 			if (f.prctxt != nil) {
 				if (yy < f.cr.min.y)
@@ -2109,16 +2188,15 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 				}
 			}
 			fgi := colorimage(i.fg);
-			im.text(Point(x, yy), fgi, zp, fnt.f, i.s);
+			im.text(Point(cx, yy), fgi, zp, fnt.f, i.s);
 			if(i.ul != ULnone) {
 				if(i.ul == ULmid)
 					yy += 2*i.ascent/3;
 				else
 					yy += i.height - 1;
-				# don't underline leading space
-				# have already adjusted x pos in fixlinegeom()
-				ulx := x;
-				ulw := width;
+				# underline the glyphs only (not box padding); skip leading/trailing space
+				ulx := cx;
+				ulw := fnt.f.width(i.s);
 				if (i.s[0] == ' ') {
 					ulx += fnt.spw;
 					ulw -= fnt.spw;
@@ -2142,7 +2220,7 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 				yy += l.ascent - i.imheight;
 			else if(i.align == Amiddle)
 				yy += l.ascent - (i.imheight/2);
-			drawimg(f, Point(x,yy), i);
+			drawimg(f, Point(cx,yy), i);
 		Iformfield =>
 			ff := i.formfield;
 			if(ff.ctlid >= 0 && ff.ctlid < len f.controls) {
@@ -2150,7 +2228,7 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 				dims := ctl.r.max.sub(ctl.r.min);
 				# align as text
 				yy := y + l.ascent - i.ascent;
-				p := Point(x,yy);
+				p := Point(cx,yy);
 				ctl.r = Rect(p, p.add(dims));
 				if (!inview)
 					break;

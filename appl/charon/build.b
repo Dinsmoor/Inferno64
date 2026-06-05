@@ -44,6 +44,12 @@ Csframe: adt {
 	inlinekids: int;	# display:grid/flex/inline-* -> children flow inline (wrap)
 	inlineflow: int;	# this element flows inline (parent is a grid/flex/inline box)
 	box:	ref Cssbox;	# effective box (bg/padding/border) stamped on this frame's items, or nil
+	# grid track context (effective: inherited from parent unless this frame is
+	# itself a grid container with a parsed grid-template-columns).
+	isgrid:	int;	# 1 if THIS element is a grid container with real tracks
+	gridmin: int;	# auto-fill track minimum, px (0 = none / fixed count)
+	gridcount: int;	# fixed column count, 0 = derive from gridmin + width
+	gridgap: int;	# column gap, px
 };
 
 ctype: array of byte;
@@ -2015,7 +2021,8 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 
 	# inherit parent frame's effective overrides, then apply this element's.
 	# (colour and font inherit in CSS; background-color does not.)
-	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0, nil);
+	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0, nil, 0, 0, 0, 0);
+	pgrid := 0;	# 1 if the parent is a grid container (this is a grid item)
 	if(cssstk != nil) {
 		p := hd cssstk;
 		fr.ovfg = p.ovfg;
@@ -2023,25 +2030,71 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 		fr.ovsize = p.ovsize;
 		fr.ovbg = p.ovbg;	# effective background propagates down for painting
 		fr.box = p.box;		# inherit parent's box ref (carries effective bg)
+		# Only the *background* inherits down for painting; padding/border/grid
+		# belong to the element that declares them (CSS padding does not inherit,
+		# and reflowing an ancestor block's padding onto every descendant run
+		# would multiply it).  Downgrade an inherited structural box to a plain
+		# paint-only background box (or drop it if it has no fill).
+		if(fr.box != nil && (fr.box.reflow || fr.box.padx != 0 || fr.box.pady != 0
+				|| fr.box.borderw != 0 || fr.box.colmin != 0 || fr.box.colcount != 0)){
+			if(fr.box.bg >= 0)
+				fr.box = ref Cssbox(fr.box.bg, 0, 0, 0, -1, 0, 0, 0, 0);
+			else
+				fr.box = nil;
+		}
+		# grid track context propagates down (scoped: popped with the container)
+		fr.gridmin = p.gridmin;
+		fr.gridcount = p.gridcount;
+		fr.gridgap = p.gridgap;
+		pgrid = p.isgrid;
 	}
 
 	# Flow: a grid/flex (or inline-*) container lays its children out in a row
-	# that wraps, rather than stacking them as blocks.  Charon has no real grid,
-	# so we approximate by suppressing the block breaks of such children.
+	# that wraps, rather than stacking them as blocks.
 	disp := props.ident("display");
 	fr.inlinekids = disp == "grid" || disp == "flex" ||
 		disp == "inline-grid" || disp == "inline-flex" || disp == "inline-block";
+	# A grid container with a usable grid-template-columns lays children out in
+	# REAL fixed-width column tracks (see cssbox/measure); fall back to plain
+	# inline-flow wrapping (below) for flex and untemplated grids.
+	if(disp == "grid" || disp == "inline-grid"){
+		(gmin, gcount, gfound) := props.gridtrack(16);
+		if(gfound && (gmin > 0 || gcount > 0)){
+			fr.isgrid = 1;
+			fr.gridmin = gmin;
+			fr.gridcount = gcount;
+			fr.gridgap = gridgappx(props);
+		}
+	}
+	# is THIS element a cell that should fill a grid track?  Direct children of a
+	# real grid, plus width-sized descendants (e.g. a width:100% button in the
+	# cell), get colmin/colcount/colgap baked onto their box by cssbox().
+	cmin := ccount := cgap := 0;
+	if(fr.gridmin > 0 || fr.gridcount > 0){
+		haswidth := props.ident("width") != "" || props.str("width") != "";
+		if(pgrid || haswidth){
+			cmin = fr.gridmin;
+			ccount = fr.gridcount;
+			cgap = fr.gridgap;
+		}
+	}
+	# reflow (reserve padding/border in layout, draw content inset) only for
+	# atomic inline-level boxes and grid cells, where one box maps to one item.
+	reflow := 0;
+	if(cmin > 0 || ccount > 0 || disp == "inline-block" || disp == "inline-flex" || disp == "inline-grid")
+		reflow = 1;
 	if((cssstk != nil && (hd cssstk).inlinekids) || disp == "inline" || disp == "inline-block") {
 		fr.inlineflow = 1;
 		ps.curstate &= ~(IFbrk|IFbrksp);	# undo the block break for this element
-		# separate grid/flex cells with a real (uncompressible) breakable space
-		# item — approximates grid gap — so adjacent cell text doesn't run
-		# together (LeviticusNumbers -> Leviticus Numbers).  A text " " here is
-		# swallowed by whitespace compression, so use a spacer item.
-		if(cssstk != nil && (hd cssstk).inlinekids){
+		# separate grid/flex cells so adjacent cell text doesn't run together
+		# (LeviticusNumbers -> Leviticus Numbers).  Real grid tracks fold the
+		# gap into the cell width (cssbox/measure), so only the inline-flow
+		# fallback needs an explicit spacer item.
+		if(cssstk != nil && (hd cssstk).inlinekids && !pgrid){
 			ps.skipwhite = 0;
 			additem(ps, Item.newspacer(ISPhspace, ps.curfont), nil);
-		}
+		} else if(pgrid)
+			ps.skipwhite = 1;	# swallow inter-cell whitespace (gap is folded in)
 	} else {
 		# CSS top margin on a block element -> extra vertical space before it,
 		# so sections (headings, grids) get breathing room.
@@ -2057,7 +2110,7 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	# build this element's own box if it declares any box decoration of its own
 	# (background, padding, or border).  The box carries the *effective* bg so
 	# nested styled runs keep filling; children inherit this ref via fr.box.
-	nb := cssbox(props, fr.ovbg, bgfound);
+	nb := cssbox(props, fr.ovbg, bgfound, cmin, ccount, cgap, reflow);
 	if(nb != nil)
 		fr.box = nb;
 	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
@@ -2152,7 +2205,7 @@ cssfontsize(props: ref Props): (int, int)
 # whether this element set background-color itself.  Padding/border lengths are
 # resolved generically by csseng; Charon's line-based layout uses padx/pady to
 # inflate the painted box (no content reflow) and draws a border outline.
-cssbox(props: ref Props, bg, bgown: int): ref Cssbox
+cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow: int): ref Cssbox
 {
 	BASE: con 16;	# reference px for em/ex/% resolution of box lengths
 
@@ -2186,9 +2239,32 @@ cssbox(props: ref Props, bg, bgown: int): ref Cssbox
 	if(cf)
 		bordercolor = rgb(cr, cg, cb);
 
-	if(!bgown && padx <= 0 && pady <= 0 && borderw <= 0)
+	if(!bgown && padx <= 0 && pady <= 0 && borderw <= 0 && colmin <= 0 && colcount <= 0)
 		return nil;	# nothing of its own -> inherit parent's box
-	return ref Cssbox(bg, padx, pady, borderw, bordercolor);
+	return ref Cssbox(bg, padx, pady, borderw, bordercolor, colmin, colcount, colgap, reflow);
+}
+
+# CSS grid column gap in px: column-gap, else the `gap` shorthand's column value
+# (2nd of "row col", or the single value), else legacy grid-gap.
+gridgappx(props: ref Props): int
+{
+	BASE: con 16;
+	(g, f) := props.lengthpx("column-gap", BASE);
+	if(f)
+		return g;
+	(g, f) = props.nthlengthpx("gap", 1, BASE);	# "row col" -> column gap
+	if(f)
+		return g;
+	(g, f) = props.nthlengthpx("gap", 0, BASE);
+	if(f)
+		return g;
+	(g, f) = props.nthlengthpx("grid-gap", 1, BASE);
+	if(f)
+		return g;
+	(g, f) = props.nthlengthpx("grid-gap", 0, BASE);
+	if(f)
+		return g;
+	return 0;
 }
 
 # true if the named margin property is a substantial positive length (>= ~0.5em

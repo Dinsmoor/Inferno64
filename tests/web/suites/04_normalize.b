@@ -63,7 +63,10 @@ init(nil: ref Draw->Context, nil: list of string)
 		".wex     { width: 1ex; }\n" +			# ~0.5em of 16 = 8
 		".pad2    { padding: 8px 16px; }\n" +		# top/bottom 8, left/right 16
 		".bsh     { border: 2px solid red; }\n" +	# shorthand: width 2, color red
-		".bnamed  { border-color: navy; }\n";
+		".bnamed  { border-color: navy; }\n" +
+		".gauto   { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }\n" +
+		".grep    { grid-template-columns: repeat(3, 1fr); }\n" +
+		".gexp    { grid-template-columns: 100px 200px 1fr; }\n";
 	(ass, aerr) := css->parse(author);
 	t->ok(aerr == nil || aerr == "", "author sheet parsed");
 	eng.addsheet(ass, Csseng->AUTHOR);
@@ -106,6 +109,23 @@ init(nil: ref Draw->Context, nil: list of string)
 	bn := eng.compute(Elem.mk("div", "", "bnamed", nil), nil);
 	(nr, ng, nb, nf) := bn.anycolor("border-color");
 	t->ok(nf && nr == 0 && ng == 0 && nb == 128, "border-color named navy -> #000080");
+
+	# --- grid-template-columns ------------------------------------------
+	ga := eng.compute(Elem.mk("div", "", "gauto", nil), nil);
+	(amin, acnt, afnd) := ga.gridtrack(BASE);
+	t->ok(afnd && amin == 160 && acnt == 0, "repeat(auto-fill, minmax(160px,1fr)) -> (160,0)");
+
+	gr := eng.compute(Elem.mk("div", "", "grep", nil), nil);
+	(rmin, rcnt, rfnd) := gr.gridtrack(BASE);
+	t->ok(rfnd && rcnt == 3, "repeat(3, 1fr) -> count 3");
+
+	ge := eng.compute(Elem.mk("div", "", "gexp", nil), nil);
+	(emin, ecnt, efnd) := ge.gridtrack(BASE);
+	t->ok(efnd && emin == 100 && ecnt == 3, "explicit 100px 200px 1fr -> (100,3)");
+
+	gn := eng.compute(Elem.mk("div", "", "wem", nil), nil);
+	(nil, nil, gnf) := gn.gridtrack(BASE);
+	t->ok(gnf == 0, "no grid-template-columns -> not found");
 
 	t->summary();
 }
