@@ -3163,6 +3163,9 @@ Control.newff(f: ref Frame, ff: ref B->Formfield) : ref Control
 			linewrap = 1;
 		}
 		ans = Control.newentry(f, nh, nv, linewrap);
+		# CSS width overrides the size-attr-derived width (full-width search box)
+		if(ff.csswidth > 0 && ff.ftype != Ftextarea)
+			ans.r.max.x = ans.r.min.x + ff.csswidth;
 		if(ff.ftype == Fpassword)
 			ans.flags |= CFsecure;
 		ans.entryset(ff.value);
@@ -4204,9 +4207,20 @@ Control.draw(ctl: self ref Control, flush: int)
 			drawrelief(win, c.r.inset(2), relief);
 		}
 	Centry =>
-		win.draw(c.r, colorimage(White), nil, zp);
+		# CSS-themed entry: flat dark fill + flat border when the form field
+		# carries computed style; otherwise the classic White sunken-relief box.
+		entbg := White;
+		if(c.ff != nil && c.ff.cssbg >= 0)
+			entbg = c.ff.cssbg;
+		win.draw(c.r, colorimage(entbg), nil, zp);
 		insetr := c.r.inset(2);
-		drawrelief(win,insetr, ReliefSunk);
+		if(c.ff != nil && c.ff.cssborderw > 0) {
+			bcol := Black;
+			if(c.ff.cssbordercol >= 0)
+				bcol = c.ff.cssbordercol;
+			drawborder(win, c.r.inset(c.ff.cssborderw), c.ff.cssborderw, bcol);
+		} else
+			drawrelief(win,insetr, ReliefSunk);
 		eclipr := c.r;
 		eclipr.min.x += ENTHMARGIN;
 		eclipr.max.x -= ENTHMARGIN;
@@ -4244,7 +4258,10 @@ Control.draw(ctl: self ref Control, flush: int)
 			(lines, linestarts) = (array [] of {s}, array [] of {0});
 
 		q := p;
-		black := colorimage(Black);
+		fgcol := Black;
+		if(c.ff != nil && c.ff.cssfg >= 0)
+			fgcol = c.ff.cssfg;
+		black := colorimage(fgcol);
 		white := colorimage(White);
 		navy := colorimage(Navy);
 		nlines := len lines;

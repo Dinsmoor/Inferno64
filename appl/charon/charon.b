@@ -764,6 +764,13 @@ goproc(g: ref GoSpec)
 		if(doscripts && J->defaultStatus != "")
 			status = J->defaultStatus;
 	}
+	# A page that declared its stylesheet after a styled form field laid the
+	# field out before its rules existed; one reflow applies the now-resolved
+	# control geometry (colours alone would repaint, but width feeds layout).
+	if(err == nil && f.doc != nil && f.doc.ffrestyled) {
+		f.doc.ffrestyled = 0;
+		L->reflow(f);
+	}
 	if(err != nil) {
 		status = err;
 		G->progress <-= (-1, G->Perr, 100, err);

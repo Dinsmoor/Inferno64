@@ -29,6 +29,10 @@ cssstk: list of ref Csframe;	# open-element stack (cascade context + overrides)
 cssskip: int;			# display:none nesting depth (additem suppresses items)
 csson: int;			# feature gate (off if engine unavailable)
 cssdeftext: int;		# document default text colour (fallback)
+# Form fields whose style could not be resolved when parsed because the page's
+# <style>/<link> rules had not been seen yet (e.g. the stylesheet is declared
+# after the search form).  Retried once at end-of-document (see ffresolvepend).
+ffpend: list of (ref Formfield, ref Elem, list of ref CSS->Decl);
 
 # One open element on the CSS context stack.  Holds the *effective* (already
 # inherited) overrides so children inherit colour/font without re-running the
@@ -201,6 +205,7 @@ ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemS
 	csson = css != nil && cssengine != nil && cssenabled();
 	cssstk = nil;
 	cssskip = 0;
+	ffpend = nil;
 	cssdeftext = di.text;
 	if(csson)
 		csseng = cssengine->new();
@@ -243,8 +248,12 @@ TokLoop:
 			tokslen = len toks;
 			if(dbg)
 				sys->print("build: got %d tokens from token source\n", tokslen);
-			if(tokslen == 0)
+			if(tokslen == 0) {
+				# document fully parsed: all author rules are now loaded, so
+				# resolve any form fields whose stylesheet came after them.
+				ffresolvepend(di);
 				break;
+			}
 			toki = 0;
 		}
 		tok := toks[toki];
@@ -922,6 +931,7 @@ TokLoop:
 					if(field.value == "")
 						field.value = " ";
 			}
+			ffcss(tok, field);
 			is.curform.fields = field :: is.curform.fields;
 			ffit := Item.newformfield(field);
 			additem(ps, ffit, tok);
@@ -2133,6 +2143,119 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	cssstk = fr :: cssstk;
 }
 
+# Compute CSS styling for an <input>.  Inputs are in skipframe(), so cssenter
+# never pushes a frame for them and they get no computed style by the normal
+# path.  Here we run the cascade for the input element directly (parent = the
+# current css frame) and stash the bits the native control honours: background,
+# text colour, border, and a target width.  Attribute selectors like
+# `input[type=text]` are matched by giving the synthetic Elem its type attr.
+# Build the synthetic CSS element for an <input> (parent = current css frame)
+# plus any inline style= declarations.  Attribute selectors like
+# `input[type=text]` are matched by giving the Elem its type attr.
+ffelem(tok: ref LX->Token, field: ref Formfield): (ref Elem, list of ref CSS->Decl)
+{
+	id := cls := sty := "";
+	ga := getgenattr(tok);
+	if(ga != nil) {
+		id = ga.id;
+		cls = ga.class;
+		sty = ga.style;
+	}
+	parent: ref Elem = nil;
+	if(cssstk != nil)
+		parent = (hd cssstk).el;
+	el := Elem.mk("input", id, cls, parent);
+	tn := T->revlookup(input_tab, field.ftype);
+	if(tn != "")
+		el.attrs = ("type", tn) :: el.attrs;
+	inlinedecls: list of ref CSS->Decl;
+	if(sty != "" && css != nil)
+		(inlinedecls, nil) = css->parsedecl(csseng.flatten(sty));
+	return (el, inlinedecls);
+}
+
+# Populate a form field's native-control styling from computed props.  Returns 1
+# if any property was applied (used to decide whether a deferred resolve needs a
+# post-load reflow).  Honours background, text colour, border and a target width.
+ffstyle(field: ref Formfield, props: ref Props): int
+{
+	BASE: con 16;	# reference px for em/ex/% resolution
+	set := 0;
+
+	(br, bg, bb, bgf) := props.color("background-color");
+	if(!bgf)
+		(br, bg, bb, bgf) = props.color("background");
+	if(bgf) {
+		field.cssbg = rgb(br, bg, bb);
+		set = 1;
+	}
+
+	(fr, fg, fb, fgf) := props.color("color");
+	if(fgf) {
+		field.cssfg = rgb(fr, fg, fb);
+		set = 1;
+	}
+
+	(bw, bwf) := props.lengthpx("border-width", BASE);
+	if(!bwf)
+		(bw, bwf) = props.nthlengthpx("border", 0, BASE);
+	if(bwf) {
+		field.cssborderw = bw;
+		set = 1;
+	}
+	(cr, cg, cb, cf) := props.anycolor("border-color");
+	if(!cf)
+		(cr, cg, cb, cf) = props.anycolor("border");
+	if(cf)
+		field.cssbordercol = rgb(cr, cg, cb);
+
+	# width: an explicit px width wins; for width:100%/% (or auto) fall back to a
+	# fixed max-width cap, which is what such a field clamps to on a wide page.
+	cw := 0;
+	(wv, wu, wfound) := props.unit("width");
+	if(wfound && wu == "px")
+		cw = wv / 1000;
+	else {
+		(mv, mu, mf) := props.unit("max-width");
+		if(mf && mu == "px")
+			cw = mv / 1000;
+	}
+	if(cw > 0) {
+		field.csswidth = cw;
+		set = 1;
+	}
+	return set;
+}
+
+# <input> is in skipframe(), so cssenter never computes its style.  Resolve it
+# directly here.  If nothing matched yet (the page declares its stylesheet after
+# the form), queue it for a retry at end-of-document.
+ffcss(tok: ref LX->Token, field: ref Formfield)
+{
+	if(csseng == nil)
+		return;
+	(el, inlinedecls) := ffelem(tok, field);
+	props := csseng.compute(el, inlinedecls);
+	if(!ffstyle(field, props))
+		ffpend = (field, el, inlinedecls) :: ffpend;
+}
+
+# Retry the form fields that had no style when first parsed, now that the whole
+# document (and thus all author rules) has been seen.  Flags the doc if any field
+# actually picked up styling so the caller can trigger one reflow.
+ffresolvepend(di: ref Docinfo)
+{
+	if(csseng == nil)
+		return;
+	for(l := ffpend; l != nil; l = tl l) {
+		(field, el, inlinedecls) := hd l;
+		props := csseng.compute(el, inlinedecls);
+		if(ffstyle(field, props))
+			di.ffrestyled = 1;
+	}
+	ffpend = nil;
+}
+
 cssexit(ps: ref Pstate, tag: int)
 {
 	found := 0;
@@ -3289,7 +3412,8 @@ Item.printlist(items: self ref Item, msg: string)
 Formfield.new(ftype, fieldid: int, form: ref Form, name, value: string, size, maxlength: int) : ref Formfield
 {
 	return ref Formfield(ftype, fieldid, form, name, value, size,
-				maxlength, 0, 0, byte 0, nil, nil, -1, nil, 0);
+				maxlength, 0, 0, byte 0, nil, nil, -1, nil, 0,
+				-1, -1, -1, -1, 0);
 }
 
 Form.new(formid: int, name: string, action: ref Parsedurl, target: string, method: int, events: list of Lex->Attr) : ref Form
@@ -3388,6 +3512,7 @@ Docinfo.reset(d: self ref Docinfo)
 	d.evmask = 0;
 	d.kidinfo = nil;
 	d.frameid = -1;
+	d.ffrestyled = 0;
 
 	d.anchors = nil;
 	d.dests = nil;

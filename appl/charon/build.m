@@ -163,6 +163,13 @@ Formfield: adt
 	ctlid: int;			# identifies control for this field in layout
 	events: list of Lex->Attr;	# same as genattr.events of containing item
 	evmask: int;
+	# CSS-computed styling.  <input> is in skipframe so cssenter never runs for
+	# it; the Tinput handler computes these directly (see ffcss).  -1/0 = unset.
+	cssbg: int;			# background colour (-1 = default White)
+	cssfg: int;			# text colour (-1 = default Black)
+	cssborderw: int;		# border width px (-1 = default sunken relief)
+	cssbordercol: int;		# border colour (-1 = default Black)
+	csswidth: int;			# target width px (0 = derive from size attr)
 
 	new: fn(ftype, fieldid: int, form: ref Form, name, value: string, size, maxlength: int) : ref Formfield;
 };
@@ -429,6 +436,9 @@ Docinfo: adt {
 	evmask: int;
 	kidinfo: ref Kidinfo;			# if a frameset
 	frameid: int;				# id of document frame
+	ffrestyled: int;				# a form field got CSS at EOF (page declared
+						# its stylesheet after the field) -> needs a
+						# post-load reflow to apply control geometry
 
 	# info needed to respond to user actions
 	anchors: list of ref Anchor;	# info about all href anchors
