@@ -343,6 +343,8 @@ Navigation is always done by `spawn go(g)`, which creates a new process group (`
 
 Mouse-over anchor events are tracked via `mouseover`/`mouseoverfr` globals and routed to JavaScript via `SEonmouseover`/`SEonmouseout`.
 
+**Mouse-wheel scrolling.** Inferno delivers the wheel as Tk buttons 4 (up) / 5 (down). `gui.b:framebinds` binds `<ButtonPress-4>`/`<ButtonPress-5>` on the page frame `.f` to the `wheelup`/`wheeldn` gctl commands; `evhandle` turns each notch into three synthetic `Event.Ekey(Kaup)`/`Ekey(Kadown)` events, so the wheel reuses the arrow-key line-scroll path (`curframe.yscroll(CAscrollline, ±1)`) rather than the JS-only `Escroll`/`Escrollr` events.
+
 ---
 
 ## JavaScript Support (`jscript.b`)
@@ -407,6 +409,8 @@ Attribute parsing (`parsecookie`) covers `Domain`, `Path`, `Expires`, `Secure`, 
 | `G->snarfput(s)` | copy URL to snarf buffer |
 
 `G->mainwin` is the `ref Draw->Image` for the page viewport; `G->display` is the `ref Draw->Display`.
+
+The toolbar nav buttons (`.ctlf.back`/`.ctlf.stop`/`.ctlf.fwd`) render as the `/icons/charon/{redleft,stop,redright}.bit` bitmaps via Tk's `-bitmap @<abspath>` form (the `@` prefix loads an absolute file path instead of the default `/icons/tk/` directory). `backbutton`/`fwdbutton`/`stopbutton` toggle their enabled/disabled state with background colouring (lime / red / grey), not by swapping the bitmap.
 
 Progress states: `Pstart → Pconnected → Psslconnected → Phavehdr → Phavedata → Pdone` (or `Perr`/`Paborted`). Each in-flight `ByteSource` has its own progress slot identified by `bsid`.
 
