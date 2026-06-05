@@ -4,6 +4,7 @@ TARG=\
 	build.dis\
 	cookiesrv.dis\
 	chutils.dis\
+	csseng.dis\
 	ctype.dis\
 	dechunk.dis\
 	date.dis\
@@ -47,6 +48,7 @@ MODULES=\
 	chutils.m\
 	common.m\
 	cookiesrv.m\
+	csseng.m\
 	ctype.m\
 	date.m\
 	dechunk.m\

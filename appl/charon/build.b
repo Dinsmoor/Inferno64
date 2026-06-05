@@ -18,6 +18,30 @@ U: Url;
 	Parsedurl: import U;
 J: Script;
 
+# CSS engine: W3C CSS2.1 parser (css.m) + Charon cascade (csseng.m)
+include "css.m";
+include "csseng.m";
+css: CSS;
+cssengine: Csseng;
+	Engine, Elem, Props: import cssengine;
+csseng: ref Csseng->Engine;	# current document's author stylesheet engine
+cssstk: list of ref Csframe;	# open-element stack (cascade context + overrides)
+cssskip: int;			# display:none nesting depth (additem suppresses items)
+csson: int;			# feature gate (off if engine unavailable)
+cssdeftext: int;		# document default text colour (fallback)
+
+# One open element on the CSS context stack.  Holds the *effective* (already
+# inherited) overrides so children inherit colour/font without re-running the
+# cascade, and the start-tag id so end tags can pop to the matching frame.
+Csframe: adt {
+	tag:	int;
+	el:	ref Csseng->Elem;
+	ovfg:	int;	# foreground pixel override, or -1 (= inherit Charon's curfg)
+	ovstyle: int;	# font style override (FntR/I/B/T), or -1
+	ovsize:	int;	# font size override (Tiny..Verylarge), or -1
+	skip:	int;	# 1 if this element is display:none
+};
+
 ctype: array of byte;
 
 whitespace :  con " \t\n\r";
@@ -147,6 +171,14 @@ init(cu: CharonUtils)
 	dbg = int (CU->config).dbg['h'];
 	warn = (int (CU->config).dbg['w']) || dbg;
 	doscripts = (CU->config).doscripts && J != nil;
+
+	# CSS engine (optional: if either module is missing, CSS is just disabled)
+	css = load CSS CSS->PATH;
+	if(css != nil)
+		css->init(0);
+	cssengine = load Csseng Csseng->PATH;
+	if(cssengine != nil)
+		cssengine->init();
 }
 
 # Assume f has been reset, and then had any values from HTTP headers
@@ -154,6 +186,16 @@ init(cu: CharonUtils)
 ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemSource
 {
 	di := f.doc;
+
+	# reset per-document CSS state
+	csson = css != nil && cssengine != nil && cssenabled();
+	cssstk = nil;
+	cssskip = 0;
+	cssdeftext = di.text;
+	if(csson)
+		csseng = cssengine->new();
+	else
+		csseng = nil;
 # sys->print("chset = %s\n", di.chset);
 	chset := CU->getconv(di.chset);
 	if (chset == nil)
@@ -217,6 +259,15 @@ TokLoop:
 				popjust(ps);
 				ps.inpar = 0;
 			}
+		}
+		# CSS context tracking: push a frame on element start, pop on end.
+		# Decoupled from Charon's font/colour stacks — overrides are overlaid
+		# at item-stamp time (textit), so this cannot corrupt built-in state.
+		if(csson) {
+			if(tag < LX->Numtags)
+				cssenter(ps, tok, tag);
+			else if(tag >= RBRA && tag-RBRA < LX->Numtags)
+				cssexit(ps, tag-RBRA);
 		}
 		# check common case first (Data), then case statement on tag
 		if(tag == LX->Data) {
@@ -1195,12 +1246,13 @@ TokLoop:
 
 		# <!ELEMENT STYLE - - CDATA>
 		LX->Tstyle =>
-			if(warn)
-				sys->print("warning: unimplemented <STYLE>\n");
-			ps.skipping = 1;
+			csstext := "";
+			(csstext, toki) = getpcdata(toks, toki);
+			if(csson)
+				cssaddsheet(csstext);
 
 		LX->Tstyle+RBRA =>
-			ps.skipping = 0;
+			;
 
 		# <!ELEMENT (SUB|SUP) - - (%text)*>
 		LX->Tsub or LX->Tsup =>
@@ -1770,7 +1822,7 @@ trim_white(data: string): string
 # the genattr field of the item accordingly.
 additem(ps: ref Pstate, it: ref Item, tok: ref LX->Token)
 {
-	if(ps.skipping) {
+	if(ps.skipping || cssskip) {
 		if(warn) {
 			sys->print("warning: skipping item:\n");
 			it.print();
@@ -1823,7 +1875,236 @@ getgenattr(tok: ref LX->Token) : ref Genattr
 
 textit(ps: ref Pstate, s: string) : ref Item
 {
-	return Item.newtext(s, ps.curfont, ps.curfg, ps.curvoff+Voffbias, ps.curul);
+	fnt := ps.curfont;
+	fg := ps.curfg;
+	# overlay CSS overrides from the innermost open element, if any
+	if(cssstk != nil) {
+		fr := hd cssstk;
+		if(fr.ovstyle >= 0 || fr.ovsize >= 0) {
+			sty := fnt / NumSize;
+			sz := fnt % NumSize;
+			if(fr.ovstyle >= 0)
+				sty = fr.ovstyle;
+			if(fr.ovsize >= 0)
+				sz = fr.ovsize;
+			fnt = sty*NumSize + sz;
+		}
+		if(fr.ovfg >= 0)
+			fg = fr.ovfg;
+	}
+	return Item.newtext(s, fnt, fg, ps.curvoff+Voffbias, ps.curul);
+}
+
+# --- CSS application -------------------------------------------------------
+
+# CSS rendering is on unless /env/CHARONCSS is "0" (lets us A/B without rebuild)
+cssenabled(): int
+{
+	fd := sys->open("/env/CHARONCSS", Sys->OREAD);
+	if(fd == nil)
+		return 1;
+	buf := array[8] of byte;
+	n := sys->read(fd, buf, len buf);
+	if(n <= 0)
+		return 1;
+	return buf[0] != byte '0';
+}
+
+# parse a stylesheet's text and add it to the document engine as AUTHOR origin
+cssaddsheet(text: string)
+{
+	if(css == nil || text == "")
+		return;
+	if(csseng == nil)
+		csseng = cssengine->new();
+	(ss, err) := css->parse(text);
+	if(err != nil && err != "" && warn)
+		sys->print("warning: CSS parse: %s\n", err);
+	if(ss != nil)
+		csseng.addsheet(ss, Csseng->AUTHOR);
+}
+
+# elements with no rendered scope (metadata) or no end tag (void): no frame
+skipframe(tag: int): int
+{
+	case tag {
+	LX->Thead or LX->Ttitle or LX->Tstyle or LX->Tscript or LX->Tmeta
+	  or LX->Tlink or LX->Tbase or LX->Tbr or LX->Timg or LX->Tinput
+	  or LX->Thr or LX->Tarea or LX->Tparam or LX->Tbasefont or LX->Tframe
+	  or LX->Tisindex or LX->Tcol =>
+		return 1;
+	}
+	return 0;
+}
+
+# a start tag that implies closing an open sibling of the same kind
+autoclose(prev, cur: int): int
+{
+	if(prev != cur)
+		return 0;
+	case cur {
+	LX->Tli or LX->Toption or LX->Ttr or LX->Ttd or LX->Tth
+	  or LX->Tp or LX->Tdd or LX->Tdt =>
+		return 1;
+	}
+	return 0;
+}
+
+cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
+{
+	if(csseng == nil || skipframe(tag))
+		return;
+	if(cssstk != nil && autoclose((hd cssstk).tag, tag))
+		csspopframe(ps);
+
+	tagnm := LX->tagname(tag);
+	if(tagnm == "")
+		return;
+	id := cls := sty := "";
+	ga := getgenattr(tok);
+	if(ga != nil) {
+		id = ga.id;
+		cls = ga.class;
+		sty = ga.style;
+	}
+	parent: ref Csseng->Elem = nil;
+	if(cssstk != nil)
+		parent = (hd cssstk).el;
+	el := Elem.mk(tagnm, id, cls, parent);
+
+	inlinedecls: list of ref CSS->Decl;
+	if(sty != "" && css != nil)
+		(inlinedecls, nil) = css->parsedecl(sty);
+
+	props := csseng.compute(el, inlinedecls);
+
+	# inherit parent frame's effective overrides, then apply this element's
+	fr := ref Csframe(tag, el, -1, -1, -1, 0);
+	if(cssstk != nil) {
+		p := hd cssstk;
+		fr.ovfg = p.ovfg;
+		fr.ovstyle = p.ovstyle;
+		fr.ovsize = p.ovsize;
+	}
+	(r, g, b, cfound) := props.color("color");
+	if(cfound)
+		fr.ovfg = color(sys->sprint("#%2.2x%2.2x%2.2x", r, g, b), ps.curfg);
+	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
+	if(schg)
+		fr.ovstyle = nstyle;
+	(nsize, zchg) := cssfontsize(props);
+	if(zchg)
+		fr.ovsize = nsize;
+	if(props.ident("display") == "none") {
+		fr.skip = 1;
+		cssskip++;
+	}
+	cssstk = fr :: cssstk;
+}
+
+cssexit(ps: ref Pstate, tag: int)
+{
+	found := 0;
+	for(l := cssstk; l != nil; l = tl l)
+		if((hd l).tag == tag) {
+			found = 1;
+			break;
+		}
+	if(!found)
+		return;			# stray end tag: leave stack alone
+	for(;;) {
+		if(cssstk == nil)
+			break;
+		t := (hd cssstk).tag;
+		csspopframe(ps);
+		if(t == tag)
+			break;
+	}
+}
+
+csspopframe(ps: ref Pstate)
+{
+	if(cssstk == nil)
+		return;
+	fr := hd cssstk;
+	cssstk = tl cssstk;
+	if(fr.skip && cssskip > 0)
+		cssskip--;
+}
+
+# CSS font-weight/style -> one of Charon's 4 faces (bold beats italic).
+cssfontstyle(props: ref Props, cur: int): (int, int)
+{
+	w := S->tolower(props.str("font-weight"));
+	st := props.ident("font-style");
+	if(w == "bold" || w == "bolder" || cssboldnum(w))
+		return (FntB, 1);
+	if(st == "italic" || st == "oblique")
+		return (FntI, 1);
+	if(w == "normal" || st == "normal")
+		return (FntR, 1);
+	return (cur, 0);
+}
+
+# CSS font-size -> Charon size bucket (Tiny..Verylarge).  (changed?)
+cssfontsize(props: ref Props): (int, int)
+{
+	kw := props.ident("font-size");
+	if(kw != "") {
+		case kw {
+		"xx-small" or "x-small" =>	return (Tiny, 1);
+		"small" or "smaller" =>		return (Small, 1);
+		"medium" =>			return (Normal, 1);
+		"large" =>			return (Large, 1);
+		"x-large" or "xx-large" or "larger" =>	return (Verylarge, 1);
+		}
+		return (Normal, 0);	# unknown keyword: leave as-is
+	}
+	(v, units, found) := props.unit("font-size");	# v in milli-units
+	if(!found)
+		return (Normal, 0);
+	case units {
+	"px" =>		return (pxsize(v / 1000), 1);
+	"pt" =>		return (pxsize((v * 96) / (72 * 1000)), 1);
+	"em" or "rem" =>	return (emsize(v), 1);
+	"%" =>		return (emsize(v / 100), 1);
+	}
+	return (Normal, 0);
+}
+
+# numeric font-weight >= 600 counts as bold (Charon has only regular/bold)
+cssboldnum(w: string): int
+{
+	if(len w != 3 || w[0] < '0' || w[0] > '9')
+		return 0;
+	return w[0] >= '6';
+}
+
+pxsize(px: int): int
+{
+	if(px >= 24)
+		return Verylarge;
+	if(px >= 18)
+		return Large;
+	if(px >= 14)
+		return Normal;
+	if(px >= 11)
+		return Small;
+	return Tiny;
+}
+
+# v is an em measure in milli-units (1.0em == 1000)
+emsize(v: int): int
+{
+	if(v >= 1800)
+		return Verylarge;
+	if(v >= 1300)
+		return Large;
+	if(v >= 950)
+		return Normal;
+	if(v >= 800)
+		return Small;
+	return Tiny;
 }
 
 # Add text item or items for s, paying attention to

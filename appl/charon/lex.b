@@ -567,6 +567,13 @@ init(cu: CharonUtils)
 	ctype = C->ctype;
 }
 
+tagname(t: int): string
+{
+	if(t < 0 || t >= len tagnames)
+		return "";
+	return tagnames[t];
+}
+
 TokenSource.new(b: ref CU->ByteSource, chset : Btos, mtype: int) : ref TokenSource
 {
 	ts := ref TSstate (

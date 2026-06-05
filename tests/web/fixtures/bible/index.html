@@ -1,0 +1,3268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>KJV API - Legacy Edition</title>
+   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+   <link rel="stylesheet" href="/styles/page.css">
+   <script src="/js/collapsible.js" defer></script>
+   <style>
+/* Bible Book Styles */
+.book-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+}
+
+.book-button {
+    background-color: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    padding: 0.75rem 1rem;
+    text-align: left;
+    color: var(--color-text-primary);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 0.95rem;
+    width: 100%;
+}
+
+.book-button:hover {
+    background-color: var(--color-accent-primary);
+    color: var(--color-bg-primary);
+    border-color: var(--color-accent-primary);
+    transform: translateY(-1px);
+}
+
+.book-button.active {
+    background-color: var(--color-accent-primary);
+    color: var(--color-bg-primary);
+    border-color: var(--color-accent-primary);
+}
+
+.chapter-grid {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+    gap: 0.4rem;
+    padding: 1rem;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.chapter-link {
+    background-color: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    padding: 0.5rem;
+    text-align: center;
+    color: var(--color-text-primary);
+    font-size: 0.85rem;
+    transition: all var(--transition-fast);
+    display: block;
+}
+
+.chapter-link:hover {
+    background-color: var(--color-accent-primary);
+    color: var(--color-bg-primary);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+.quick-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 1.5rem 0;
+}
+
+.quick-btn {
+    background-color: var(--color-accent-primary);
+    color: var(--color-bg-primary);
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--border-radius-sm);
+    font-weight: 600;
+    transition: all var(--transition-fast);
+    display: inline-block;
+}
+
+.quick-btn:hover {
+    background-color: var(--color-accent-hover);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+
+.search-section {
+    background-color: var(--color-bg-secondary);
+    padding: var(--space-xl);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+    margin-bottom: var(--space-xl);
+    box-shadow: 0 2px 8px var(--color-shadow);
+}
+
+.testament-header {
+    color: var(--color-accent-primary);
+    font-size: 1.8rem;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-weight: 700;
+    border-bottom: 2px solid var(--color-accent-primary);
+    padding-bottom: 0.5rem;
+}
+
+.category-header {
+    color: var(--color-text-secondary);
+    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .book-grid {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    }
+
+    .quick-actions {
+        flex-direction: column;
+    }
+
+    .quick-btn {
+        width: 100%;
+    }
+}
+   </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>KJV API (Legacy edition)</h1>
+
+    <div class="search-section">
+        <form action="/find">
+            <label for='kw'>Search Scripture</label><br>
+            <input type="text" name="kw" id="kw" placeholder="Enter verse reference or search keywords..."><br><br>
+            <input type="hidden" name="view" value="rich">
+            <input type="submit" value="Search">
+        </form>
+
+        <div class="quick-actions">
+            <a href="/random?view=rich" class="quick-btn">Random Verse</a>
+            <a href="/votd?view=rich" class="quick-btn">Verse of the Day</a>
+        </div>
+    </div>
+
+    <!-- OLD TESTAMENT -->
+    <h2 class="testament-header">Old Testament</h2>
+    
+        <h3 class="category-header">Law</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Genesis">
+                        Genesis
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Genesis 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Genesis 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Genesis 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Genesis 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Genesis 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Genesis 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Genesis 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Genesis 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Genesis 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Genesis 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Genesis 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Genesis 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Genesis 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Genesis 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Genesis 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Genesis 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Genesis 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Genesis 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Genesis 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Genesis 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Genesis 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Genesis 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Genesis 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Genesis 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Genesis 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Genesis 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Genesis 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Genesis 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Genesis 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Genesis 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Genesis 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Genesis 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Genesis 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Genesis 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Genesis 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Genesis 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Genesis 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Genesis 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Genesis 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Genesis 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Genesis 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Genesis 42&view=rich" class="chapter-link">42</a>
+                        
+                            <a href="/show?kw=Genesis 43&view=rich" class="chapter-link">43</a>
+                        
+                            <a href="/show?kw=Genesis 44&view=rich" class="chapter-link">44</a>
+                        
+                            <a href="/show?kw=Genesis 45&view=rich" class="chapter-link">45</a>
+                        
+                            <a href="/show?kw=Genesis 46&view=rich" class="chapter-link">46</a>
+                        
+                            <a href="/show?kw=Genesis 47&view=rich" class="chapter-link">47</a>
+                        
+                            <a href="/show?kw=Genesis 48&view=rich" class="chapter-link">48</a>
+                        
+                            <a href="/show?kw=Genesis 49&view=rich" class="chapter-link">49</a>
+                        
+                            <a href="/show?kw=Genesis 50&view=rich" class="chapter-link">50</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Exodus">
+                        Exodus
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Exodus 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Exodus 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Exodus 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Exodus 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Exodus 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Exodus 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Exodus 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Exodus 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Exodus 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Exodus 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Exodus 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Exodus 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Exodus 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Exodus 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Exodus 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Exodus 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Exodus 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Exodus 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Exodus 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Exodus 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Exodus 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Exodus 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Exodus 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Exodus 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Exodus 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Exodus 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Exodus 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Exodus 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Exodus 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Exodus 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Exodus 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Exodus 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Exodus 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Exodus 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Exodus 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Exodus 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Exodus 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Exodus 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Exodus 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Exodus 40&view=rich" class="chapter-link">40</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Leviticus">
+                        Leviticus
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Leviticus 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Leviticus 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Leviticus 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Leviticus 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Leviticus 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Leviticus 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Leviticus 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Leviticus 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Leviticus 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Leviticus 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Leviticus 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Leviticus 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Leviticus 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Leviticus 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Leviticus 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Leviticus 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Leviticus 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Leviticus 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Leviticus 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Leviticus 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Leviticus 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Leviticus 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Leviticus 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Leviticus 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Leviticus 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Leviticus 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Leviticus 27&view=rich" class="chapter-link">27</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Numbers">
+                        Numbers
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Numbers 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Numbers 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Numbers 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Numbers 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Numbers 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Numbers 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Numbers 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Numbers 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Numbers 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Numbers 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Numbers 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Numbers 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Numbers 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Numbers 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Numbers 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Numbers 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Numbers 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Numbers 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Numbers 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Numbers 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Numbers 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Numbers 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Numbers 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Numbers 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Numbers 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Numbers 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Numbers 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Numbers 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Numbers 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Numbers 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Numbers 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Numbers 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Numbers 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Numbers 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Numbers 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Numbers 36&view=rich" class="chapter-link">36</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Deuteronomy">
+                        Deuteronomy
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Deuteronomy 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Deuteronomy 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Deuteronomy 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Deuteronomy 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Deuteronomy 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Deuteronomy 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Deuteronomy 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Deuteronomy 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Deuteronomy 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Deuteronomy 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Deuteronomy 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Deuteronomy 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Deuteronomy 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Deuteronomy 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Deuteronomy 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Deuteronomy 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Deuteronomy 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Deuteronomy 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Deuteronomy 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Deuteronomy 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Deuteronomy 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Deuteronomy 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Deuteronomy 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Deuteronomy 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Deuteronomy 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Deuteronomy 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Deuteronomy 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Deuteronomy 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Deuteronomy 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Deuteronomy 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Deuteronomy 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Deuteronomy 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Deuteronomy 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Deuteronomy 34&view=rich" class="chapter-link">34</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Old Testament Narrative</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Joshua">
+                        Joshua
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Joshua 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Joshua 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Joshua 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Joshua 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Joshua 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Joshua 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Joshua 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Joshua 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Joshua 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Joshua 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Joshua 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Joshua 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Joshua 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Joshua 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Joshua 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Joshua 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Joshua 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Joshua 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Joshua 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Joshua 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Joshua 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Joshua 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Joshua 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Joshua 24&view=rich" class="chapter-link">24</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Judges">
+                        Judges
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Judges 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Judges 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Judges 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Judges 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Judges 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Judges 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Judges 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Judges 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Judges 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Judges 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Judges 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Judges 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Judges 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Judges 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Judges 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Judges 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Judges 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Judges 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Judges 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Judges 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Judges 21&view=rich" class="chapter-link">21</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Ruth">
+                        Ruth
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Ruth 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Ruth 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Ruth 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Ruth 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Samuel">
+                        1 Samuel
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Samuel 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Samuel 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Samuel 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Samuel 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Samuel 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=1 Samuel 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=1 Samuel 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=1 Samuel 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=1 Samuel 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=1 Samuel 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=1 Samuel 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=1 Samuel 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=1 Samuel 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=1 Samuel 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=1 Samuel 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=1 Samuel 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=1 Samuel 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=1 Samuel 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=1 Samuel 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=1 Samuel 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=1 Samuel 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=1 Samuel 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=1 Samuel 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=1 Samuel 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=1 Samuel 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=1 Samuel 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=1 Samuel 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=1 Samuel 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=1 Samuel 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=1 Samuel 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=1 Samuel 31&view=rich" class="chapter-link">31</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Samuel">
+                        2 Samuel
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Samuel 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Samuel 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Samuel 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=2 Samuel 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=2 Samuel 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=2 Samuel 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=2 Samuel 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=2 Samuel 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=2 Samuel 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=2 Samuel 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=2 Samuel 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=2 Samuel 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=2 Samuel 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=2 Samuel 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=2 Samuel 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=2 Samuel 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=2 Samuel 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=2 Samuel 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=2 Samuel 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=2 Samuel 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=2 Samuel 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=2 Samuel 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=2 Samuel 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=2 Samuel 24&view=rich" class="chapter-link">24</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Kings">
+                        1 Kings
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Kings 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Kings 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Kings 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Kings 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Kings 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=1 Kings 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=1 Kings 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=1 Kings 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=1 Kings 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=1 Kings 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=1 Kings 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=1 Kings 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=1 Kings 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=1 Kings 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=1 Kings 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=1 Kings 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=1 Kings 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=1 Kings 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=1 Kings 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=1 Kings 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=1 Kings 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=1 Kings 22&view=rich" class="chapter-link">22</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Kings">
+                        2 Kings
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Kings 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Kings 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Kings 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=2 Kings 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=2 Kings 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=2 Kings 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=2 Kings 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=2 Kings 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=2 Kings 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=2 Kings 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=2 Kings 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=2 Kings 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=2 Kings 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=2 Kings 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=2 Kings 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=2 Kings 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=2 Kings 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=2 Kings 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=2 Kings 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=2 Kings 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=2 Kings 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=2 Kings 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=2 Kings 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=2 Kings 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=2 Kings 25&view=rich" class="chapter-link">25</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Chronicles">
+                        1 Chronicles
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Chronicles 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Chronicles 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Chronicles 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Chronicles 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Chronicles 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=1 Chronicles 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=1 Chronicles 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=1 Chronicles 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=1 Chronicles 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=1 Chronicles 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=1 Chronicles 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=1 Chronicles 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=1 Chronicles 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=1 Chronicles 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=1 Chronicles 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=1 Chronicles 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=1 Chronicles 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=1 Chronicles 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=1 Chronicles 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=1 Chronicles 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=1 Chronicles 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=1 Chronicles 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=1 Chronicles 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=1 Chronicles 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=1 Chronicles 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=1 Chronicles 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=1 Chronicles 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=1 Chronicles 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=1 Chronicles 29&view=rich" class="chapter-link">29</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Chronicles">
+                        2 Chronicles
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Chronicles 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Chronicles 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Chronicles 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=2 Chronicles 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=2 Chronicles 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=2 Chronicles 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=2 Chronicles 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=2 Chronicles 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=2 Chronicles 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=2 Chronicles 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=2 Chronicles 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=2 Chronicles 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=2 Chronicles 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=2 Chronicles 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=2 Chronicles 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=2 Chronicles 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=2 Chronicles 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=2 Chronicles 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=2 Chronicles 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=2 Chronicles 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=2 Chronicles 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=2 Chronicles 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=2 Chronicles 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=2 Chronicles 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=2 Chronicles 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=2 Chronicles 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=2 Chronicles 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=2 Chronicles 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=2 Chronicles 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=2 Chronicles 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=2 Chronicles 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=2 Chronicles 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=2 Chronicles 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=2 Chronicles 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=2 Chronicles 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=2 Chronicles 36&view=rich" class="chapter-link">36</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Ezra">
+                        Ezra
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Ezra 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Ezra 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Ezra 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Ezra 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Ezra 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Ezra 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Ezra 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Ezra 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Ezra 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Ezra 10&view=rich" class="chapter-link">10</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Nehemiah">
+                        Nehemiah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Nehemiah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Nehemiah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Nehemiah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Nehemiah 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Nehemiah 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Nehemiah 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Nehemiah 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Nehemiah 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Nehemiah 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Nehemiah 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Nehemiah 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Nehemiah 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Nehemiah 13&view=rich" class="chapter-link">13</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Esther">
+                        Esther
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Esther 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Esther 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Esther 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Esther 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Esther 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Esther 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Esther 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Esther 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Esther 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Esther 10&view=rich" class="chapter-link">10</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Wisdom Literature</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Job">
+                        Job
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Job 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Job 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Job 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Job 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Job 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Job 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Job 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Job 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Job 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Job 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Job 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Job 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Job 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Job 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Job 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Job 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Job 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Job 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Job 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Job 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Job 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Job 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Job 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Job 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Job 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Job 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Job 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Job 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Job 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Job 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Job 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Job 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Job 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Job 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Job 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Job 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Job 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Job 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Job 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Job 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Job 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Job 42&view=rich" class="chapter-link">42</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Psalms">
+                        Psalms
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Psalms 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Psalms 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Psalms 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Psalms 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Psalms 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Psalms 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Psalms 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Psalms 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Psalms 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Psalms 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Psalms 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Psalms 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Psalms 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Psalms 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Psalms 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Psalms 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Psalms 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Psalms 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Psalms 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Psalms 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Psalms 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Psalms 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Psalms 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Psalms 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Psalms 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Psalms 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Psalms 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Psalms 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Psalms 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Psalms 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Psalms 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Psalms 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Psalms 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Psalms 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Psalms 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Psalms 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Psalms 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Psalms 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Psalms 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Psalms 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Psalms 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Psalms 42&view=rich" class="chapter-link">42</a>
+                        
+                            <a href="/show?kw=Psalms 43&view=rich" class="chapter-link">43</a>
+                        
+                            <a href="/show?kw=Psalms 44&view=rich" class="chapter-link">44</a>
+                        
+                            <a href="/show?kw=Psalms 45&view=rich" class="chapter-link">45</a>
+                        
+                            <a href="/show?kw=Psalms 46&view=rich" class="chapter-link">46</a>
+                        
+                            <a href="/show?kw=Psalms 47&view=rich" class="chapter-link">47</a>
+                        
+                            <a href="/show?kw=Psalms 48&view=rich" class="chapter-link">48</a>
+                        
+                            <a href="/show?kw=Psalms 49&view=rich" class="chapter-link">49</a>
+                        
+                            <a href="/show?kw=Psalms 50&view=rich" class="chapter-link">50</a>
+                        
+                            <a href="/show?kw=Psalms 51&view=rich" class="chapter-link">51</a>
+                        
+                            <a href="/show?kw=Psalms 52&view=rich" class="chapter-link">52</a>
+                        
+                            <a href="/show?kw=Psalms 53&view=rich" class="chapter-link">53</a>
+                        
+                            <a href="/show?kw=Psalms 54&view=rich" class="chapter-link">54</a>
+                        
+                            <a href="/show?kw=Psalms 55&view=rich" class="chapter-link">55</a>
+                        
+                            <a href="/show?kw=Psalms 56&view=rich" class="chapter-link">56</a>
+                        
+                            <a href="/show?kw=Psalms 57&view=rich" class="chapter-link">57</a>
+                        
+                            <a href="/show?kw=Psalms 58&view=rich" class="chapter-link">58</a>
+                        
+                            <a href="/show?kw=Psalms 59&view=rich" class="chapter-link">59</a>
+                        
+                            <a href="/show?kw=Psalms 60&view=rich" class="chapter-link">60</a>
+                        
+                            <a href="/show?kw=Psalms 61&view=rich" class="chapter-link">61</a>
+                        
+                            <a href="/show?kw=Psalms 62&view=rich" class="chapter-link">62</a>
+                        
+                            <a href="/show?kw=Psalms 63&view=rich" class="chapter-link">63</a>
+                        
+                            <a href="/show?kw=Psalms 64&view=rich" class="chapter-link">64</a>
+                        
+                            <a href="/show?kw=Psalms 65&view=rich" class="chapter-link">65</a>
+                        
+                            <a href="/show?kw=Psalms 66&view=rich" class="chapter-link">66</a>
+                        
+                            <a href="/show?kw=Psalms 67&view=rich" class="chapter-link">67</a>
+                        
+                            <a href="/show?kw=Psalms 68&view=rich" class="chapter-link">68</a>
+                        
+                            <a href="/show?kw=Psalms 69&view=rich" class="chapter-link">69</a>
+                        
+                            <a href="/show?kw=Psalms 70&view=rich" class="chapter-link">70</a>
+                        
+                            <a href="/show?kw=Psalms 71&view=rich" class="chapter-link">71</a>
+                        
+                            <a href="/show?kw=Psalms 72&view=rich" class="chapter-link">72</a>
+                        
+                            <a href="/show?kw=Psalms 73&view=rich" class="chapter-link">73</a>
+                        
+                            <a href="/show?kw=Psalms 74&view=rich" class="chapter-link">74</a>
+                        
+                            <a href="/show?kw=Psalms 75&view=rich" class="chapter-link">75</a>
+                        
+                            <a href="/show?kw=Psalms 76&view=rich" class="chapter-link">76</a>
+                        
+                            <a href="/show?kw=Psalms 77&view=rich" class="chapter-link">77</a>
+                        
+                            <a href="/show?kw=Psalms 78&view=rich" class="chapter-link">78</a>
+                        
+                            <a href="/show?kw=Psalms 79&view=rich" class="chapter-link">79</a>
+                        
+                            <a href="/show?kw=Psalms 80&view=rich" class="chapter-link">80</a>
+                        
+                            <a href="/show?kw=Psalms 81&view=rich" class="chapter-link">81</a>
+                        
+                            <a href="/show?kw=Psalms 82&view=rich" class="chapter-link">82</a>
+                        
+                            <a href="/show?kw=Psalms 83&view=rich" class="chapter-link">83</a>
+                        
+                            <a href="/show?kw=Psalms 84&view=rich" class="chapter-link">84</a>
+                        
+                            <a href="/show?kw=Psalms 85&view=rich" class="chapter-link">85</a>
+                        
+                            <a href="/show?kw=Psalms 86&view=rich" class="chapter-link">86</a>
+                        
+                            <a href="/show?kw=Psalms 87&view=rich" class="chapter-link">87</a>
+                        
+                            <a href="/show?kw=Psalms 88&view=rich" class="chapter-link">88</a>
+                        
+                            <a href="/show?kw=Psalms 89&view=rich" class="chapter-link">89</a>
+                        
+                            <a href="/show?kw=Psalms 90&view=rich" class="chapter-link">90</a>
+                        
+                            <a href="/show?kw=Psalms 91&view=rich" class="chapter-link">91</a>
+                        
+                            <a href="/show?kw=Psalms 92&view=rich" class="chapter-link">92</a>
+                        
+                            <a href="/show?kw=Psalms 93&view=rich" class="chapter-link">93</a>
+                        
+                            <a href="/show?kw=Psalms 94&view=rich" class="chapter-link">94</a>
+                        
+                            <a href="/show?kw=Psalms 95&view=rich" class="chapter-link">95</a>
+                        
+                            <a href="/show?kw=Psalms 96&view=rich" class="chapter-link">96</a>
+                        
+                            <a href="/show?kw=Psalms 97&view=rich" class="chapter-link">97</a>
+                        
+                            <a href="/show?kw=Psalms 98&view=rich" class="chapter-link">98</a>
+                        
+                            <a href="/show?kw=Psalms 99&view=rich" class="chapter-link">99</a>
+                        
+                            <a href="/show?kw=Psalms 100&view=rich" class="chapter-link">100</a>
+                        
+                            <a href="/show?kw=Psalms 101&view=rich" class="chapter-link">101</a>
+                        
+                            <a href="/show?kw=Psalms 102&view=rich" class="chapter-link">102</a>
+                        
+                            <a href="/show?kw=Psalms 103&view=rich" class="chapter-link">103</a>
+                        
+                            <a href="/show?kw=Psalms 104&view=rich" class="chapter-link">104</a>
+                        
+                            <a href="/show?kw=Psalms 105&view=rich" class="chapter-link">105</a>
+                        
+                            <a href="/show?kw=Psalms 106&view=rich" class="chapter-link">106</a>
+                        
+                            <a href="/show?kw=Psalms 107&view=rich" class="chapter-link">107</a>
+                        
+                            <a href="/show?kw=Psalms 108&view=rich" class="chapter-link">108</a>
+                        
+                            <a href="/show?kw=Psalms 109&view=rich" class="chapter-link">109</a>
+                        
+                            <a href="/show?kw=Psalms 110&view=rich" class="chapter-link">110</a>
+                        
+                            <a href="/show?kw=Psalms 111&view=rich" class="chapter-link">111</a>
+                        
+                            <a href="/show?kw=Psalms 112&view=rich" class="chapter-link">112</a>
+                        
+                            <a href="/show?kw=Psalms 113&view=rich" class="chapter-link">113</a>
+                        
+                            <a href="/show?kw=Psalms 114&view=rich" class="chapter-link">114</a>
+                        
+                            <a href="/show?kw=Psalms 115&view=rich" class="chapter-link">115</a>
+                        
+                            <a href="/show?kw=Psalms 116&view=rich" class="chapter-link">116</a>
+                        
+                            <a href="/show?kw=Psalms 117&view=rich" class="chapter-link">117</a>
+                        
+                            <a href="/show?kw=Psalms 118&view=rich" class="chapter-link">118</a>
+                        
+                            <a href="/show?kw=Psalms 119&view=rich" class="chapter-link">119</a>
+                        
+                            <a href="/show?kw=Psalms 120&view=rich" class="chapter-link">120</a>
+                        
+                            <a href="/show?kw=Psalms 121&view=rich" class="chapter-link">121</a>
+                        
+                            <a href="/show?kw=Psalms 122&view=rich" class="chapter-link">122</a>
+                        
+                            <a href="/show?kw=Psalms 123&view=rich" class="chapter-link">123</a>
+                        
+                            <a href="/show?kw=Psalms 124&view=rich" class="chapter-link">124</a>
+                        
+                            <a href="/show?kw=Psalms 125&view=rich" class="chapter-link">125</a>
+                        
+                            <a href="/show?kw=Psalms 126&view=rich" class="chapter-link">126</a>
+                        
+                            <a href="/show?kw=Psalms 127&view=rich" class="chapter-link">127</a>
+                        
+                            <a href="/show?kw=Psalms 128&view=rich" class="chapter-link">128</a>
+                        
+                            <a href="/show?kw=Psalms 129&view=rich" class="chapter-link">129</a>
+                        
+                            <a href="/show?kw=Psalms 130&view=rich" class="chapter-link">130</a>
+                        
+                            <a href="/show?kw=Psalms 131&view=rich" class="chapter-link">131</a>
+                        
+                            <a href="/show?kw=Psalms 132&view=rich" class="chapter-link">132</a>
+                        
+                            <a href="/show?kw=Psalms 133&view=rich" class="chapter-link">133</a>
+                        
+                            <a href="/show?kw=Psalms 134&view=rich" class="chapter-link">134</a>
+                        
+                            <a href="/show?kw=Psalms 135&view=rich" class="chapter-link">135</a>
+                        
+                            <a href="/show?kw=Psalms 136&view=rich" class="chapter-link">136</a>
+                        
+                            <a href="/show?kw=Psalms 137&view=rich" class="chapter-link">137</a>
+                        
+                            <a href="/show?kw=Psalms 138&view=rich" class="chapter-link">138</a>
+                        
+                            <a href="/show?kw=Psalms 139&view=rich" class="chapter-link">139</a>
+                        
+                            <a href="/show?kw=Psalms 140&view=rich" class="chapter-link">140</a>
+                        
+                            <a href="/show?kw=Psalms 141&view=rich" class="chapter-link">141</a>
+                        
+                            <a href="/show?kw=Psalms 142&view=rich" class="chapter-link">142</a>
+                        
+                            <a href="/show?kw=Psalms 143&view=rich" class="chapter-link">143</a>
+                        
+                            <a href="/show?kw=Psalms 144&view=rich" class="chapter-link">144</a>
+                        
+                            <a href="/show?kw=Psalms 145&view=rich" class="chapter-link">145</a>
+                        
+                            <a href="/show?kw=Psalms 146&view=rich" class="chapter-link">146</a>
+                        
+                            <a href="/show?kw=Psalms 147&view=rich" class="chapter-link">147</a>
+                        
+                            <a href="/show?kw=Psalms 148&view=rich" class="chapter-link">148</a>
+                        
+                            <a href="/show?kw=Psalms 149&view=rich" class="chapter-link">149</a>
+                        
+                            <a href="/show?kw=Psalms 150&view=rich" class="chapter-link">150</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Proverbs">
+                        Proverbs
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Proverbs 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Proverbs 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Proverbs 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Proverbs 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Proverbs 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Proverbs 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Proverbs 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Proverbs 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Proverbs 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Proverbs 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Proverbs 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Proverbs 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Proverbs 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Proverbs 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Proverbs 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Proverbs 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Proverbs 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Proverbs 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Proverbs 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Proverbs 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Proverbs 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Proverbs 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Proverbs 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Proverbs 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Proverbs 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Proverbs 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Proverbs 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Proverbs 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Proverbs 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Proverbs 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Proverbs 31&view=rich" class="chapter-link">31</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Ecclesiastes">
+                        Ecclesiastes
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Ecclesiastes 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Ecclesiastes 12&view=rich" class="chapter-link">12</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Song of Solomon">
+                        Song of Solomon
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Song of Solomon 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Song of Solomon 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Song of Solomon 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Song of Solomon 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Song of Solomon 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Song of Solomon 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Song of Solomon 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Song of Solomon 8&view=rich" class="chapter-link">8</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Major Prophets</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Isaiah">
+                        Isaiah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Isaiah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Isaiah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Isaiah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Isaiah 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Isaiah 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Isaiah 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Isaiah 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Isaiah 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Isaiah 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Isaiah 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Isaiah 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Isaiah 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Isaiah 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Isaiah 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Isaiah 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Isaiah 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Isaiah 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Isaiah 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Isaiah 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Isaiah 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Isaiah 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Isaiah 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Isaiah 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Isaiah 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Isaiah 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Isaiah 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Isaiah 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Isaiah 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Isaiah 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Isaiah 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Isaiah 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Isaiah 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Isaiah 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Isaiah 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Isaiah 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Isaiah 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Isaiah 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Isaiah 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Isaiah 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Isaiah 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Isaiah 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Isaiah 42&view=rich" class="chapter-link">42</a>
+                        
+                            <a href="/show?kw=Isaiah 43&view=rich" class="chapter-link">43</a>
+                        
+                            <a href="/show?kw=Isaiah 44&view=rich" class="chapter-link">44</a>
+                        
+                            <a href="/show?kw=Isaiah 45&view=rich" class="chapter-link">45</a>
+                        
+                            <a href="/show?kw=Isaiah 46&view=rich" class="chapter-link">46</a>
+                        
+                            <a href="/show?kw=Isaiah 47&view=rich" class="chapter-link">47</a>
+                        
+                            <a href="/show?kw=Isaiah 48&view=rich" class="chapter-link">48</a>
+                        
+                            <a href="/show?kw=Isaiah 49&view=rich" class="chapter-link">49</a>
+                        
+                            <a href="/show?kw=Isaiah 50&view=rich" class="chapter-link">50</a>
+                        
+                            <a href="/show?kw=Isaiah 51&view=rich" class="chapter-link">51</a>
+                        
+                            <a href="/show?kw=Isaiah 52&view=rich" class="chapter-link">52</a>
+                        
+                            <a href="/show?kw=Isaiah 53&view=rich" class="chapter-link">53</a>
+                        
+                            <a href="/show?kw=Isaiah 54&view=rich" class="chapter-link">54</a>
+                        
+                            <a href="/show?kw=Isaiah 55&view=rich" class="chapter-link">55</a>
+                        
+                            <a href="/show?kw=Isaiah 56&view=rich" class="chapter-link">56</a>
+                        
+                            <a href="/show?kw=Isaiah 57&view=rich" class="chapter-link">57</a>
+                        
+                            <a href="/show?kw=Isaiah 58&view=rich" class="chapter-link">58</a>
+                        
+                            <a href="/show?kw=Isaiah 59&view=rich" class="chapter-link">59</a>
+                        
+                            <a href="/show?kw=Isaiah 60&view=rich" class="chapter-link">60</a>
+                        
+                            <a href="/show?kw=Isaiah 61&view=rich" class="chapter-link">61</a>
+                        
+                            <a href="/show?kw=Isaiah 62&view=rich" class="chapter-link">62</a>
+                        
+                            <a href="/show?kw=Isaiah 63&view=rich" class="chapter-link">63</a>
+                        
+                            <a href="/show?kw=Isaiah 64&view=rich" class="chapter-link">64</a>
+                        
+                            <a href="/show?kw=Isaiah 65&view=rich" class="chapter-link">65</a>
+                        
+                            <a href="/show?kw=Isaiah 66&view=rich" class="chapter-link">66</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Jeremiah">
+                        Jeremiah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Jeremiah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Jeremiah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Jeremiah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Jeremiah 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Jeremiah 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Jeremiah 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Jeremiah 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Jeremiah 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Jeremiah 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Jeremiah 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Jeremiah 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Jeremiah 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Jeremiah 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Jeremiah 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Jeremiah 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Jeremiah 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Jeremiah 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Jeremiah 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Jeremiah 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Jeremiah 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Jeremiah 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Jeremiah 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Jeremiah 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Jeremiah 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Jeremiah 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Jeremiah 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Jeremiah 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Jeremiah 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Jeremiah 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Jeremiah 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Jeremiah 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Jeremiah 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Jeremiah 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Jeremiah 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Jeremiah 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Jeremiah 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Jeremiah 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Jeremiah 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Jeremiah 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Jeremiah 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Jeremiah 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Jeremiah 42&view=rich" class="chapter-link">42</a>
+                        
+                            <a href="/show?kw=Jeremiah 43&view=rich" class="chapter-link">43</a>
+                        
+                            <a href="/show?kw=Jeremiah 44&view=rich" class="chapter-link">44</a>
+                        
+                            <a href="/show?kw=Jeremiah 45&view=rich" class="chapter-link">45</a>
+                        
+                            <a href="/show?kw=Jeremiah 46&view=rich" class="chapter-link">46</a>
+                        
+                            <a href="/show?kw=Jeremiah 47&view=rich" class="chapter-link">47</a>
+                        
+                            <a href="/show?kw=Jeremiah 48&view=rich" class="chapter-link">48</a>
+                        
+                            <a href="/show?kw=Jeremiah 49&view=rich" class="chapter-link">49</a>
+                        
+                            <a href="/show?kw=Jeremiah 50&view=rich" class="chapter-link">50</a>
+                        
+                            <a href="/show?kw=Jeremiah 51&view=rich" class="chapter-link">51</a>
+                        
+                            <a href="/show?kw=Jeremiah 52&view=rich" class="chapter-link">52</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Lamentations">
+                        Lamentations
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Lamentations 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Lamentations 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Lamentations 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Lamentations 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Lamentations 5&view=rich" class="chapter-link">5</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Ezekiel">
+                        Ezekiel
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Ezekiel 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Ezekiel 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Ezekiel 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Ezekiel 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Ezekiel 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Ezekiel 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Ezekiel 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Ezekiel 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Ezekiel 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Ezekiel 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Ezekiel 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Ezekiel 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Ezekiel 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Ezekiel 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Ezekiel 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Ezekiel 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Ezekiel 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Ezekiel 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Ezekiel 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Ezekiel 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Ezekiel 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Ezekiel 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Ezekiel 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Ezekiel 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Ezekiel 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Ezekiel 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Ezekiel 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Ezekiel 28&view=rich" class="chapter-link">28</a>
+                        
+                            <a href="/show?kw=Ezekiel 29&view=rich" class="chapter-link">29</a>
+                        
+                            <a href="/show?kw=Ezekiel 30&view=rich" class="chapter-link">30</a>
+                        
+                            <a href="/show?kw=Ezekiel 31&view=rich" class="chapter-link">31</a>
+                        
+                            <a href="/show?kw=Ezekiel 32&view=rich" class="chapter-link">32</a>
+                        
+                            <a href="/show?kw=Ezekiel 33&view=rich" class="chapter-link">33</a>
+                        
+                            <a href="/show?kw=Ezekiel 34&view=rich" class="chapter-link">34</a>
+                        
+                            <a href="/show?kw=Ezekiel 35&view=rich" class="chapter-link">35</a>
+                        
+                            <a href="/show?kw=Ezekiel 36&view=rich" class="chapter-link">36</a>
+                        
+                            <a href="/show?kw=Ezekiel 37&view=rich" class="chapter-link">37</a>
+                        
+                            <a href="/show?kw=Ezekiel 38&view=rich" class="chapter-link">38</a>
+                        
+                            <a href="/show?kw=Ezekiel 39&view=rich" class="chapter-link">39</a>
+                        
+                            <a href="/show?kw=Ezekiel 40&view=rich" class="chapter-link">40</a>
+                        
+                            <a href="/show?kw=Ezekiel 41&view=rich" class="chapter-link">41</a>
+                        
+                            <a href="/show?kw=Ezekiel 42&view=rich" class="chapter-link">42</a>
+                        
+                            <a href="/show?kw=Ezekiel 43&view=rich" class="chapter-link">43</a>
+                        
+                            <a href="/show?kw=Ezekiel 44&view=rich" class="chapter-link">44</a>
+                        
+                            <a href="/show?kw=Ezekiel 45&view=rich" class="chapter-link">45</a>
+                        
+                            <a href="/show?kw=Ezekiel 46&view=rich" class="chapter-link">46</a>
+                        
+                            <a href="/show?kw=Ezekiel 47&view=rich" class="chapter-link">47</a>
+                        
+                            <a href="/show?kw=Ezekiel 48&view=rich" class="chapter-link">48</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Daniel">
+                        Daniel
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Daniel 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Daniel 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Daniel 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Daniel 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Daniel 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Daniel 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Daniel 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Daniel 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Daniel 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Daniel 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Daniel 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Daniel 12&view=rich" class="chapter-link">12</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Minor Prophets</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Hosea">
+                        Hosea
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Hosea 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Hosea 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Hosea 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Hosea 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Hosea 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Hosea 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Hosea 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Hosea 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Hosea 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Hosea 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Hosea 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Hosea 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Hosea 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Hosea 14&view=rich" class="chapter-link">14</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Joel">
+                        Joel
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Joel 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Joel 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Joel 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Amos">
+                        Amos
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Amos 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Amos 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Amos 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Amos 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Amos 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Amos 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Amos 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Amos 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Amos 9&view=rich" class="chapter-link">9</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Obadiah">
+                        Obadiah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Obadiah 1&view=rich" class="chapter-link">1</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Jonah">
+                        Jonah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Jonah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Jonah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Jonah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Jonah 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Micah">
+                        Micah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Micah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Micah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Micah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Micah 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Micah 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Micah 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Micah 7&view=rich" class="chapter-link">7</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Nahum">
+                        Nahum
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Nahum 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Nahum 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Nahum 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Habakkuk">
+                        Habakkuk
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Habakkuk 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Habakkuk 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Habakkuk 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Zephaniah">
+                        Zephaniah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Zephaniah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Zephaniah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Zephaniah 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Haggai">
+                        Haggai
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Haggai 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Haggai 2&view=rich" class="chapter-link">2</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Zechariah">
+                        Zechariah
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Zechariah 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Zechariah 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Zechariah 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Zechariah 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Zechariah 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Zechariah 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Zechariah 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Zechariah 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Zechariah 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Zechariah 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Zechariah 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Zechariah 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Zechariah 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Zechariah 14&view=rich" class="chapter-link">14</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Malachi">
+                        Malachi
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Malachi 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Malachi 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Malachi 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Malachi 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+
+    <!-- NEW TESTAMENT -->
+    <h2 class="testament-header">New Testament</h2>
+    
+        <h3 class="category-header">New Testament Narrative</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Matthew">
+                        Matthew
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Matthew 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Matthew 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Matthew 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Matthew 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Matthew 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Matthew 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Matthew 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Matthew 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Matthew 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Matthew 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Matthew 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Matthew 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Matthew 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Matthew 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Matthew 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Matthew 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Matthew 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Matthew 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Matthew 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Matthew 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Matthew 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Matthew 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Matthew 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Matthew 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Matthew 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Matthew 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Matthew 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Matthew 28&view=rich" class="chapter-link">28</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Mark">
+                        Mark
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Mark 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Mark 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Mark 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Mark 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Mark 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Mark 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Mark 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Mark 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Mark 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Mark 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Mark 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Mark 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Mark 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Mark 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Mark 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Mark 16&view=rich" class="chapter-link">16</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Luke">
+                        Luke
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Luke 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Luke 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Luke 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Luke 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Luke 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Luke 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Luke 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Luke 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Luke 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Luke 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Luke 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Luke 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Luke 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Luke 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Luke 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Luke 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Luke 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Luke 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Luke 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Luke 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Luke 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Luke 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Luke 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Luke 24&view=rich" class="chapter-link">24</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="John">
+                        John
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=John 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=John 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=John 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=John 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=John 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=John 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=John 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=John 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=John 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=John 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=John 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=John 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=John 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=John 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=John 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=John 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=John 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=John 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=John 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=John 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=John 21&view=rich" class="chapter-link">21</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Acts">
+                        Acts
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Acts 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Acts 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Acts 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Acts 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Acts 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Acts 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Acts 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Acts 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Acts 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Acts 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Acts 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Acts 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Acts 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Acts 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Acts 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Acts 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Acts 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Acts 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Acts 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Acts 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Acts 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Acts 22&view=rich" class="chapter-link">22</a>
+                        
+                            <a href="/show?kw=Acts 23&view=rich" class="chapter-link">23</a>
+                        
+                            <a href="/show?kw=Acts 24&view=rich" class="chapter-link">24</a>
+                        
+                            <a href="/show?kw=Acts 25&view=rich" class="chapter-link">25</a>
+                        
+                            <a href="/show?kw=Acts 26&view=rich" class="chapter-link">26</a>
+                        
+                            <a href="/show?kw=Acts 27&view=rich" class="chapter-link">27</a>
+                        
+                            <a href="/show?kw=Acts 28&view=rich" class="chapter-link">28</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Pauline Epistles</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Romans">
+                        Romans
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Romans 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Romans 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Romans 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Romans 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Romans 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Romans 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Romans 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Romans 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Romans 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Romans 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Romans 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Romans 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Romans 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Romans 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Romans 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Romans 16&view=rich" class="chapter-link">16</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Corinthians">
+                        1 Corinthians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Corinthians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Corinthians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Corinthians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Corinthians 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Corinthians 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=1 Corinthians 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=1 Corinthians 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=1 Corinthians 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=1 Corinthians 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=1 Corinthians 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=1 Corinthians 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=1 Corinthians 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=1 Corinthians 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=1 Corinthians 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=1 Corinthians 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=1 Corinthians 16&view=rich" class="chapter-link">16</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Corinthians">
+                        2 Corinthians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Corinthians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Corinthians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Corinthians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=2 Corinthians 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=2 Corinthians 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=2 Corinthians 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=2 Corinthians 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=2 Corinthians 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=2 Corinthians 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=2 Corinthians 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=2 Corinthians 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=2 Corinthians 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=2 Corinthians 13&view=rich" class="chapter-link">13</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Galatians">
+                        Galatians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Galatians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Galatians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Galatians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Galatians 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Galatians 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Galatians 6&view=rich" class="chapter-link">6</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Ephesians">
+                        Ephesians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Ephesians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Ephesians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Ephesians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Ephesians 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Ephesians 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Ephesians 6&view=rich" class="chapter-link">6</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Philippians">
+                        Philippians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Philippians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Philippians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Philippians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Philippians 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Colossians">
+                        Colossians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Colossians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Colossians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Colossians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Colossians 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Thessalonians">
+                        1 Thessalonians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Thessalonians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Thessalonians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Thessalonians 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Thessalonians 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Thessalonians 5&view=rich" class="chapter-link">5</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Thessalonians">
+                        2 Thessalonians
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Thessalonians 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Thessalonians 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Thessalonians 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Timothy">
+                        1 Timothy
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Timothy 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Timothy 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Timothy 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Timothy 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Timothy 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=1 Timothy 6&view=rich" class="chapter-link">6</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Timothy">
+                        2 Timothy
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Timothy 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Timothy 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Timothy 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=2 Timothy 4&view=rich" class="chapter-link">4</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Titus">
+                        Titus
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Titus 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Titus 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Titus 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Philemon">
+                        Philemon
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Philemon 1&view=rich" class="chapter-link">1</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">General Epistles</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Hebrews">
+                        Hebrews
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Hebrews 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Hebrews 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Hebrews 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Hebrews 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Hebrews 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Hebrews 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Hebrews 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Hebrews 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Hebrews 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Hebrews 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Hebrews 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Hebrews 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Hebrews 13&view=rich" class="chapter-link">13</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="James">
+                        James
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=James 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=James 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=James 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=James 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=James 5&view=rich" class="chapter-link">5</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 Peter">
+                        1 Peter
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 Peter 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 Peter 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 Peter 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 Peter 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 Peter 5&view=rich" class="chapter-link">5</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 Peter">
+                        2 Peter
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 Peter 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=2 Peter 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=2 Peter 3&view=rich" class="chapter-link">3</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="1 John">
+                        1 John
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=1 John 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=1 John 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=1 John 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=1 John 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=1 John 5&view=rich" class="chapter-link">5</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="2 John">
+                        2 John
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=2 John 1&view=rich" class="chapter-link">1</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="3 John">
+                        3 John
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=3 John 1&view=rich" class="chapter-link">1</a>
+                        
+                    </div>
+                </div>
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Jude">
+                        Jude
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Jude 1&view=rich" class="chapter-link">1</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+        <h3 class="category-header">Apocalyptic Epistle</h3>
+        <div class="book-grid">
+            
+                <div>
+                    <button class="book-button collapsible" data-book="Revelation">
+                        Revelation
+                    </button>
+                    <div class="chapter-grid content">
+                        
+                            <a href="/show?kw=Revelation 1&view=rich" class="chapter-link">1</a>
+                        
+                            <a href="/show?kw=Revelation 2&view=rich" class="chapter-link">2</a>
+                        
+                            <a href="/show?kw=Revelation 3&view=rich" class="chapter-link">3</a>
+                        
+                            <a href="/show?kw=Revelation 4&view=rich" class="chapter-link">4</a>
+                        
+                            <a href="/show?kw=Revelation 5&view=rich" class="chapter-link">5</a>
+                        
+                            <a href="/show?kw=Revelation 6&view=rich" class="chapter-link">6</a>
+                        
+                            <a href="/show?kw=Revelation 7&view=rich" class="chapter-link">7</a>
+                        
+                            <a href="/show?kw=Revelation 8&view=rich" class="chapter-link">8</a>
+                        
+                            <a href="/show?kw=Revelation 9&view=rich" class="chapter-link">9</a>
+                        
+                            <a href="/show?kw=Revelation 10&view=rich" class="chapter-link">10</a>
+                        
+                            <a href="/show?kw=Revelation 11&view=rich" class="chapter-link">11</a>
+                        
+                            <a href="/show?kw=Revelation 12&view=rich" class="chapter-link">12</a>
+                        
+                            <a href="/show?kw=Revelation 13&view=rich" class="chapter-link">13</a>
+                        
+                            <a href="/show?kw=Revelation 14&view=rich" class="chapter-link">14</a>
+                        
+                            <a href="/show?kw=Revelation 15&view=rich" class="chapter-link">15</a>
+                        
+                            <a href="/show?kw=Revelation 16&view=rich" class="chapter-link">16</a>
+                        
+                            <a href="/show?kw=Revelation 17&view=rich" class="chapter-link">17</a>
+                        
+                            <a href="/show?kw=Revelation 18&view=rich" class="chapter-link">18</a>
+                        
+                            <a href="/show?kw=Revelation 19&view=rich" class="chapter-link">19</a>
+                        
+                            <a href="/show?kw=Revelation 20&view=rich" class="chapter-link">20</a>
+                        
+                            <a href="/show?kw=Revelation 21&view=rich" class="chapter-link">21</a>
+                        
+                            <a href="/show?kw=Revelation 22&view=rich" class="chapter-link">22</a>
+                        
+                    </div>
+                </div>
+            
+        </div>
+    
+
+    <!-- API DOCUMENTATION -->
+    <button class="collapsible" style="margin-top: 2rem;">API Documentation</button>
+    <div class="content">
+        <pre><code>API ENDPOINT SPECIFICATION v 0.3
+================================
+
+<a href="/find">/find</a> - Tries to show a verse, if it's not a verse
+       it will try to search your query. If it's a
+       single query it will try to find a definition
+       for the word as well. Only avaliable in "Rich"
+       and meant for interactive use/browsing
+<a href="/random">/random</a> - outputs a random verse
+<a href="/votd">/votd</a> - returns verse of the day
+<a href="/search">/search</a> - returns a keyword search result set
+<a href="/show">/show</a> - returns a verse or set of verses by name/location
+<a href="/define">/define</a> - 1828 Noah Webster dictionary search
+<a href="/seq">/seq</a> - Incremental sequence of Bible verses (per request)
+
+URL PARAMETERS
+==============
+view=
+- json - json-encoded response
+- plain - very simple html response
+- rich - pretty response with css and js
+Required parameter
+
+kw=
+- Used with /search /show/ /define /find
+- The keyword(s) of your query, separated by commas
+-- ex ?kw=1cor5:1-5,2Peter2:5
+
+getuid=
+- Used only with /seq
+- Set this to "true" to recieve a new UID for use with /seq?uid=
+
+start=
+- Used only with /seq
+- You can use a ref like "1Cor5:1" to start there
+  instead of Genesis 1:1 as is the default
+- Only used when creating a new UID
+- If you want to "start in a new place" - just create a new UID
+
+uid=
+- Used only with /seq
+- Required parameter for normal use of /seq
+
+num=
+- Used only with /seq
+- You can get the "next # verses" in your sequence
+
+FEATURES
+========
+- King James Only. (No heretical commentaries or false Bibles)
+- High quality source documents
+- Free
+- Developer hates the sodomites
+
+INTERACTIVE ENDPOINTS
+=====================
+The following endpoints will present you with a query box and
+radio selector for choosing your output format.
+- /     (same function as /find)
+- /search
+- /define
+- /show
+
+EXAMPLES
+========
+api.tld/random
+api.tld/votd?view=rich
+api.tld/show?kw=john3:16,1john5:7&view=plain
+
+BUGS
+====
+Suggestions, bug reports or improvements can be reported to <a href="https://nicecrew.digital/@tyler">@tyler@nicecrew.digital</a></code></pre>
+    </div>
+
+</div>
+
+</body>
+</html>

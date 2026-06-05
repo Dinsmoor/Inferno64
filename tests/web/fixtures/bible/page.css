@@ -1,0 +1,133 @@
+/* Shared Page Styling for Simple Pages */
+
+:root {
+    --color-bg-primary: #1a1a1a;
+    --color-bg-secondary: #252525;
+    --color-text-primary: #e8e8e8;
+    --color-text-secondary: #b8b8b8;
+    --color-accent-primary: #6b9bd1;
+    --color-accent-hover: #85aede;
+    --color-link: #6b9bd1;
+    --color-link-hover: #85aede;
+    --color-border: #3a3a3a;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --border-radius-sm: 4px;
+    --border-radius: 8px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    margin: 0;
+    padding: 1.5rem;
+    font-family: var(--font-ui);
+    line-height: 1.6;
+    font-size: 16px;
+}
+
+body {
+    max-width: 820px;
+    margin: 0 auto;
+}
+
+h1, h2, h3, h4 {
+    color: var(--color-text-primary);
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+h2 {
+    font-size: 2rem;
+    border-bottom: 2px solid var(--color-border);
+    padding-bottom: 0.5rem;
+}
+
+a {
+    color: var(--color-link);
+    text-decoration: none;
+    transition: color 150ms ease;
+}
+
+a:hover {
+    color: var(--color-link-hover);
+    text-decoration: underline;
+}
+
+header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+form {
+    background-color: var(--color-bg-secondary);
+    padding: 1.5rem;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+    margin: 1.5rem 0;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+input[type=text] {
+    width: 100%;
+    padding: 0.75rem;
+    margin: 0.5rem 0 1rem 0;
+    font-size: 1rem;
+    font-family: var(--font-ui);
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    border: 2px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    transition: border-color 150ms ease;
+}
+
+input[type=text]:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+}
+
+input[type=radio] {
+    margin-right: 0.5rem;
+}
+
+input[type=submit], button {
+    background-color: var(--color-accent-primary);
+    color: var(--color-bg-primary);
+    border: none;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    transition: background-color 150ms ease, transform 150ms ease;
+}
+
+input[type=submit]:hover, button:hover {
+    background-color: var(--color-accent-hover);
+    transform: translateY(-1px);
+}
+
+hr {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: 2rem 0;
+}
+
+p {
+    margin: 1rem 0;
+    color: var(--color-text-secondary);
+}
+
+b, strong {
+    color: var(--color-text-primary);
+}

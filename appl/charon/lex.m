@@ -103,4 +103,7 @@ Lex: module
 	
 
 	init: fn(cu: CharonUtils);
+
+	# name of a start-tag id (0..Numtags-1), "" if out of range; for CSS matching
+	tagname: fn(t: int): string;
 };
