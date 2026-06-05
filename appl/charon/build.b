@@ -5,7 +5,7 @@ include "common.m";
 # local copies from CU
 sys: Sys;
 CU: CharonUtils;
-	ByteSource, CImage, ImageCache, color, Nameval: import CU;
+	ByteSource, CImage, ImageCache, color, rgb, Nameval: import CU;
 
 D: Draw;
 	Point, Rect, Image: import D;
@@ -43,6 +43,7 @@ Csframe: adt {
 	skip:	int;	# 1 if this element is display:none
 	inlinekids: int;	# display:grid/flex/inline-* -> children flow inline (wrap)
 	inlineflow: int;	# this element flows inline (parent is a grid/flex/inline box)
+	box:	ref Cssbox;	# effective box (bg/padding/border) stamped on this frame's items, or nil
 };
 
 ctype: array of byte;
@@ -1862,7 +1863,7 @@ additem(ps: ref Pstate, it: ref Item, tok: ref LX->Token)
 	it.anchorid = ps.curanchor;
 	it.state |= ps.curstate;
 	if(csson && cssstk != nil)
-		it.bg = (hd cssstk).ovbg;	# effective CSS background-color for this item
+		it.box = (hd cssstk).box;	# effective CSS box (bg/padding/border) for this item
 	if(tok != nil)
 		it.genattr = getgenattr(tok);
 	ps.curstate &= ~(IFbrk|IFbrksp|IFnobrk|IFcleft|IFcright);
@@ -2014,13 +2015,14 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 
 	# inherit parent frame's effective overrides, then apply this element's.
 	# (colour and font inherit in CSS; background-color does not.)
-	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0);
+	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0, nil);
 	if(cssstk != nil) {
 		p := hd cssstk;
 		fr.ovfg = p.ovfg;
 		fr.ovstyle = p.ovstyle;
 		fr.ovsize = p.ovsize;
 		fr.ovbg = p.ovbg;	# effective background propagates down for painting
+		fr.box = p.box;		# inherit parent's box ref (carries effective bg)
 	}
 
 	# Flow: a grid/flex (or inline-*) container lays its children out in a row
@@ -2048,10 +2050,14 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	}
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
-		fr.ovfg = color(sys->sprint("#%2.2x%2.2x%2.2x", r, g, b), ps.curfg);
+		fr.ovfg = rgb(r, g, b);
 	(br, bgc, bb, bgfound) := props.color("background-color");
-	if(bgfound)
-		fr.ovbg = color(sys->sprint("#%2.2x%2.2x%2.2x", br, bgc, bb), 0);
+	if(bgfound) {
+		fr.ovbg = rgb(br, bgc, bb);
+		# this element declares its own background: give it a fresh box so the
+		# fill is stamped on its items (children inherit this box ref via fr.box).
+		fr.box = ref Cssbox(fr.ovbg, 0, 0, 0, -1);
+	}
 	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
 	if(schg)
 		fr.ovstyle = nstyle;
@@ -2100,13 +2106,14 @@ csspopframe(ps: ref Pstate)
 # CSS font-weight/style -> one of Charon's 4 faces (bold beats italic).
 cssfontstyle(props: ref Props, cur: int): (int, int)
 {
-	w := S->tolower(props.str("font-weight"));
+	w := props.fontweight("font-weight");	# 0 = unspecified, else 100..900
+	wkw := props.ident("font-weight");	# keyword form ("normal"/...), "" if numeric
 	st := props.ident("font-style");
-	if(w == "bold" || w == "bolder" || cssboldnum(w))
+	if(w >= 600)				# bold/bolder/>=600 -> bold face
 		return (FntB, 1);
 	if(st == "italic" || st == "oblique")
 		return (FntI, 1);
-	if(w == "normal" || st == "normal")
+	if(wkw == "normal" || st == "normal")
 		return (FntR, 1);
 	return (cur, 0);
 }
@@ -2135,14 +2142,6 @@ cssfontsize(props: ref Props): (int, int)
 	"%" =>		return (emsize(v / 100), 1);
 	}
 	return (Normal, 0);
-}
-
-# numeric font-weight >= 600 counts as bold (Charon has only regular/bold)
-cssboldnum(w: string): int
-{
-	if(len w != 3 || w[0] < '0' || w[0] > '9')
-		return 0;
-	return w[0] >= '6';
 }
 
 # true if the named margin property is a substantial positive length (>= ~0.5em
@@ -3031,12 +3030,12 @@ stringstate(state: int) : string
 
 Item.newtext(s: string, fnt, fg, voff: int, ul: byte) : ref Item
 {
-	return ref Item.Itext(nil, 0, 0, 0, 0, 0, nil, -1, s, fnt, fg, byte voff, ul);
+	return ref Item.Itext(nil, 0, 0, 0, 0, 0, nil, nil, s, fnt, fg, byte voff, ul);
 }
 
 Item.newrule(align: byte, size, noshade: int, wspec: Dimen) : ref Item
 {
-	return ref Item.Irule(nil, 0, 0, 0, 0, 0, nil, -1, align, byte noshade, size, wspec);
+	return ref Item.Irule(nil, 0, 0, 0, 0, 0, nil, nil, align, byte noshade, size, wspec);
 }
 
 Item.newimage(di: ref Docinfo, src: ref Parsedurl, lowsrc: ref Parsedurl, altrep: string,
@@ -3049,28 +3048,28 @@ Item.newimage(di: ref Docinfo, src: ref Parsedurl, lowsrc: ref Parsedurl, altrep
 		state = IFsmap;
 	if (isbkg)
 		state = IFbkg;
-	return ref Item.Iimage(nil, 0, 0, 0, 0, state, genattr, -1, len di.images,
+	return ref Item.Iimage(nil, 0, 0, 0, 0, state, genattr, nil, len di.images,
 			ci, width, height, altrep, map, name, -1, align, byte hspace, byte vspace, byte border);
 }
 
 Item.newformfield(ff: ref Formfield) : ref Item
 {
-	return ref Item.Iformfield(nil, 0, 0, 0, 0, 0, nil, -1, ff);
+	return ref Item.Iformfield(nil, 0, 0, 0, 0, 0, nil, nil, ff);
 }
 
 Item.newtable(t: ref Table) : ref Item
 {
-	return ref Item.Itable(nil, 0, 0, 0, 0, 0, nil, -1, t);
+	return ref Item.Itable(nil, 0, 0, 0, 0, 0, nil, nil, t);
 }
 
 Item.newfloat(it: ref Item, side: byte) : ref Item
 {
-	return ref Item.Ifloat(nil, 0, 0, 0, 0, IFwrap, nil, -1, it, 0, 0, side, byte 0);
+	return ref Item.Ifloat(nil, 0, 0, 0, 0, IFwrap, nil, nil, it, 0, 0, side, byte 0);
 }
 
 Item.newspacer(spkind, font: int) : ref Item
 {
-	return ref Item.Ispacer(nil, 0, 0, 0, 0, 0, nil, -1, spkind, font);
+	return ref Item.Ispacer(nil, 0, 0, 0, 0, 0, nil, nil, spkind, font);
 }
 
 Item.revlist(itl: list of ref Item) : list of ref Item

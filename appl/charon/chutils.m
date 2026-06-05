@@ -364,6 +364,7 @@ CharonUtils: module
 	loadpath: fn(s: string) : string;
 	event: fn(s: string, data: int);
 	color: fn(s: string, dflt: int) : int;
+	rgb: fn(r, g, b: int) : int;		# (r,g,b) bytes -> Pixel, same encoding as color()
 	max: fn(a, b : int) : int;
 	min: fn(a, b : int) : int;
 	assert: fn(i: int);

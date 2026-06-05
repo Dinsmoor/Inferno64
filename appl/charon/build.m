@@ -2,6 +2,20 @@ Build: module
 {
 PATH: con "/dis/charon/build.dis";
 
+# CSS box decoration for an item (background-color, padding, border).
+# Carried by reference off Item so the common (un-styled) case costs one nil
+# pointer rather than several inline fields, and box-model properties can be
+# added here without re-threading every Item constructor.  All measurements in
+# pixels; bg/bordercolor are Pixel colors, or -1 for "none".
+Cssbox: adt
+{
+	bg:		int;	# background-color pixel, or -1 (no fill)
+	padx:		int;	# horizontal padding (0 = use default)
+	pady:		int;	# vertical padding
+	borderw:	int;	# border width (0 = no border)
+	bordercolor:	int;	# border Pixel, or -1
+};
+
 # Item layout is dictated by desire to have all but formfield and table
 # items allocated in one piece.
 # Also aiming for the 128-byte allocation quantum, which means
@@ -15,7 +29,7 @@ Item: adt
 	anchorid:	int;			# if nonzero, which anchor we're in
 	state:	int;			# flags and values (see below)
 	genattr:	ref Genattr;	# generic attributes and events
-	bg:		int;			# CSS background-color pixel for this item's box, or -1
+	box:		ref Cssbox;	# CSS background/padding/border for this item, or nil
 
 	pick {
 		Itext =>

@@ -49,6 +49,13 @@ Csseng: module
 		color:	fn(p: self ref Props, name: string): (int, int, int, int);
 		# first <length>/<number>: (value*1000 as int milli-units, units, found)
 		unit:	fn(p: self ref Props, name: string): (int, string, int);
+		# a <length> resolved to integer pixels: (px, found).  basepx is the
+		# reference size for relative units (em/rem/ex against the element's
+		# font, % against basepx).  Charon-independent; box-model consumers use it.
+		lengthpx: fn(p: self ref Props, name: string, basepx: int): (int, int);
+		# normalised CSS font-weight: 0 = unspecified, else 100..900
+		# (normal->400, bold/bolder->700, lighter->300, numeric kept as-is)
+		fontweight: fn(p: self ref Props, name: string): int;
 	};
 
 	# a compiled, specificity-tagged rule (one complex selector)

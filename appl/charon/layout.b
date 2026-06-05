@@ -288,7 +288,7 @@ layout(f: ref Frame, bsmain: ref ByteSource, linkclick: int) : array of byte
 		ci := CImage.new(url, nil, 0, 0);
 		simage := ref Source.Simage(bsmain, 0, ci, nil, imsrc);
 		sources = Sources.new(simage);
-		it := ref Item.Iimage(nil, 0, 0, 0, 0, 0, nil, -1, len di.images, ci, 0, 0, "", nil, nil, -1, Abottom, byte 0, byte 0, byte 0);
+		it := ref Item.Iimage(nil, 0, 0, 0, 0, 0, nil, nil, len di.images, ci, 0, 0, "", nil, nil, -1, Abottom, byte 0, byte 0, byte 0);
 		di.images = it :: nil;
 		appenditems(f, l, it);
 		simage.itl = it :: nil;
@@ -2064,10 +2064,13 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 		# bg is already painted, so only distinct element boxes need filling).
 		# Inflate horizontally into the inter-cell gap so chips have a little
 		# padding rather than the text touching the box edge.
-		if(inview && it.bg >= 0 && it.bg != lay.background.color && it.width > 0){
+		if(inview && it.box != nil && it.box.bg >= 0 && it.box.bg != lay.background.color && it.width > 0){
 			BGPADX: con 3;
-			im.draw(Rect(Point(x-BGPADX, y), Point(x+it.width+BGPADX, y+l.height)),
-				colorimage(it.bg), nil, zp);
+			pad := it.box.padx;
+			if(pad <= 0)
+				pad = BGPADX;
+			im.draw(Rect(Point(x-pad, y), Point(x+it.width+pad, y+l.height)),
+				colorimage(it.box.bg), nil, zp);
 		}
 		pick i := it {
 		Itext =>

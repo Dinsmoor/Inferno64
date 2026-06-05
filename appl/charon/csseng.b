@@ -645,6 +645,53 @@ Props.unit(p: self ref Props, name: string): (int, string, int)
 	return (0, "", 0);
 }
 
+Props.lengthpx(p: self ref Props, name: string, basepx: int): (int, int)
+{
+	(v, units, found) := p.unit(name);	# v in milli-units
+	if(!found)
+		return (0, 0);
+	case units {
+	"px" =>			return (v / 1000, 1);
+	"pt" =>			return ((v * 96) / (72 * 1000), 1);
+	"em" or "rem" =>	return ((v * basepx) / 1000, 1);
+	"ex" =>			return ((v * basepx) / 2000, 1);	# ~0.5em
+	"%" =>			return ((v * basepx) / (100 * 1000), 1);
+	"" =>			return (v / 1000, 1);	# unitless (0, or treat as px)
+	}
+	return (0, 0);
+}
+
+Props.fontweight(p: self ref Props, name: string): int
+{
+	w := p.ident(name);		# bold/bolder/lighter/normal, lower-cased
+	if(w == "")
+		w = p.str(name);	# numeric weights serialise here ("700")
+	case w {
+	"" =>		return 0;
+	"normal" =>	return 400;
+	"bold" or "bolder" =>	return 700;
+	"lighter" =>	return 300;
+	}
+	(v, ok) := parseuint(w);
+	if(ok && v > 0)
+		return v;
+	return 0;
+}
+
+# parse an all-digits string to a non-negative int; ok=0 if empty/non-digit
+parseuint(s: string): (int, int)
+{
+	if(s == "")
+		return (0, 0);
+	v := 0;
+	for(i := 0; i < len s; i++){
+		if(s[i] < '0' || s[i] > '9')
+			return (0, 0);
+		v = v*10 + (s[i] - '0');
+	}
+	return (v, 1);
+}
+
 namedcolor(n: string): (int, int, int, int)
 {
 	for(i := 0; i < len namedcols; i++)
