@@ -41,6 +41,8 @@ Csframe: adt {
 	ovsize:	int;	# font size override (Tiny..Verylarge), or -1
 	ovbg:	int;	# background-color pixel for this element, or -1 (NOT inherited)
 	skip:	int;	# 1 if this element is display:none
+	inlinekids: int;	# display:grid/flex/inline-* -> children flow inline (wrap)
+	inlineflow: int;	# this element flows inline (parent is a grid/flex/inline box)
 };
 
 ctype: array of byte;
@@ -2010,12 +2012,23 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 
 	# inherit parent frame's effective overrides, then apply this element's.
 	# (colour and font inherit in CSS; background-color does not.)
-	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0);
+	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0);
 	if(cssstk != nil) {
 		p := hd cssstk;
 		fr.ovfg = p.ovfg;
 		fr.ovstyle = p.ovstyle;
 		fr.ovsize = p.ovsize;
+	}
+
+	# Flow: a grid/flex (or inline-*) container lays its children out in a row
+	# that wraps, rather than stacking them as blocks.  Charon has no real grid,
+	# so we approximate by suppressing the block breaks of such children.
+	disp := props.ident("display");
+	fr.inlinekids = disp == "grid" || disp == "flex" ||
+		disp == "inline-grid" || disp == "inline-flex" || disp == "inline-block";
+	if((cssstk != nil && (hd cssstk).inlinekids) || disp == "inline" || disp == "inline-block") {
+		fr.inlineflow = 1;
+		ps.curstate &= ~(IFbrk|IFbrksp);	# undo the block break for this element
 	}
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
@@ -2064,6 +2077,8 @@ csspopframe(ps: ref Pstate)
 	cssstk = tl cssstk;
 	if(fr.skip && cssskip > 0)
 		cssskip--;
+	if(fr.inlineflow)
+		ps.curstate &= ~(IFbrk|IFbrksp);	# suppress the block's trailing break too
 }
 
 # CSS font-weight/style -> one of Charon's 4 faces (bold beats italic).
