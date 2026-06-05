@@ -118,10 +118,26 @@ works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
   **VM-token hand-off / lost-token deadlock** in `release()`/`acquire()`
   (`emu/port/dis.c`), triggered by the `release`+blocking-host-call+`acquire`
   pattern. Same concurrency class as BUG-1 (the aarch64 barrier), distinct race.
-- **Fix:** a careful scheduler-concurrency fix in `release()`/`acquire()`/the
-  `creating`/`idle` token hand-off (high blast radius — must not be done blind).
-  Held for review. `EMUWATCHDOG` detects this stall; `schedidlecheck` does not
-  (it only checks `runhd==nil`, and here `runhd!=nil`).
+- **Progress — two lost-wakeup variants identified:**
+  1. **`addrun` / irend variant — FIXED** (commit `18a0a75b`, master `4dead65a`):
+     a prog made runnable via `addrun()` while the idle holder slept on `irend`
+     was never woken (only `acquire()` did `Wakeup(irend)`). Matches the original
+     acme `isched` dump (idle=0, `runhd!=nil`, no runner). Fixed by `Wakeup(irend)`
+     in `addrun()`; validated (tests/lp64 178/178, gui_sweep 22/22). Does NOT fix
+     the DNS hang (different variant).
+  2. **`iyield`/idlevmq variant — OPEN (the DNS hang).** Scheduler trace
+     (`SCHEDTRACE`, since reverted) of the minimal repro (`srvtest` calling
+     `srv->iph2a`) shows a clean `rel→osready B / B.iyield→A / acq A` ping-pong
+     between the two vmachine kprocs that, at the hang, ends with the proc doing
+     an `acquire()` while the helper is parked on **idlevmq** (`idlevmq=B`,
+     normally empty there) and `Wakeup(irend)` is lost → token "held" (idle=0)
+     but no runner. Op-count imbalance: one extra `acq ENQ` and one extra
+     `iyield→` with no matching wake. Caller = `Srv_iph2a`'s `acquire`. The safe
+     fix needs reliable holder tracking / hand-off rework (waking idlevmq from
+     `acquire` is unsafe for >2 kprocs — 2 runners → corruption; verified by
+     reasoning, would fail 10_concur). Not landed: a wrong scheduler change
+     breaks all userspace. `EMUWATCHDOG` detects this stall; `schedidlecheck`
+     does not (`runhd==nil` here).
 - (Test programs `dialtest`/`udptest`/`hdrudp`/`f2cecho`/`srvtest` in `tests/lp64/_build/`.)
 
 ## Method notes
