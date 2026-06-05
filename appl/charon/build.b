@@ -2040,6 +2040,11 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 			ps.skipwhite = 0;
 			additem(ps, Item.newspacer(ISPhspace, ps.curfont), nil);
 		}
+	} else {
+		# CSS top margin on a block element -> extra vertical space before it,
+		# so sections (headings, grids) get breathing room.
+		if(marginbig(props, "margin-top") || marginbig(props, "margin"))
+			addbrk(ps, 1, 0);
 	}
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
@@ -2138,6 +2143,21 @@ cssboldnum(w: string): int
 	if(len w != 3 || w[0] < '0' || w[0] > '9')
 		return 0;
 	return w[0] >= '6';
+}
+
+# true if the named margin property is a substantial positive length (>= ~0.5em
+# / 8px), i.e. worth adding a blank line of vertical space for
+marginbig(props: ref Props, name: string): int
+{
+	(v, units, found) := props.unit(name);	# v in milli-units
+	if(!found || v <= 0)
+		return 0;
+	case units {
+	"em" or "rem" or "ex" =>	return v >= 500;
+	"px" or "pt" =>			return v >= 8000;
+	"%" =>				return v >= 2000;
+	}
+	return 0;
 }
 
 pxsize(px: int): int
