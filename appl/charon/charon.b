@@ -274,9 +274,22 @@ Forloop:
 			g = handlemouse(e);
 		Ereshape =>
 			mainwin = G->mainwin;
-			redraw(1);
 			curframe = top;
-			g = GoSpec.newspecial(GoHistnode, history.find(0));
+			# Re-flow the already-fetched document at the new width
+			# instead of re-fetching it.  redraw(1) would reset() the
+			# frame and discard f.layout, so for the reflow path we only
+			# update the frame rect/image and let reflow() repaint.
+			# reflow() returns 0 when it can't (no document yet, or a
+			# frameset), in which case fall back to a full reset + reload.
+			top.r = mainwin.r;
+			top.cim = mainwin;
+			(CU->imcache).resetlimits();
+			if(L->reflow(top)) {
+				g = nil;
+			} else {
+				redraw(1);
+				g = GoSpec.newspecial(GoHistnode, history.find(0));
+			}
 		Equit =>
 			break Forloop;
 		Estop =>

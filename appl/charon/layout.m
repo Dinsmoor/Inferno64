@@ -230,6 +230,7 @@ drawstring: fn(im: ref Draw->Image, p: Draw->Point, s: string);
 measurestring: fn(s: string) : Draw->Point;
 drawall: fn(f: ref Frame);
 relayout: fn(f: ref Frame, l: ref Lay, targetw: int, just: byte);
+reflow: fn(f: ref Frame) : int;
 
 stringwidth: fn(s: string): int;
 };

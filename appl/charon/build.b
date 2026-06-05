@@ -2035,10 +2035,13 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 		# and reflowing an ancestor block's padding onto every descendant run
 		# would multiply it).  Downgrade an inherited structural box to a plain
 		# paint-only background box (or drop it if it has no fill).
-		if(fr.box != nil && (fr.box.reflow || fr.box.padx != 0 || fr.box.pady != 0
+		# EXCEPTION: a block-level card box is inherited INTACT, so its block
+		# children paint the full card across all its wrapped lines (the left-
+		# stripe is drawn at the content-left edge, so overdraw is idempotent).
+		if(fr.box != nil && !fr.box.block && (fr.box.reflow || fr.box.padx != 0 || fr.box.pady != 0
 				|| fr.box.borderw != 0 || fr.box.colmin != 0 || fr.box.colcount != 0)){
 			if(fr.box.bg >= 0)
-				fr.box = ref Cssbox(fr.box.bg, 0, 0, 0, -1, 0, 0, 0, 0);
+				fr.box = ref Cssbox(fr.box.bg, 0, 0, 0, -1, 0, 0, 0, 0, 0);
 			else
 				fr.box = nil;
 		}
@@ -2110,7 +2113,11 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	# build this element's own box if it declares any box decoration of its own
 	# (background, padding, or border).  The box carries the *effective* bg so
 	# nested styled runs keep filling; children inherit this ref via fr.box.
-	nb := cssbox(props, fr.ovbg, bgfound, cmin, ccount, cgap, reflow);
+	# A block-level element (not an inline run, not a grid/inline-block cell that
+	# reflows) with its own box decoration becomes a block card: full-width bg +
+	# left-border stripe spanning all its lines (see Cssbox.block / drawline).
+	isblock := !reflow && !fr.inlineflow;
+	nb := cssbox(props, fr.ovbg, bgfound, cmin, ccount, cgap, reflow, isblock);
 	if(nb != nil)
 		fr.box = nb;
 	(nstyle, schg) := cssfontstyle(props, fr.ovstyle);
@@ -2205,7 +2212,7 @@ cssfontsize(props: ref Props): (int, int)
 # whether this element set background-color itself.  Padding/border lengths are
 # resolved generically by csseng; Charon's line-based layout uses padx/pady to
 # inflate the painted box (no content reflow) and draws a border outline.
-cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow: int): ref Cssbox
+cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow, block: int): ref Cssbox
 {
 	BASE: con 16;	# reference px for em/ex/% resolution of box lengths
 
@@ -2223,17 +2230,24 @@ cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow: int): ref 
 	}
 
 	# border width: border-width, then the `border` shorthand's length, then a
-	# single side's width.
+	# single side's width.  For block cards the accent is usually a `border-left`
+	# (e.g. `border-left: 3px solid accent`), so fall back to that too.
 	(borderw, bwf) := props.lengthpx("border-width", BASE);
 	if(!bwf)
 		(borderw, bwf) = props.nthlengthpx("border", 0, BASE);
 	if(!bwf)
-		(borderw, nil) = props.lengthpx("border-left-width", BASE);
+		(borderw, bwf) = props.lengthpx("border-left-width", BASE);
+	if(!bwf)
+		(borderw, nil) = props.nthlengthpx("border-left", 0, BASE);
 
 	bordercolor := -1;
 	(cr, cg, cb, cf) := props.anycolor("border-color");
 	if(!cf)
 		(cr, cg, cb, cf) = props.anycolor("border");
+	if(!cf)
+		(cr, cg, cb, cf) = props.anycolor("border-left-color");
+	if(!cf)
+		(cr, cg, cb, cf) = props.anycolor("border-left");
 	if(!cf)
 		(cr, cg, cb, cf) = props.anycolor("border-top-color");
 	if(cf)
@@ -2241,7 +2255,7 @@ cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow: int): ref 
 
 	if(!bgown && padx <= 0 && pady <= 0 && borderw <= 0 && colmin <= 0 && colcount <= 0)
 		return nil;	# nothing of its own -> inherit parent's box
-	return ref Cssbox(bg, padx, pady, borderw, bordercolor, colmin, colcount, colgap, reflow);
+	return ref Cssbox(bg, padx, pady, borderw, bordercolor, colmin, colcount, colgap, reflow, block);
 }
 
 # CSS grid column gap in px: column-gap, else the `gap` shorthand's column value

@@ -24,6 +24,14 @@ Cssbox: adt
 	# one item).  reflow=0: legacy paint-only box (background fill / inherited
 	# bg / block elements) inflated around the item without reserving space.
 	reflow:		int;
+	# block=1: a block-level box (e.g. a div/section card).  Its background is
+	# painted across the FULL content width of every line it spans (not just the
+	# text width), and only its left border is drawn -- a continuous vertical
+	# stripe at the content-left edge.  Turns a styled block (bg + border-left
+	# accent, as in the bible.nicecrew.digital verse cards) into a card spanning
+	# all its wrapped lines.  Inherited intact by block children so the whole
+	# container paints (the left-stripe position is idempotent).
+	block:		int;
 };
 
 # Item layout is dictated by desire to have all but formfield and table

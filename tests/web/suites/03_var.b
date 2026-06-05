@@ -87,5 +87,35 @@ init(nil: ref Draw->Context, nil: list of string)
 	t->ok(found && r == 16r33 && g == 16r66 && b == 16r99,
 		".x color resolves to #336699 (got " + string r + "," + string g + "," + string b + ")");
 
+	# --- guaranteed-invalid var() invalidates the WINNING declaration --------
+	# Real-browser semantics (CSS Variables): a var() that resolves to nothing
+	# (undefined, no usable fallback) does NOT make the declaration disappear so
+	# a lower-specificity rule can win.  The high-specificity declaration still
+	# wins the cascade, then computes to `unset` -> the property falls to its
+	# initial/inherited value.  This is the bible.nicecrew.digital case:
+	#   button { background: blue }            (low specificity, defined)
+	#   .book-button { background: var(--undefined) }   (high specificity)
+	# A real browser shows the button transparent (NOT blue); flatten() must
+	# substitute `unset` for the empty var() so the .book-button rule still
+	# suppresses the bare `button` rule.
+	e5 := ce->new();
+	uadef := "button { background-color: #6b9bd1; }\n";
+	e5.addvars(uadef);
+	(uss, uerr) := css->parse(e5.flatten(uadef));
+	t->ok(uerr == nil || uerr == "", "ua button sheet parses");
+	e5.addsheet(uss, Csseng->AUTHOR);
+	bbdef := ".book-button { background-color: var(--undefined-bg); }\n";
+	e5.addvars(bbdef);
+	fbb := e5.flatten(bbdef);
+	t->ok(contains(fbb, "unset") && !contains(fbb, "var("),
+		"empty var() -> unset keyword [" + fbb + "]");
+	(bss, berr) := css->parse(fbb);
+	t->ok(berr == nil || berr == "", ".book-button sheet parses");
+	e5.addsheet(bss, Csseng->AUTHOR);
+	bel := Elem.mk("button", "", "book-button", nil);
+	(nil, nil, nil, bfound) := e5.compute(bel, nil).color("background-color");
+	t->ok(!bfound,
+		"invalid var() wins cascade then computes unset -> background not painted (blue suppressed)");
+
 	t->summary();
 }

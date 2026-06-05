@@ -148,6 +148,7 @@ CAPSEP: con 5;			# number of pixels separating tab from caption
 SCRBREADTH: con 14;	# scrollbar breadth (normal)
 SCRFBREADTH: con 14;	# scrollbar breadth (inside child frame or select control)
 FRMARGIN: con 0;		# default margin around frames
+CARDMARGIN: con 6;		# outer gutter for a block-level CSS card (Cssbox.block)
 RULESP: con 7;			# extra space before and after rules
 POPUPLINES: con 12;	# number of lines in popup select list
 MINSCR: con 6;			# min size in pixels of scrollbar drag widget
@@ -578,6 +579,45 @@ fixframegeom(f: ref Frame)
 		f.hscr.scrollset(f.viewr.min.x, f.viewr.max.x, f.totalr.max.x, f.viewr.dx()/5, 1);
 }
 
+# Re-flow an already-built frame at its (already updated) frame rectangle f.r,
+# WITHOUT re-fetching: re-run line breaking on the existing item tree at the
+# new content width, then redraw.  Used on window resize.  Returns 0 when it
+# can't reflow (no existing layout, or this is a frameset whose kids would
+# need their own re-fetch) so the caller can fall back to a reload.
+reflow(f: ref Frame) : int
+{
+	if(f.layout == nil || f.kids != nil)
+		return 0;
+	# Recompute the content rect from the new frame rect, mirroring layout().
+	oclipr := f.cim.clipr;
+	if(f.framebd != 0) {
+		f.cr = f.r.inset(2);
+		drawborder(f.cim, f.cr, 2, DarkGrey);
+	}
+	else
+		f.cr = f.r;
+	# Drop the old scrollbars; createvscroll/fixframegeom recreate them as
+	# needed for the new geometry (they live only in f.vscr/f.hscr, not in
+	# f.controls, so the stale ones are simply collected).
+	f.vscr = nil;
+	f.hscr = nil;
+	f.cim.clipr = f.cr;
+	fillbg(f, f.cr);
+	G->flush(f.cr);
+	f.cim.clipr = oclipr;
+	if(f.flags&FRvscroll)
+		createvscroll(f);
+	if(f.flags&FRhscroll)
+		createhscroll(f);
+	lay := f.layout;
+	lay.flags |= Lchanged;
+	relayout(f, lay, f.cr.dx(), lay.just);
+	fixframegeom(f);
+	f.dirty(f.totalr);
+	drawall(f);
+	return 1;
+}
+
 # The items its within f are Iimage items,
 # and its image, ci, now has at least a ci.mims[0], which may be partially
 # or fully filled.
@@ -833,6 +873,17 @@ fixlinegeom(f: ref Frame, lay: ref Lay, l: ref Line)
 	linehang := hang;
 	hangtogo := hang;
 	indent := ((state&IFindentmask)>>IFindentshift)*TABPIX;
+	# Block-level CSS card (Cssbox.block): inset its content past an outer
+	# gutter, the left-border accent stripe and the left padding, and narrow the
+	# usable width by that plus the right padding + gutter, so text clears the
+	# stripe and the card reads as a padded box.  (drawline paints the bg/stripe
+	# with the matching CARDMARGIN inset.)
+	cardleft := 0;
+	cardright := 0;
+	if(it.box != nil && it.box.block){
+		cardleft = CARDMARGIN + it.box.borderw + it.box.padx;
+		cardright = it.box.padx + CARDMARGIN;
+	}
 	just := (state&(IFcjust|IFrjust));
 	if(just == 0 && lay.just != Aleft) {
 		if(lay.just == byte Acenter)
@@ -841,7 +892,7 @@ fixlinegeom(f: ref Frame, lay: ref Lay, l: ref Line)
 			just = IFrjust;
 	}
 	right := lay.targetwidth - lay.margin;
-	lwid := right - (lfloatw+rfloatw+indent+lay.margin);
+	lwid := right - (lfloatw+rfloatw+indent+lay.margin) - (cardleft+cardright);
 	if(lwid < 0) {
 		if (right - lwid > lay.width)
 			lay.width = right - lwid;
@@ -993,7 +1044,7 @@ fixlinegeom(f: ref Frame, lay: ref Lay, l: ref Line)
 	lastit.next = nil;
 
 	l.width = w;
-	x := lfloatw + lay.margin + indent - linehang;
+	x := lfloatw + lay.margin + indent - linehang + cardleft;
 	# shift line if it begins with a space or a rule
 	pick pi := l.items {
 	Itext =>
@@ -1314,6 +1365,7 @@ trybreak(bit: ref Item, availw, iw, noneok: int) : (int, int)
 		itn.height = t.height;
 		itn.ascent = t.ascent;
 		itn.anchorid = t.anchorid;
+		itn.box = t.box;	# wrapped continuation keeps the same CSS box (card bg/stripe)
 		itn.state = t.state & ~(IFbrk|IFbrksp|IFnobrk|IFcleft|IFcright);
 		itn.next = t.next;
 		t.next = itn;
@@ -2116,6 +2168,30 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 	# note: drawimg must always be called to update
 	# draw point of animated images
 	BGPADX: con 3;	# matches measure(): default padding for a plain background chip
+
+	# Block-level card box (Cssbox.block): paint the full content-width
+	# background and the left-border accent stripe ONCE for the whole line,
+	# before any text is drawn -- otherwise a later full-width run would
+	# overpaint earlier text on the same line.  Every run on the line carries
+	# the same inherited block box, so the first one found drives the card.
+	bb: ref Build->Cssbox;
+	for(bbit := l.items; bbit != nil; bbit = bbit.next)
+		if(bbit.box != nil && bbit.box.block){ bb = bbit.box; break; }
+	if(bb != nil && inview){
+		cl := layorigin.x + lay.margin + CARDMARGIN;
+		cr := layorigin.x + lay.targetwidth - lay.margin - CARDMARGIN;
+		by0 := y;
+		by1 := y + l.height;
+		if(bb.bg >= 0 && bb.bg != lay.background.color)
+			im.draw(Rect(Point(cl, by0), Point(cr, by1)), colorimage(bb.bg), nil, zp);
+		if(bb.borderw > 0){
+			bc := bb.bordercolor;
+			if(bc < 0)
+				bc = 0;
+			im.draw(Rect(Point(cl, by0), Point(cl+bb.borderw, by1)), colorimage(bc), nil, zp);
+		}
+	}
+
 	for(it := l.items; it != nil; it = it.next) {
 		# CSS box (background/border/padding).  measure() has already reserved
 		# padding+border in it.width/height/ascent (content reflow), so the box
@@ -2123,7 +2199,7 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 		# cx is the content origin; grid cells leave their trailing column gap
 		# unpainted so adjacent tracks are visually separated.
 		cx := x;
-		if(it.box != nil && tagof it != tagof Item.Ifloat && tagof it != tagof Item.Itable){
+		if(it.box != nil && !it.box.block && tagof it != tagof Item.Ifloat && tagof it != tagof Item.Itable){
 			b := it.box;
 			dofill := b.bg >= 0 && b.bg != lay.background.color;
 			bx0, by0, bx1, by1: int;

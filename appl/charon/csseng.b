@@ -489,7 +489,20 @@ subvars(e: ref Engine, s: string, depth: int): string
 				rep = val;
 			else
 				rep = trim(fallback);
-			out += subvars(e, rep, depth+1);	# value may itself use var()
+			rep = subvars(e, rep, depth+1);	# value may itself use var()
+			# A var() that resolves to nothing (undefined and no usable
+			# fallback) is "guaranteed-invalid" per CSS Variables: the
+			# declaration must still win the cascade at its specificity, then
+			# compute to `unset` -- it does NOT fall back to a lower-specificity
+			# rule.  Substituting the CSS-wide keyword `unset` keeps the
+			# declaration present (so e.g. `.book-button{background:var(--x)}`
+			# still suppresses a bare `button{background:blue}`), while the value
+			# layer treats `unset`/`initial`/`inherit` as not-found -> the
+			# property falls to its inherited/initial value (transparent for
+			# background-color, inherited colour for `color`).
+			if(trim(rep) == "")
+				rep = "unset";
+			out += rep;
 			i = k+1;			# skip past ')'
 		} else {
 			out += s[i:i+1];
