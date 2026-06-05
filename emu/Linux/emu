@@ -9,6 +9,7 @@ dev
 	srv
 	dup
 	ssl
+	tls
 	cap
 	fs
 	cmd	cmd
@@ -36,6 +37,7 @@ lib
 	keyring
 	sec
 	mp
+	mbedtls
 
 	9
 
