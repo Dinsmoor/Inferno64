@@ -6,6 +6,71 @@ may still be broken. Feel free to try it, and if you do run into a crash or
 emu or wm freezes, then report it in a reproducable way and I'll see if I can
 fix it.
 
+Most of the remaining LP64 related bugs have to do with heap corruption, which
+are pretty hard to narrow down. To best catch them:
+
+<details>
+<summary><strong>How to set up an emu session that reliably captures a core dump + logs</strong></summary>
+
+The goal of the setup below is that the *very first* time something faults you
+get a clean core dump + log, instead of having to reproduce an intermittent
+crash after the fact.
+
+**1. Tell the host kernel where to drop cores (once per boot):**
+
+```sh
+sudo mkdir -p /tmp/inferno-cores
+echo '/tmp/inferno-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+```
+
+(`%e` program, `%p` pid, `%t` timestamp. The directory must exist and be
+writable. To make it survive reboots put `kernel.core_pattern=...` in
+`/etc/sysctl.d/`.)
+
+**2. Raise the core-size limit in the shell you launch emu from:**
+
+```sh
+ulimit -c unlimited
+```
+
+**3. Leave ASLR on.** Several of these bugs only surface at high addresses, so
+do **not** run emu under `setarch -R` (ASLR-off). Run emu normally so the host
+randomizes the address space — that is what provokes the fault.
+
+**4. Launch emu with the crash/observability env vars:**
+
+```sh
+ulimit -c unlimited
+env EMUCRASH=1 EMUWATCHDOG=60 \
+    ./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
+```
+
+  - `EMUCRASH=1` — a wild/illegal Dis fault aborts the process immediately
+    (dumping a core) instead of being swallowed into a Dis exception that can
+    silently wedge the VM. **This is the important one** — without it an
+    intermittent heap-corruption fault often just leaves a zombie/hung emu and
+    the evidence is gone.
+  - `EMUWATCHDOG=60` — if the VM hangs for 60s (e.g. a deadlock rather than a
+    hard fault) the watchdog prints a dump of every Dis thread so you can see
+    who is stuck and where.
+  - You can also `kill -USR2 <emu-pid>` at any time to force the same Dis
+    thread dump from a live (or apparently-hung) emu.
+
+**5. When you get a core, hand it straight to gdb:**
+
+```sh
+gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>
+(gdb) bt              # host C backtrace at the fault
+(gdb) info registers  # the faulting address is usually a smashed pointer
+```
+
+The fault message emu prints on the way down names the Dis module, the builtin
+(e.g. `Charon[$Sys]`), and a `pc=`; map that `pc` back to a Limbo source line
+with the module's `.sbl` file (`limbo -g` output) to find the exact line that
+faulted. See `ref/AGENTS_DEBUGGING.md` for the full workflow.
+
+</details>
+
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
 **64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream
@@ -13,19 +78,26 @@ Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
 Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
 
+## Are you going to try to push your changes to the upstream repository?
+
+No, I am doing my own thing, but if they want to talk to me then that's fine.
 
 ## Goals for Inferno64
 
-1. Make it run natively on a LP64 ABI
+1. Make Inferno run natively (Dis/hosted emu) on a LP64 ABI
 2. Implement JIT compilers for some major LP64 archetectures
 3. Make a proper test suite and harnesses to find memory bugs fast and make debugging easier
 4. Modernize some of the userspace applications to where 'i like them'
-4a. Charon - modern tls, minimal CSS3 and HTML5 and JS engines.
-4b. Acme - merge some of the work from the 9front weirdos if it's any good
-4c. Sh - take some of the good from bash (readline, autocomplete, etc) to make it nicer to use
-5. Make some improvements to Limbo (flesh out the undocumented Generics feature
+  - Charon - modern tls, minimal CSS3 and HTML5 and JS engines.
+  - Acme - merge some of the work from the 9front weirdos if it's any good
+  - Sh - take some of the good from bash (readline, autocomplete, etc) to make it nicer to use
+5. Make some improvements to Limbo (flesh out the undocumented Generics feature, etc)
 6. Improve ease of access to 'basically how does this work' style documentation
-7. Whatever else I want
+7. Whatever else I want (might port the kernel too, may be able to take from the 9front doofuses)
+
+## Screenshot Gallery
+
+I'll stick some screenshots or a video here once I get userspace to where I like it.
 
 ## Demon Machine based Development
 
