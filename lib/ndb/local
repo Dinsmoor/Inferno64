@@ -9,7 +9,8 @@ database=
 #
 infernosite=
 	#dnsdomain=your.domain.com
-	#dns=1.2.3.4	# resolver
+	dns=8.8.8.8	# resolver to forward to (Google public DNS)
+	dns=1.1.1.1	# resolver (Cloudflare, backup)
 	SIGNER=your_signer_here
 	FILESERVER=your_fileserver_here
 	smtp=your_smtpserver_here

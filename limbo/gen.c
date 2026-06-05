@@ -454,6 +454,35 @@ genchan(Src *src, Node *sz, Type *mt, Node *d)
 	return in;
 }
 
+/*
+ * Bytes moved by a scalar move/cons opcode, or -1 for size-driven (struct /
+ * array-element) and any op whose width isn't fixed.  Used by genmove's #4b
+ * width-consistency check.
+ */
+static int
+movewidth(int op)
+{
+	switch(op){
+	case IMOVB:
+	case ICONSB:
+		return 1;
+	case IMOVW:
+	case ICONSW:
+		return IBY2WD;
+	case IMOVL:
+	case ICONSL:
+		return IBY2LG;
+	case IMOVF:
+	case ICONSF:
+		return IBY2FT;
+	case IMOVP:
+	case ICONSP:
+		return IBY2PTR;
+	default:
+		return -1;		/* IMOVM/IMOVMP/ICONSM etc.: size-driven, skip */
+	}
+}
+
 Inst*
 genmove(Src *src, int how, Type *mt, Node *s, Node *d)
 {
@@ -469,6 +498,24 @@ genmove(Src *src, int how, Type *mt, Node *s, Node *d)
 	op = movetab[how][mt->kind];
 	if(op == 0)
 		fatal("can't deal with op %d on %n %n in genmove", how, s, d);
+
+	/*
+	 * #4b: width invariant.  The move/cons opcode selected from the type's
+	 * kind carries a fixed operand width; it MUST equal the type's size, or
+	 * the generated code moves the wrong number of bytes for the value -- the
+	 * LP64 truncation class (a pointer-bearing value emitted as a 4-byte movw).
+	 * tptr keeps these in step on both ABIs (tbig/IMOVL on LP64, tint/IMOVW on
+	 * ILP32).  Catch any future type/optab/size drift here, at compile time,
+	 * across the whole dis tree rather than as silent heap corruption at run
+	 * time.  Struct/array-element moves (IMOVM/IMOVMP, width from the
+	 * descriptor) are size-driven, so skip them.
+	 */
+	{
+		int w = movewidth(op);
+		if(w >= 0 && w != mt->size)
+			fatal("genmove: %s of %d-byte op for %d-byte type %T (kind %d) -- LP64 width mismatch",
+				how == Mas ? "move" : "cons", w, mt->size, mt, mt->kind);
+	}
 
 	switch(mt->kind){
 	case Tadt:

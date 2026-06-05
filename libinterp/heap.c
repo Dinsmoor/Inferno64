@@ -267,6 +267,82 @@ dtype(void (*destroy)(Heap*, int), int size, uchar *map, int mapsize)
 	return t;
 }
 
+/*
+ * Verify a GC type descriptor is self-consistent for the running ABI.
+ * markheap() treats an object as an array of IBY2PTR-sized slots and, for each
+ * set bit in the pointer map (byte i, bit b counted from the MSB), traces the
+ * pointer at slot i*8+b, i.e. byte offset (i*8+b)*IBY2PTR.  So every set bit
+ * MUST address a slot that lies wholly within t->size; a bit beyond the object
+ * makes the GC read (and chase) a pointer past the end of the allocation —
+ * silent heap corruption.  This is the load-time/runtime counterpart of the
+ * compiler's tptr/tbig accounting: it catches a miscompiled or wrong-ABI map
+ * (e.g. a stale .dis whose 4-byte-slot sizes don't fit 8-byte LP64 pointers).
+ * Returns 1 if consistent; otherwise 0 and, if badoff!=nil, the byte offset of
+ * the first offending pointer slot.
+ */
+int
+verifytype(Type *t, int *badoff)
+{
+	int i, b, slot;
+	uchar c;
+
+	if(t == nil)
+		return 1;
+	if(t->size < 0 || t->np < 0)
+		return 0;
+	for(i = 0; i < t->np; i++) {
+		c = t->map[i];
+		if(c == 0)
+			continue;
+		for(b = 0; b < 8; b++) {
+			if((c & (0x80 >> b)) == 0)
+				continue;
+			slot = i*8 + b;
+			if((slot+1)*(vlong)IBY2PTR > t->size) {
+				if(badoff != nil)
+					*badoff = slot*IBY2PTR;
+				return 0;
+			}
+		}
+	}
+	return 1;
+}
+
+/*
+ * Cross-check a C-registered GC type at init (#4c).  Beyond verifytype()'s
+ * map-within-size rule, a compiler-generated ADT map (e.g. Draw_Image_map)
+ * must stay within the Limbo ADT prefix it describes: C structs like DImage
+ * prepend the ADT and then add C-only pointer fields that are intentionally
+ * NOT traced (they reference host memory, freed by hand).  A map bit at/after
+ * adtsize means the generated map and the struct have drifted apart — a latent
+ * GC bug.  Fail loudly at boot rather than corrupt the heap later.
+ */
+void
+verifyctype(char *name, Type *t, int adtsize)
+{
+	int i, b, slot, bad;
+	uchar c;
+
+	if(t == nil)
+		panic("verifyctype: %s has no type descriptor", name);
+	if(!verifytype(t, &bad))
+		panic("verifyctype: %s pointer map marks a slot at +%d beyond size %d",
+			name, bad, t->size);
+	if(adtsize <= 0)
+		return;
+	for(i = 0; i < t->np; i++) {
+		c = t->map[i];
+		for(b = 0; b < 8; b++) {
+			if((c & (0x80 >> b)) == 0)
+				continue;
+			slot = i*8 + b;
+			if((slot+1)*(vlong)IBY2PTR > adtsize)
+				panic("verifyctype: %s map marks a slot at +%d beyond ADT size %d (map/struct drift)",
+					name, slot*IBY2PTR, adtsize);
+		}
+	}
+}
+
 void*
 checktype(void *v, Type *t, char *name, int newref)
 {

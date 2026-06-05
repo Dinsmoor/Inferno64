@@ -228,6 +228,11 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 			kwerrstr(exNomem);
 			goto bad;
 		}
+		if(!verifytype(pt, &v)) {
+			kwerrstr("%s: type %d pointer map marks a slot at +%d beyond size %d (stale or wrong-ABI .dis)", path, id, v, tsz);
+			freetype(pt);
+			goto bad;
+		}
 		istream += tnp;
 		m->type[id] = pt;
 	}

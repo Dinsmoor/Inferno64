@@ -302,6 +302,140 @@ sign-extending `mode`/9P-field/`disw` family below.
 
 ---
 
+## Runtime observability — catching LP64 faults and hangs
+
+LP64 bugs (a 64-bit value truncated to 32 bits) usually surface as a *wild
+pointer* that faults far from its cause, or as a *hang* (a truncated value
+sends a loop or scheduler into a state it never leaves). The emu has three
+built-in hooks to make both legible. All output goes to the host's **stderr
+(fd 2)** and is **async-signal-safe** (only `write(2)`, no malloc/locks/`print`),
+so it works even mid-fault or mid-deadlock. Implemented in `emu/Linux/os.c`
+(`disbacktrace`/`dumpallprogs`/`faultmon`/`syscrash`) and `emu/port/dis.c`
+(`schedprogress`/`schedbusy`/`schedidlecheck`).
+
+### `kill -USR2 <emu>` — JVM-style thread dump (always on)
+
+Dumps every Dis prog: pid, scheduler state (`alt`/`send`/`recv`/`debug`/
+`ready`/`release`/`exiting`/`broken`), and a per-frame backtrace
+(`module pc=<dis-offset> op=<opcode>`) walked from the prog's registers down
+the `Frame` chain. The running prog uses the live global `R`; blocked progs
+use their saved `p->R`. Every pointer is validated (`faultprobe`, via a
+`write` to `/dev/null` that returns `EFAULT` on a bad address) before deref,
+and the walk is depth-capped (64) — safe to fire at any time. Example:
+
+```
+=== Dis proc dump (SIGUSR2) ===
+prog 1 [release]
+	$Sys pc=0x... op=45
+	Bufio pc=147 op=45
+	Sh pc=5348 op=93
+	...
+	Emuinit pc=55 op=12
+=== end dump ===
+```
+
+`op=12` is `IRET` (see `isa.h`); a wild pointer reported in an `IRET` frame is
+a truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
+
+> SIGUSR1 is **not** used for this — it is reserved for unblocking
+> interruptible host I/O (`trapUSR1`). The dump is on USR2.
+
+### `EMUCRASH=1` — fault → backtrace → core (opt-in)
+
+By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis
+exception (`sysfault`→`disfault`), so corruption surfaces benignly layers
+later. With `EMUCRASH=1`, a *wild-address* fault (non-nil — an ordinary nil
+deref still becomes the normal Limbo exception) instead prints the one-line
+diagnostic + a full `dumpallprogs` backtrace, then restores the default signal
+disposition and **returns**, so the faulting instruction re-executes and the
+OS drops a core at the exact C site. Then:
+
+```sh
+ulimit -c unlimited           # and ensure /proc/sys/kernel/core_pattern keeps the core
+EMUCRASH=1 emu ... ; gdb emu core
+```
+
+gives the precise truncating C op-handler offline. SIGILL is routed the same
+way (a corrupt/truncated code pointer).
+
+### `EMUWATCHDOG=<secs>` — hang detector (default 60s)
+
+A watchdog kproc (`faultmon`, spawned from `disinit`) samples the scheduler
+heartbeat `schedprogress`, which `vmachine` bumps each time it runs a prog. If
+progress stops advancing **while a prog is still on the run queue**
+(`schedbusy()`), a prog entered the interpreter and never came back (a C-level
+infinite loop or a lock cycle) — a real hang, distinct from an idle system
+(run queue empty, blocked on I/O, which is *not* flagged). It prints `HANG:
+...` + a full dump; under `EMUCRASH` it also `abort()`s for a core.
+`EMUWATCHDOG=0` disables it. (Note: a pure channel-deadlock where every prog is
+blocked looks identical to idle and is *not* caught here — that needs I/O
+accounting; see the plan.)
+
+Separately, `schedidlecheck()` asserts a scheduler invariant whenever the VM
+goes idle: a `Pready` prog must be linked on the run queue, so a `Pready` prog
+found while the queue is empty is a **lost wakeup** (classic deadlock
+signature) and triggers a one-shot dump.
+
+> Native `/prog` inspection (above) is still the first tool for a *broken*
+> proc you can reach; these hooks are for faults/hangs that kill or freeze the
+> system before you can `cat /prog/*/status`.
+
+---
+
+## Catching LP64 width bugs statically and semantically
+
+Complementing the runtime hooks above, four layers catch a 64→32 truncation
+*before* it corrupts anything — at compile, link/load, and (debug) run time.
+
+### `make lint` — clang 64→32 narrowing lint
+
+clang's `-Wshorten-64-to-32` is exactly the LP64 bug class as a warning, and
+gcc has no equivalent. `tests/lint/run.sh` (via `make lint`) asks `mk -n -a`
+for the real per-file compile flags of every host C file (libs + emu) and
+replays each through clang in `-fsyntax-only` mode with only that warning on,
+diffing against `tests/lint/baseline.txt` so a **new** narrowing fails the run
+while the ~246 pre-existing (mostly benign) ones stay quiet. gcc remains the
+production compiler. `make lint-all` lists every site; `make lint-update`
+re-baselines after triage. See `tests/lint/README.md`.
+
+### `genmove` width assertion (limbo compiler, #4b)
+
+The move/cons opcode the code generator picks from a type's kind has a fixed
+width (`IMOVW`=4, `IMOVL`=8, `IMOVP`=`IBY2PTR`, …); it must equal the type's
+size or the emitted code moves the wrong number of bytes — the truncation
+class. `genmove` (both `limbo/gen.c` and `appl/cmd/limbo/gen.b`) asserts
+`movewidth(op) == mt->size`, a compile-time guard against type/optab/size
+drift. (`tptr = IBY2PTR==IBY2LG ? tbig : tint` is what keeps pointer temps in
+step across both ABIs — see `ref/AGENTS_INPRO.md`.)
+
+### GC pointer-map vs layout (libinterp, #4c/#4d)
+
+`markheap` traces the pointer at every set bit of a type's map, at byte offset
+`slot*IBY2PTR`. `verifytype()` (`heap.c`) asserts every set bit lies wholly
+within the object's size; the `.dis` loader (`load.c`) runs it on each type
+descriptor (**#4d**) — a module that parses but whose maps are inconsistent for
+this ABI is rejected up front, naming the module. `verifyctype()` runs at init
+for the C-registered draw types (**#4c**), additionally requiring a generated
+ADT map to stay within the Limbo ADT prefix it describes (the C-only tail
+pointers are deliberately untraced) — a mismatch panics at boot.
+
+### `make emu-disptrcheck` — "Valgrind for Dis pointers" (#5)
+
+A `-DDISPTRCHECK` build validates every map-marked pointer slot against the
+live heap as the GC walks it: a real reference is `H`, or points just past a
+`Heap` header inside a heap arena (`ptrinpool`), with a sane GC colour. A
+64→32 truncated pointer fails all three and is reported (type, object, byte
+offset, value) at the first GC after it is installed, instead of crashing
+layers away when chased; the slot is then skipped. Debug only (slow); `make
+emu` reverts to production. This is the dynamic analog of #4c/#4d.
+
+> Layering: `make lint` + the `genmove` assert catch width bugs at build time;
+> `verifytype`/`verifyctype` at load/init; `DISPTRCHECK` at run time; and the
+> runtime hooks above (`EMUCRASH`/USR2/`EMUWATCHDOG`) when one still gets
+> through and faults or hangs.
+
+---
+
 ## Adding Diagnostic Prints
 
 ```limbo

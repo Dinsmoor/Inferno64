@@ -439,6 +439,19 @@ genchan(src: Src, sz: ref Node, mt: ref Type, d: ref Node): ref Inst
 	return in;
 }
 
+# bytes moved by a scalar move/cons op, or -1 for size-driven (struct) ops.
+movewidth(op: int): int
+{
+	case op {
+	IMOVB or ICONSB => return 1;
+	IMOVW or ICONSW => return IBY2WD;
+	IMOVL or ICONSL => return IBY2LG;
+	IMOVF or ICONSF => return IBY2FT;
+	IMOVP or ICONSP => return IBY2PTR;
+	}
+	return -1;
+}
+
 genmove(src: Src, how: int, mt: ref Type, s, d: ref Node): ref Inst
 {
 	reg: Addr;
@@ -450,6 +463,13 @@ genmove(src: Src, how: int, mt: ref Type, s, d: ref Node): ref Inst
 	op := movetab[how][mt.kind];
 	if(op == 0)
 		fatal("can't deal with op "+string how+" on "+nodeconv(s)+" "+nodeconv(d)+" in genmove");
+
+	# #4b: the move/cons op's fixed width must equal the type's size, or the
+	# generated code moves the wrong number of bytes (the LP64 truncation
+	# class).  Mirrors the check in the C compiler's gen.c.
+	w := movewidth(op);
+	if(w >= 0 && w != mt.size)
+		fatal(sprint("genmove: %d-byte op for %d-byte type (kind %d) -- LP64 width mismatch", w, mt.size, mt.kind));
 
 	case mt.kind{
 	Tadt or

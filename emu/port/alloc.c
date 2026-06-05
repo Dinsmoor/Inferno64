@@ -195,6 +195,25 @@ poolchain(Pool *p)
 	return p->chain;
 }
 
+/*
+ * Is address a inside one of pool p's arenas?  A cheap, fault-free membership
+ * test (a handful of arenas) used by the Dis pointer checker (#5) to decide
+ * whether a map-marked slot holds a real heap reference before dereferencing
+ * its Heap header — a truncated/garbage pointer lands outside every arena.
+ */
+int
+ptrinpool(Pool *p, void *a)
+{
+	Bhdr *b;
+	uchar *u;
+
+	u = a;
+	for(b = p->chain; b != nil; b = b->clink)
+		if(u >= (uchar*)b && u < (uchar*)B2LIMIT(b))
+			return 1;
+	return 0;
+}
+
 void
 pooldel(Pool *p, Bhdr *t)
 {
