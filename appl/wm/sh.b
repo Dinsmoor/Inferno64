@@ -80,6 +80,13 @@ shwin_cfg := array[] of {
 	"bind .ft.t <Control-u> {send keys {%A}}",
 	"bind .ft.t <Control-p> {send keys {%A}}",	# history previous
 	"bind .ft.t <Control-n> {send keys {%A}}",	# history next
+	# Up/Down arrows drive history.  Inferno Tk's bind grammar has no
+	# keysym names; it binds literal runes, and arrow keys are the
+	# private-use runes Up=0xE012 / Down=0xE013 (see include/keyboard.h).
+	# Binding them replaces the Text widget's class default (cursor
+	# motion) for this terminal.
+	"bind .ft.t <Key-\uE012> {send keyhist up}",	# Up
+	"bind .ft.t <Key-\uE013> {send keyhist down}",	# Down
 	"bind .ft.t <Button-1> +{send but1 pressed}",
 	"bind .ft.t <Double-Button-1> +{send but1 pressed}",
 	"bind .ft.t <ButtonRelease-1> +{send but1 released}",
@@ -213,6 +220,9 @@ main(ctxt: ref Draw->Context, argv: list of string)
 	keys := chan of string;
 	tk->namechan(t, keys, "keys");
 
+	keyhist := chan of string;
+	tk->namechan(t, keyhist, "keyhist");
+
 	butcmd := chan of string;
 	tk->namechan(t, butcmd, "button");
 
@@ -320,6 +330,14 @@ main(ctxt: ref Draw->Context, argv: list of string)
 			setholding(t, !holding);
 		}
 		cmd(t, ".ft.t see insert;update");
+
+	dir := <-keyhist =>
+		# Up/Down arrows drive history, mirroring ^P/^N.  A raw-mode app
+		# owns its own key handling, so only act when cooked.
+		if(!rawon){
+			histmove(t, dir);
+			cmd(t, ".ft.t see insert;update");
+		}
 
 	c := <-but1 =>
 		button1 = (c == "pressed");
