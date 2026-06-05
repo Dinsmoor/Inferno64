@@ -889,7 +889,13 @@ gettag(ts: ref TokenSource): ref Token
 			break eob;
 		if(c>=C->NCTYPE || !int (ctype[c]&LETTER)) {
 			# not a tag
-			if(c == '!') {
+			# '!' -> comment/declaration (<!--..-->, <!DOCTYPE..>);
+			# '?' -> processing instruction / XML decl (<?xml ..?>).
+			# HTML5 treats both as ignorable: consume to '>' (comment()
+			# does this and returns a Comment token the builder drops).
+			# Without the '?' case the XML declaration that opens an XHTML
+			# page leaks out as visible literal text.
+			if(c == '!' || c == '?') {
 				ans = comment(ts);
 				if(ans != nil)
 					return ans;
