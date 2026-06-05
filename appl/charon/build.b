@@ -24,15 +24,25 @@ include "csseng.m";
 css: CSS;
 cssengine: Csseng;
 	Engine, Elem, Props: import cssengine;
-csseng: ref Csseng->Engine;	# current document's author stylesheet engine
-cssstk: list of ref Csframe;	# open-element stack (cascade context + overrides)
-cssskip: int;			# display:none nesting depth (additem suppresses items)
-csson: int;			# feature gate (off if engine unavailable)
-cssdeftext: int;		# document default text colour (fallback)
-# Form fields whose style could not be resolved when parsed because the page's
-# <style>/<link> rules had not been seen yet (e.g. the stylesheet is declared
-# after the search form).  Retried once at end-of-document (see ffresolvepend).
-ffpend: list of (ref Formfield, ref Elem, list of ref CSS->Decl);
+# All per-document CSS parse state, bundled into one ref adt.  A fresh Cssctx is
+# created per document in ItemSource.new and reached through the single module
+# global `cssctx` below, rather than threaded as a parameter: additem and friends
+# touch this state from call sites that have no ItemSource in scope, and Charon
+# parses one document at a time through this single Build instance, so a shared
+# instance is correct.  (This is the idiomatic Limbo way to group related mutable
+# state: a ref adt shared by reference — see also Pstate.)
+Cssctx: adt {
+	eng:	ref Csseng->Engine;	# this document's author stylesheet engine
+	stk:	list of ref Csframe;	# open-element stack (cascade context + overrides)
+	skip:	int;			# display:none nesting depth (additem suppresses items)
+	on:	int;			# feature gate (off if engine unavailable)
+	deftext: int;			# document default text colour (fallback)
+	# Form fields whose style could not be resolved when parsed because the page's
+	# <style>/<link> rules had not been seen yet (e.g. the stylesheet is declared
+	# after the search form).  Retried once at end-of-document (see ffresolvepend).
+	pend:	list of (ref Formfield, ref Elem, list of ref CSS->Decl);
+};
+cssctx: ref Cssctx;
 
 # One open element on the CSS context stack.  Holds the *effective* (already
 # inherited) overrides so children inherit colour/font without re-running the
@@ -195,22 +205,24 @@ init(cu: CharonUtils)
 		cssengine->init();
 }
 
+#############################################################################
+# ItemSource — drives one document's parse: tokens in, Item stream out.
+# getitems() below is the generator; it is called repeatedly and pulls one
+# logical Item at a time, so all cross-token parse state lives on the
+# ItemSource (psstk, tabstk, ...) or in the per-document cssctx.
+#############################################################################
+
 # Assume f has been reset, and then had any values from HTTP headers
 # filled in (e.g., base, chset).
 ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemSource
 {
 	di := f.doc;
 
-	# reset per-document CSS state
-	csson = css != nil && cssengine != nil && cssenabled();
-	cssstk = nil;
-	cssskip = 0;
-	ffpend = nil;
-	cssdeftext = di.text;
-	if(csson)
-		csseng = cssengine->new();
-	else
-		csseng = nil;
+	# fresh per-document CSS state (see Cssctx)
+	on := css != nil && cssengine != nil && cssenabled();
+	cssctx = ref Cssctx(nil, nil, 0, on, di.text, nil);
+	if(on)
+		cssctx.eng = cssengine->new();
 # sys->print("chset = %s\n", di.chset);
 	chset := CU->getconv(di.chset);
 	if (chset == nil)
@@ -225,6 +237,14 @@ ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemS
 	}
 	return ref ItemSource(ts, mtype, di, f, psstk, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil);
 }
+
+#############################################################################
+# HTML token dispatch — the core per-tag builder.  One large `case tag` over
+# every open/close tag (Ta..Txmp and their +RBRA end forms).  This is the bulk
+# of the file by design: it is an HTML parser's dispatch table, factored into
+# the small helpers that follow rather than split across modules (every helper
+# here is build.b-private and called on this hot path).
+#############################################################################
 
 ItemSource.getitems(is: self ref ItemSource) : ref Item
 {
@@ -282,7 +302,7 @@ TokLoop:
 		# CSS context tracking: push a frame on element start, pop on end.
 		# Decoupled from Charon's font/colour stacks — overrides are overlaid
 		# at item-stamp time (textit), so this cannot corrupt built-in state.
-		if(csson) {
+		if(cssctx.on) {
 			if(tag < LX->Numtags)
 				cssenter(ps, tok, tag);
 			else if(tag >= RBRA && tag-RBRA < LX->Numtags)
@@ -456,8 +476,8 @@ TokLoop:
 			di.alink = color(aval(tok, LX->Aalink), di.alink);
 			# CSS body { background-color / color } overrides the page defaults
 			# (cssenter pushed this <body>'s frame just before this handler)
-			if(csson && cssstk != nil) {
-				bfr := hd cssstk;
+			if(cssctx.on && cssctx.stk != nil) {
+				bfr := hd cssctx.stk;
 				if(bfr.ovbg >= 0)
 					di.background = ps.curbg = Background(nil, bfr.ovbg);
 				if(bfr.ovfg >= 0)
@@ -1277,7 +1297,7 @@ TokLoop:
 		LX->Tstyle =>
 			csstext := "";
 			(csstext, toki) = getpcdata(toks, toki);
-			if(csson)
+			if(cssctx.on)
 				cssaddsheet(csstext);
 
 		LX->Tstyle+RBRA =>
@@ -1286,7 +1306,7 @@ TokLoop:
 		# <!ELEMENT LINK - O EMPTY>  external stylesheet: <link rel=stylesheet href=..>
 		# Fetched via the same reqdurl/reqddata re-entry path as <script src>.
 		LX->Tlink =>
-			if(csson && css != nil) {
+			if(cssctx.on && css != nil) {
 				if(is.reqddata != nil) {
 					cssaddsheet(string is.reqddata);
 					is.reqddata = nil;
@@ -1708,6 +1728,11 @@ TokLoop:
 	return ans;
 }
 
+#############################################################################
+# Parse helpers — anchors, raw text accumulation, the font/size/justify
+# stacks, line breaks and indentation.  These mutate the current Pstate.
+#############################################################################
+
 endanchor(ps: ref Pstate, docfg: int)
 {
 	if(ps.curanchor != 0) {
@@ -1869,7 +1894,7 @@ trim_white(data: string): string
 # the genattr field of the item accordingly.
 additem(ps: ref Pstate, it: ref Item, tok: ref LX->Token)
 {
-	if(ps.skipping || cssskip) {
+	if(ps.skipping || cssctx.skip) {
 		if(warn) {
 			sys->print("warning: skipping item:\n");
 			it.print();
@@ -1878,8 +1903,8 @@ additem(ps: ref Pstate, it: ref Item, tok: ref LX->Token)
 	}
 	it.anchorid = ps.curanchor;
 	it.state |= ps.curstate;
-	if(csson && cssstk != nil)
-		it.box = (hd cssstk).box;	# effective CSS box (bg/padding/border) for this item
+	if(cssctx.on && cssctx.stk != nil)
+		it.box = (hd cssctx.stk).box;	# effective CSS box (bg/padding/border) for this item
 	if(tok != nil)
 		it.genattr = getgenattr(tok);
 	ps.curstate &= ~(IFbrk|IFbrksp|IFnobrk|IFcleft|IFcright);
@@ -1927,8 +1952,8 @@ textit(ps: ref Pstate, s: string) : ref Item
 	fnt := ps.curfont;
 	fg := ps.curfg;
 	# overlay CSS overrides from the innermost open element, if any
-	if(cssstk != nil) {
-		fr := hd cssstk;
+	if(cssctx.stk != nil) {
+		fr := hd cssctx.stk;
 		if(fr.ovstyle >= 0 || fr.ovsize >= 0) {
 			sty := fnt / NumSize;
 			sz := fnt % NumSize;
@@ -1945,6 +1970,14 @@ textit(ps: ref Pstate, s: string) : ref Item
 }
 
 # --- CSS application -------------------------------------------------------
+
+#############################################################################
+# CSS cascade glue — applies the CSS engine (csseng) to the running parse.
+# cssenter/cssexit maintain cssctx.stk (the open-element cascade stack);
+# cssbox/cssfont* translate computed CSS properties into Charon's box/font
+# model; the ff* helpers style <input> form controls.  All operate on the
+# per-document cssctx (see Cssctx at the top of the file).
+#############################################################################
 
 # CSS rendering is on unless /env/CHARONCSS is "0" (lets us A/B without rebuild)
 cssenabled(): int
@@ -1964,15 +1997,15 @@ cssaddsheet(text: string)
 {
 	if(css == nil || text == "")
 		return;
-	if(csseng == nil)
-		csseng = cssengine->new();
-	csseng.addvars(text);		# harvest --custom-properties (CSS3)
-	text = csseng.flatten(text);	# resolve var(...) before the 2.1 parser
+	if(cssctx.eng == nil)
+		cssctx.eng = cssengine->new();
+	cssctx.eng.addvars(text);		# harvest --custom-properties (CSS3)
+	text = cssctx.eng.flatten(text);	# resolve var(...) before the 2.1 parser
 	(ss, err) := css->parse(text);
 	if(err != nil && err != "" && warn)
 		sys->print("warning: CSS parse: %s\n", err);
 	if(ss != nil)
-		csseng.addsheet(ss, Csseng->AUTHOR);
+		cssctx.eng.addsheet(ss, Csseng->AUTHOR);
 }
 
 # elements with no rendered scope (metadata) or no end tag (void): no frame
@@ -2003,9 +2036,9 @@ autoclose(prev, cur: int): int
 
 cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 {
-	if(csseng == nil || skipframe(tag))
+	if(cssctx.eng == nil || skipframe(tag))
 		return;
-	if(cssstk != nil && autoclose((hd cssstk).tag, tag))
+	if(cssctx.stk != nil && autoclose((hd cssctx.stk).tag, tag))
 		csspopframe(ps);
 
 	tagnm := LX->tagname(tag);
@@ -2019,22 +2052,22 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 		sty = ga.style;
 	}
 	parent: ref Csseng->Elem = nil;
-	if(cssstk != nil)
-		parent = (hd cssstk).el;
+	if(cssctx.stk != nil)
+		parent = (hd cssctx.stk).el;
 	el := Elem.mk(tagnm, id, cls, parent);
 
 	inlinedecls: list of ref CSS->Decl;
 	if(sty != "" && css != nil)
-		(inlinedecls, nil) = css->parsedecl(csseng.flatten(sty));
+		(inlinedecls, nil) = css->parsedecl(cssctx.eng.flatten(sty));
 
-	props := csseng.compute(el, inlinedecls);
+	props := cssctx.eng.compute(el, inlinedecls);
 
 	# inherit parent frame's effective overrides, then apply this element's.
 	# (colour and font inherit in CSS; background-color does not.)
 	fr := ref Csframe(tag, el, -1, -1, -1, -1, 0, 0, 0, nil, 0, 0, 0, 0);
 	pgrid := 0;	# 1 if the parent is a grid container (this is a grid item)
-	if(cssstk != nil) {
-		p := hd cssstk;
+	if(cssctx.stk != nil) {
+		p := hd cssctx.stk;
 		fr.ovfg = p.ovfg;
 		fr.ovstyle = p.ovstyle;
 		fr.ovsize = p.ovsize;
@@ -2096,14 +2129,14 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	reflow := 0;
 	if(cmin > 0 || ccount > 0 || disp == "inline-block" || disp == "inline-flex" || disp == "inline-grid")
 		reflow = 1;
-	if((cssstk != nil && (hd cssstk).inlinekids) || disp == "inline" || disp == "inline-block") {
+	if((cssctx.stk != nil && (hd cssctx.stk).inlinekids) || disp == "inline" || disp == "inline-block") {
 		fr.inlineflow = 1;
 		ps.curstate &= ~(IFbrk|IFbrksp);	# undo the block break for this element
 		# separate grid/flex cells so adjacent cell text doesn't run together
 		# (LeviticusNumbers -> Leviticus Numbers).  Real grid tracks fold the
 		# gap into the cell width (cssbox/measure), so only the inline-flow
 		# fallback needs an explicit spacer item.
-		if(cssstk != nil && (hd cssstk).inlinekids && !pgrid){
+		if(cssctx.stk != nil && (hd cssctx.stk).inlinekids && !pgrid){
 			ps.skipwhite = 0;
 			additem(ps, Item.newspacer(ISPhspace, ps.curfont), nil);
 		} else if(pgrid)
@@ -2138,9 +2171,9 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 		fr.ovsize = nsize;
 	if(props.ident("display") == "none") {
 		fr.skip = 1;
-		cssskip++;
+		cssctx.skip++;
 	}
-	cssstk = fr :: cssstk;
+	cssctx.stk = fr :: cssctx.stk;
 }
 
 # Compute CSS styling for an <input>.  Inputs are in skipframe(), so cssenter
@@ -2162,15 +2195,15 @@ ffelem(tok: ref LX->Token, field: ref Formfield): (ref Elem, list of ref CSS->De
 		sty = ga.style;
 	}
 	parent: ref Elem = nil;
-	if(cssstk != nil)
-		parent = (hd cssstk).el;
+	if(cssctx.stk != nil)
+		parent = (hd cssctx.stk).el;
 	el := Elem.mk("input", id, cls, parent);
 	tn := T->revlookup(input_tab, field.ftype);
 	if(tn != "")
 		el.attrs = ("type", tn) :: el.attrs;
 	inlinedecls: list of ref CSS->Decl;
 	if(sty != "" && css != nil)
-		(inlinedecls, nil) = css->parsedecl(csseng.flatten(sty));
+		(inlinedecls, nil) = css->parsedecl(cssctx.eng.flatten(sty));
 	return (el, inlinedecls);
 }
 
@@ -2232,12 +2265,12 @@ ffstyle(field: ref Formfield, props: ref Props): int
 # the form), queue it for a retry at end-of-document.
 ffcss(tok: ref LX->Token, field: ref Formfield)
 {
-	if(csseng == nil)
+	if(cssctx.eng == nil)
 		return;
 	(el, inlinedecls) := ffelem(tok, field);
-	props := csseng.compute(el, inlinedecls);
+	props := cssctx.eng.compute(el, inlinedecls);
 	if(!ffstyle(field, props))
-		ffpend = (field, el, inlinedecls) :: ffpend;
+		cssctx.pend = (field, el, inlinedecls) :: cssctx.pend;
 }
 
 # Retry the form fields that had no style when first parsed, now that the whole
@@ -2245,21 +2278,21 @@ ffcss(tok: ref LX->Token, field: ref Formfield)
 # actually picked up styling so the caller can trigger one reflow.
 ffresolvepend(di: ref Docinfo)
 {
-	if(csseng == nil)
+	if(cssctx.eng == nil)
 		return;
-	for(l := ffpend; l != nil; l = tl l) {
+	for(l := cssctx.pend; l != nil; l = tl l) {
 		(field, el, inlinedecls) := hd l;
-		props := csseng.compute(el, inlinedecls);
+		props := cssctx.eng.compute(el, inlinedecls);
 		if(ffstyle(field, props))
 			di.ffrestyled = 1;
 	}
-	ffpend = nil;
+	cssctx.pend = nil;
 }
 
 cssexit(ps: ref Pstate, tag: int)
 {
 	found := 0;
-	for(l := cssstk; l != nil; l = tl l)
+	for(l := cssctx.stk; l != nil; l = tl l)
 		if((hd l).tag == tag) {
 			found = 1;
 			break;
@@ -2267,9 +2300,9 @@ cssexit(ps: ref Pstate, tag: int)
 	if(!found)
 		return;			# stray end tag: leave stack alone
 	for(;;) {
-		if(cssstk == nil)
+		if(cssctx.stk == nil)
 			break;
-		t := (hd cssstk).tag;
+		t := (hd cssctx.stk).tag;
 		csspopframe(ps);
 		if(t == tag)
 			break;
@@ -2278,12 +2311,12 @@ cssexit(ps: ref Pstate, tag: int)
 
 csspopframe(ps: ref Pstate)
 {
-	if(cssstk == nil)
+	if(cssctx.stk == nil)
 		return;
-	fr := hd cssstk;
-	cssstk = tl cssstk;
-	if(fr.skip && cssskip > 0)
-		cssskip--;
+	fr := hd cssctx.stk;
+	cssctx.stk = tl cssctx.stk;
+	if(fr.skip && cssctx.skip > 0)
+		cssctx.skip--;
 	if(fr.inlineflow)
 		ps.curstate &= ~(IFbrk|IFbrksp);	# suppress the block's trailing break too
 }
@@ -2333,7 +2366,7 @@ cssfontsize(props: ref Props): (int, int)
 # no box decoration of its own (so it just inherits the parent box ref).  bg is
 # the element's *effective* background pixel (inherited or own); bgown says
 # whether this element set background-color itself.  Padding/border lengths are
-# resolved generically by csseng; Charon's line-based layout uses padx/pady to
+# resolved generically by the CSS engine; Charon's line-based layout uses padx/pady to
 # inflate the painted box (no content reflow) and draws a border outline.
 cssbox(props: ref Props, bg, bgown, colmin, colcount, colgap, reflow, block: int): ref Cssbox
 {
@@ -2742,6 +2775,11 @@ setcurjust(ps: ref Pstate)
 	}
 }
 
+#############################################################################
+# Table finalization & list helpers — grid assignment, cell trimming, list
+# marker glyphs, and image-map lookup.
+#############################################################################
+
 # Do final rearrangement after table parsing is finished
 # and assign cells to grid points
 finish_table(t: ref Table)
@@ -2942,6 +2980,13 @@ getmap(di: ref Docinfo, name: string) : ref Map
 	di.maps = m :: di.maps;
 	return m;
 }
+
+#############################################################################
+# Attribute-value parsers — read an HTML attribute off a Token and convert it
+# (to int, URL, Dimen, Align, table-mapped enum, ...).  All build.b-private and
+# called heavily from the dispatch above; kept in-module deliberately (a
+# separate module would turn ~150 hot-path calls into cross-module calls).
+#############################################################################
 
 # attrvalue, when "found" status doesn't matter
 # (because nil ans is sufficient indication)
@@ -3287,6 +3332,11 @@ stringstate(state: int) : string
 		s += " hang=" + string hang;
 	return s;
 }
+
+#############################################################################
+# Item constructors — build the ref Item pick-variants (Itext, Irule, Iimage,
+# ...).  Item is Build's public adt (build.m); these are its factory methods.
+#############################################################################
 
 Item.newtext(s: string, fnt, fg, voff: int, ul: byte) : ref Item
 {
