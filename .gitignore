@@ -2,7 +2,7 @@
 *.[8qkv5967o]
 *.obj
 [8qkv965o].out
-[8qkv965o].emu
+[8qkv965o].emu*
 obj.out
 obj.map
 vc*.pdb
@@ -25,7 +25,7 @@ y.debug
 
 # compiled Dis is build output; rebuild from source rather than tracking it
 *.dis
-/appl/**/*.sbl
+*.sbl
 
 # generated C headers for built-in modules
 /libinterp/cryptmod.h
@@ -42,9 +42,9 @@ y.debug
 
 /limbo/runt.h
 
-# emu build artifacts
+# emu build artifacts (emu.c, emu-g.c, emu-wrt.c, ... generated from config files)
 /emu/*/*.root.[ch]
-/emu/*/emu.c
+/emu/*/emu*.c
 /emu/*/errstr.h
 /emu/*/srv.h
 /emu/*/srvm.h
