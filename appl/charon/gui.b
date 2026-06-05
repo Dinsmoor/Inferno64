@@ -27,9 +27,9 @@ REQD: con ~0;
 
 cfg := array[] of {
 	(REQD,	"entry .ctlf.url -bg white -font /fonts/lucidasans/unicode.7.font -height 16"),
-	(REQD,	"button .ctlf.back -bd 1 -command {send gctl back} -state disabled -text {back} -font /fonts/lucidasans/unicode.7.font"),
-	(REQD,	"button .ctlf.stop -bd 1 -command {send gctl stop} -state disabled -text {stop} -font /fonts/lucidasans/unicode.7.font"),
-	(REQD,	"button .ctlf.fwd -bd 1 -command {send gctl fwd} -state disabled -text {next} -font /fonts/lucidasans/unicode.7.font"),
+	(REQD,	"button .ctlf.back -bd 1 -command {send gctl back} -state disabled -bitmap @/icons/charon/redleft.bit"),
+	(REQD,	"button .ctlf.stop -bd 1 -command {send gctl stop} -state disabled -bitmap @/icons/charon/stop.bit"),
+	(REQD,	"button .ctlf.fwd -bd 1 -command {send gctl fwd} -state disabled -bitmap @/icons/charon/redright.bit"),
 	(REQD,	"label .status.status -bd 1 -font /fonts/lucidasans/unicode.6.font -height 14 -anchor w"),
 	(REQD,	"button .ctlf.exit -bd 1 -bitmap exit.bit -command {send wm_title exit}"),
 	(REQD,	"frame .f -bd 0"),
@@ -75,6 +75,9 @@ framebinds := array[] of {
 	"bind .f <ButtonRelease-3> {send gctl b3r %X %Y}",
 	"bind .f <Motion-Button-3> {send gctl b3d %X %Y}",
 	"bind .f <Motion> {send gctl m %X %Y}",
+	# mouse wheel (buttons 4/5) scrolls the current frame
+	"bind .f <ButtonPress-4> {send gctl wheelup}",
+	"bind .f <ButtonPress-5> {send gctl wheeldn}",
 };
 
 tktop: ref Tk->Toplevel;
@@ -280,6 +283,15 @@ evhandle(t: ref Tk->Toplevel, wmctl: chan of string, evchan: chan of ref Event)
 				k := int hd tl l;
 				if(k != 0)
 					ev = ref Event.Ekey(k);
+			"wheelup" or "wheeldn" =>
+				# translate a wheel notch into a few line scrolls
+				# of the current frame (same path as the arrow keys)
+				dismisspopup = 0;
+				kc := E->Kaup;
+				if(hd l == "wheeldn")
+					kc = E->Kadown;
+				for(i := 0; i < 3; i++)
+					evchan <-= ref Event.Ekey(kc);
 			"back" =>
 				ev = ref Event.Eback;
 			"stop" =>
