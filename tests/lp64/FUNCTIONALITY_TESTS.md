@@ -28,7 +28,7 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | process mgmt | ✅ | `ps` lists procs with state/mem (e.g. `1 ready Ps[$Sys]`) |
 | namespace | ✅ | `ns` shows full bind/mount: `#U` hostfs, `#c` cons, `#p` prog, `#d` fd, `#I` ip, `#e` env |
 | networking (IP/styx) | ✅ | `/net` stack live (arp/tcp/udp/ndb); `cat /net/tcp/clone` allocates a conn; emu reaches external hosts (TCP+UDP dial to 8.8.8.8/1.1.1.1); + headless 30_styxnet TCP loopback + 9P pass |
-| DNS resolution | 🟡 | network + raw/headers-mode DNS-over-UDP **work** (resolves example.com end-to-end); root-caused the resolver hang to a **scheduler VM-token deadlock** in `acquire()` after the host-resolver bridge's `release()`+`getaddrinfo`+`acquire()` (BUG-3, open — scheduler fix held for review) |
+| DNS resolution | ✅ | `ndb/dns -r` + `ndb/dnsquery` resolve example.com/google.com (IPv4+IPv6) end-to-end. The "hang" was an LP64 frame-layout crash in the `$Srv` builtin from a stale 32-bit-ABI `srv.h`/`srvm.h` (BUG-3, FIXED — regenerated headers + limbo-binary mk dependency) |
 | plumber | ✅ | **was failing for non-"inferno" users; fixed** (BUG-2). Desktop plumber now runs (2 procs) with all ports (`/chan/plumb.{edit,web,view,dir,man,auplay,input}`) |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
@@ -98,47 +98,52 @@ works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
   round-trip read was inconclusive due to test-harness buffering, but the daemon
   is functional and acme's `plumb.edit` now exists.)
 
-### BUG-3 — DNS hangs in a scheduler VM-token deadlock (NOT getaddrinfo)  ❌ OPEN (root-caused)
+### BUG-3 — DNS "hang" was an LP64 frame-layout crash in the $Srv builtin  ✅ FIXED
 - **Symptom:** `ndb/dnsquery`/`ndb/csquery` never return; charon/dial can't
-  resolve names.
-- **Every network/DNS/srv primitive is PROVEN working** (so NOT a port/LP64/
-  network/file2chan bug): TCP+UDP dial to external hosts (`dialtest`); connected-
-  UDP DNS to 8.8.8.8 returns a valid answer (`udptest`); **headers-mode UDP** —
-  the exact mechanism dns uses — resolves example.com end-to-end (`hdrudp`,
-  `ancount=2`); `file2chan` data round-trip (`f2cecho` `ROUNDTRIP-OK`).
-- **Root cause (gdb on the hung emu, ptrace_scope=0):** the dns query path goes
-  `dnslookup → srv->iph2a` ("try host's map first"), a C builtin `Srv_iph2a`
-  (`emu/port/srv.c`) that does `release()` (drop the VM token) → `getaddrinfo()`
-  (the host resolver, which **completes fine**) → **`acquire()`** to re-take the
-  token. The backtrace of the hung thread is `osblock ← acquire ← Srv_iph2a ←
-  mcall ← xec ← vmachine` — it's **stuck forever in `acquire()`/`osblock()`
-  (sem_wait) re-acquiring the VM token.** Live `isched` state: `idle=0` (token
-  "taken") yet `runhd != nil` (a prog is **runnable**) and `vmq`+`idlevmq` have
-  waiting procs — but **no thread is running `vmachine`**. That's a scheduler
-  **VM-token hand-off / lost-token deadlock** in `release()`/`acquire()`
-  (`emu/port/dis.c`), triggered by the `release`+blocking-host-call+`acquire`
-  pattern. Same concurrency class as BUG-1 (the aarch64 barrier), distinct race.
-- **Progress — two lost-wakeup variants identified:**
-  1. **`addrun` / irend variant — FIXED** (commit `18a0a75b`, master `4dead65a`):
-     a prog made runnable via `addrun()` while the idle holder slept on `irend`
-     was never woken (only `acquire()` did `Wakeup(irend)`). Matches the original
-     acme `isched` dump (idle=0, `runhd!=nil`, no runner). Fixed by `Wakeup(irend)`
-     in `addrun()`; validated (tests/lp64 178/178, gui_sweep 22/22). Does NOT fix
-     the DNS hang (different variant).
-  2. **`iyield`/idlevmq variant — OPEN (the DNS hang).** Scheduler trace
-     (`SCHEDTRACE`, since reverted) of the minimal repro (`srvtest` calling
-     `srv->iph2a`) shows a clean `rel→osready B / B.iyield→A / acq A` ping-pong
-     between the two vmachine kprocs that, at the hang, ends with the proc doing
-     an `acquire()` while the helper is parked on **idlevmq** (`idlevmq=B`,
-     normally empty there) and `Wakeup(irend)` is lost → token "held" (idle=0)
-     but no runner. Op-count imbalance: one extra `acq ENQ` and one extra
-     `iyield→` with no matching wake. Caller = `Srv_iph2a`'s `acquire`. The safe
-     fix needs reliable holder tracking / hand-off rework (waking idlevmq from
-     `acquire` is unsafe for >2 kprocs — 2 runners → corruption; verified by
-     reasoning, would fail 10_concur). Not landed: a wrong scheduler change
-     breaks all userspace. `EMUWATCHDOG` detects this stall; `schedidlecheck`
-     does not (`runhd==nil` here).
-- (Test programs `dialtest`/`udptest`/`hdrudp`/`f2cecho`/`srvtest` in `tests/lp64/_build/`.)
+  resolve names. Presented as a *hang* because the faulting proc was caught by
+  the LP64 fault handler, turned into a Broken proc, and the emu sat idle (a
+  zombie leader + sleeping helper threads looks like a deadlock under `ps`).
+- **Real root cause — a stale, wrong-ABI generated header (NOT a scheduler bug).**
+  The dns query path is `dnslookup → srv->iph2a` ("try the host's map first"),
+  the C builtin `Srv_iph2a` (`emu/port/srv.c`). Running the minimal repro
+  (`srvtest` calling `srv->iph2a`) under `EMUCRASH=1` dropped a core whose C
+  backtrace was `string2c ← Srv_iph2a ← mcall ← xec ← vmachine`, faulting on a
+  **truncated 32-bit pointer** (`addr=0x6a221fe3`) — the classic LP64 narrowing
+  signature. `f->host` (the `String*` argument) was being read at the **wrong
+  frame offset**.
+  - The activation-record headers `emu/Linux/srv.h` / `srvm.h` are *generated*
+    by `limbo -a`/`limbo -t` and encode ABI-specific frame offsets
+    (`temps[MaxTemp-NREG*IBY2PTR]`, frame `size`, `WORD`-vs-`void*` register
+    slots). The on-disk copies were **generated by a 32-bit limbo**
+    (`WORD regs[NREG-1]`, `temps[12]`, `iph2a` frame `size=40`) but linked into
+    the **LP64** emu, which needs `void* regs[NREG-1]`, `temps[24]`, `size=72`.
+    So `host` landed 4 bytes off → garbage `String*` → wild-address fault.
+  - **Why it went stale:** the mk rule (`emu/port/portmkfile`) generated the
+    headers from the *module source* (`module/srvrunt.b`/`srv.m`) only. When the
+    tree was converted to LP64 the `limbo` binary changed ABI but the module
+    source didn't, so `mk` considered the 32-bit headers up to date and never
+    regenerated them. (The whole class of generated module headers —
+    `libinterp`'s `runt.h`/`sysmod.h`/… — shares this latent flaw; those happened
+    to get fully rebuilt during the port, so only `srv.h`/`srvm.h` slipped
+    through. An ABI switch on a *dirty* tree must `mk nuke`.)
+- **Fix (commit on `lp64-fault-observability`, cherry-picked to master):**
+  regenerated `srv.h`/`srvm.h` with the LP64 limbo, and added the **`limbo`
+  binary** as a prerequisite of the `srv.h srvm.h` rule in `emu/port/portmkfile`
+  so an ABI change (which rebuilds limbo) forces regeneration. No C change to
+  `srv.c` or the scheduler was needed.
+- **Verified end-to-end:** `srv->iph2a("example.com")` returns the real
+  IPv4+IPv6 address list; the actual `ndb/dns -r` server + `ndb/dnsquery`
+  resolves `example.com` and `google.com` headlessly. Full suite still green
+  (tests/lp64 178/178, gui_sweep 22/22, 10_concur 11/11).
+- **Note on the scheduler work:** the earlier "VM-token deadlock" diagnosis was a
+  red herring — the idle/zombie state after the crash was misread as a live
+  deadlock. The `addrun()` `Wakeup(irend)` change (commit `18a0a75b` / master
+  `4dead65a`) was made under that wrong theory; it passed the full suite and is a
+  defensible defensive fix for a genuine lost-wakeup pattern, **but it was not the
+  DNS fix** and fixes no confirmed bug — flagged for review/possible revert.
+- Network/srv primitives independently proven: TCP+UDP dial (`dialtest`),
+  connected-UDP DNS to 8.8.8.8 (`udptest`), headers-mode UDP (`hdrudp`),
+  `file2chan` round-trip (`f2cecho`). Repro/test progs in `tests/lp64/_build/`.
 
 ## Method notes
 
