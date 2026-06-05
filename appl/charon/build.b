@@ -2029,6 +2029,14 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	if((cssstk != nil && (hd cssstk).inlinekids) || disp == "inline" || disp == "inline-block") {
 		fr.inlineflow = 1;
 		ps.curstate &= ~(IFbrk|IFbrksp);	# undo the block break for this element
+		# separate grid/flex cells with a real (uncompressible) breakable space
+		# item — approximates grid gap — so adjacent cell text doesn't run
+		# together (LeviticusNumbers -> Leviticus Numbers).  A text " " here is
+		# swallowed by whitespace compression, so use a spacer item.
+		if(cssstk != nil && (hd cssstk).inlinekids){
+			ps.skipwhite = 0;
+			additem(ps, Item.newspacer(ISPhspace, ps.curfont), nil);
+		}
 	}
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
