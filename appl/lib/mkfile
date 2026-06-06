@@ -93,6 +93,7 @@ TARG=\
 	rabin.dis\
 	rand.dis\
 	random.dis\
+	raymath.dis\
 	readdir.dis\
 	readgif.dis\
 	readjpg.dis\
