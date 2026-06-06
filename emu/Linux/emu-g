@@ -40,6 +40,7 @@ mod
 	crypt
 	ipints
 	loader
+	raster3
 
 port
 	alloc

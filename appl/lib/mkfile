@@ -77,6 +77,7 @@ TARG=\
 	names.dis\
 	newns.dis\
 	ninep.dis\
+	objloader.dis\
 	oldauth.dis\
 	palm.dis\
 	palmdb.dis\
@@ -93,6 +94,7 @@ TARG=\
 	rabin.dis\
 	rand.dis\
 	random.dis\
+	raymath.dis\
 	readdir.dis\
 	readgif.dis\
 	readjpg.dis\

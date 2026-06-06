@@ -55,6 +55,7 @@ mod
 	ipints
 	loader
 	freetype
+	raster3
 
 port
 	alloc

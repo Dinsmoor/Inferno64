@@ -41,6 +41,9 @@ TARG=\
 	pen.dis\
 	polyhedra.dis\
 	prof.dis\
+	raycube.dis\
+	raycube3.dis\
+	rayteapot.dis\
 ##	qt.dis\
 	readmail.dis\
 	remotelogon.dis\

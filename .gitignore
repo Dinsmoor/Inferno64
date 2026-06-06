@@ -64,3 +64,4 @@ y.debug
 /[A-Z]*/*/bin/
 !/[A-Z]*/*/bin/mk
 !/[A-Z]*/*/bin/mkext
+raylib-ref/
