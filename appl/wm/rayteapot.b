@@ -74,6 +74,19 @@ init(nil: ref Draw->Context, argv: list of string)
 	for(i := 0; i < nv; i++)
 		mesh.verts[i] = mesh.verts[i].sub(centre).scale(s);
 
+	# pack model-space positions + normals into flat real arrays once; the
+	# per-frame transform/projection then happens entirely in C (projectmesh).
+	pos := array[nv*3] of real;
+	nrm := array[nv*3] of real;
+	for(i = 0; i < nv; i++){
+		pos[i*3]   = mesh.verts[i].x;
+		pos[i*3+1] = mesh.verts[i].y;
+		pos[i*3+2] = mesh.verts[i].z;
+		nrm[i*3]   = mesh.normals[i].x;
+		nrm[i*3+1] = mesh.normals[i].y;
+		nrm[i*3+2] = mesh.normals[i].z;
+	}
+
 	disp := Display.allocate(nil);
 	if(disp == nil){
 		sys->fprint(stderr, "rayteapot: cannot open display\n");
@@ -87,9 +100,10 @@ init(nil: ref Draw->Context, argv: list of string)
 	zbuf := array[W*H] of real;
 	verts := array[nv] of Vtx;
 
-	light := Vector3(0.4, 0.7, 0.6).normalize();
+	lv := Vector3(0.4, 0.7, 0.6).normalize();
+	light := array[] of {lv.x, lv.y, lv.z};
 	amb := 0.32;
-	base := Vector3(0.95, 0.78, 0.42);	# warm gold
+	base := array[] of {0.95, 0.78, 0.42};	# warm gold
 
 	view := Matrix.lookat(Vector3(0.0, 0.5, 3.2), Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0));
 	proj := Matrix.perspective(45.0*rm->DEG2RAD, real W/real H, 0.1, 100.0);
@@ -100,21 +114,9 @@ init(nil: ref Draw->Context, argv: list of string)
 		rot := Matrix.rotatexyz(Vector3(0.0, ang, 0.0));
 		mvp := rot.mul(view).mul(proj);
 
-		for(i = 0; i < nv; i++){
-			(cv, wv) := mesh.verts[i].transformp(mvp);
-			if(wv == 0.0)
-				wv = 0.0001;
-			iw := 1.0/wv;
-			sx := (cv.x*iw*0.5 + 0.5)*real W;
-			sy := (1.0 - (cv.y*iw*0.5 + 0.5))*real H;
-			nw := mesh.normals[i].transform(rot);
-			d := nw.dot(light);
-			if(d < 0.0)
-				d = 0.0;
-			inten := amb + (1.0 - amb)*d;
-			verts[i] = Vtx(sx, sy, cv.z*iw, iw, 0.0, 0.0,
-				base.x*inten, base.y*inten, base.z*inten, 1.0);
-		}
+		# whole vertex stage in C: transform, project, viewport, shade
+		raster->projectmesh(verts, pos, nrm, nil, nv, mvp.m, rot.m,
+			real W, real H, light, amb, base);
 
 		raster->clearcolor(pix, W, H, 15, 15, 22);
 		raster->cleardepth(zbuf, 1e30);

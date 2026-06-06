@@ -127,6 +127,96 @@ Raster3_clearcolor(void *fp)
 	}
 }
 
+/*
+ * Transform + project an entire vertex array in one C call.  This replaces the
+ * pure-Limbo per-vertex loop (a Dis-level mat*vec plus a short-lived heap
+ * allocation per vertex per frame -- the 3D bottleneck).  Same locking model
+ * as drawmesh: we only read/write caller arrays, never re-enter Dis or alloc.
+ *
+ * Matrix layout matches Raymath (m[i] == raylib mi); the transform below is a
+ * faithful port of Raymath's Vector3.transformp / Vector3.transform.  The
+ * normal is NOT renormalised (matching rayteapot's shading), so nmat must be a
+ * rotation and the input normals unit.
+ */
+void
+Raster3_projectmesh(void *fp)
+{
+	F_Raster3_projectmesh *f = fp;
+	Raster3_Vtx *out;
+	double *pos, *nrm, *uv, *m, *nm, *base, *light;
+	double w, h, amb, br, bg, bb, lx, ly, lz;
+	int nv, i, lit;
+
+	if(f->out == H || f->pos == H || f->mvp == H || f->base == H)
+		return;
+	out = (Raster3_Vtx*)f->out->data;
+	pos = (double*)f->pos->data;
+	m = (double*)f->mvp->data;
+	base = (double*)f->base->data;
+	nrm = (f->nrm != H) ? (double*)f->nrm->data : nil;
+	uv  = (f->uv  != H) ? (double*)f->uv->data  : nil;
+	nm  = (f->nmat != H) ? (double*)f->nmat->data : nil;
+
+	nv = f->nv;
+	if(nv > f->out->len)
+		nv = f->out->len;
+	if(nv*3 > f->pos->len)
+		nv = f->pos->len/3;
+	w = f->w;
+	h = f->h;
+	amb = f->ambient;
+	br = base[0];
+	bg = base[1];
+	bb = base[2];
+
+	lit = (f->light != H && nrm != nil && nm != nil);
+	lx = ly = lz = 0.0;
+	if(lit){
+		light = (double*)f->light->data;
+		lx = light[0];
+		ly = light[1];
+		lz = light[2];
+	}
+
+	for(i = 0; i < nv; i++){
+		double x = pos[i*3], y = pos[i*3+1], z = pos[i*3+2];
+		double cx = m[0]*x + m[4]*y + m[8]*z  + m[12];
+		double cy = m[1]*x + m[5]*y + m[9]*z  + m[13];
+		double cz = m[2]*x + m[6]*y + m[10]*z + m[14];
+		double cw = m[3]*x + m[7]*y + m[11]*z + m[15];
+		double iw, inten = 1.0;
+
+		if(cw == 0.0)
+			cw = 0.0001;
+		iw = 1.0/cw;
+		out[i].x = (cx*iw*0.5 + 0.5)*w;
+		out[i].y = (1.0 - (cy*iw*0.5 + 0.5))*h;
+		out[i].z = cz*iw;
+		out[i].iw = iw;
+		if(uv != nil){
+			out[i].u = uv[i*2];
+			out[i].v = uv[i*2+1];
+		} else {
+			out[i].u = 0.0;
+			out[i].v = 0.0;
+		}
+		if(lit){
+			double nx = nrm[i*3], ny = nrm[i*3+1], nz = nrm[i*3+2];
+			double tx = nm[0]*nx + nm[4]*ny + nm[8]*nz  + nm[12];
+			double ty = nm[1]*nx + nm[5]*ny + nm[9]*nz  + nm[13];
+			double tz = nm[2]*nx + nm[6]*ny + nm[10]*nz + nm[14];
+			double d = tx*lx + ty*ly + tz*lz;
+			if(d < 0.0)
+				d = 0.0;
+			inten = amb + (1.0 - amb)*d;
+		}
+		out[i].r = br*inten;
+		out[i].g = bg*inten;
+		out[i].b = bb*inten;
+		out[i].a = 1.0;
+	}
+}
+
 void
 Raster3_drawmesh(void *fp)
 {

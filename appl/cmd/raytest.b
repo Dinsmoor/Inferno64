@@ -66,6 +66,7 @@ init(nil: ref Draw->Context, nil: list of string)
 
 	testmath();
 	testraster();
+	testproject();
 
 	sys->print("raytest: PASS %d/%d\n", npass, npass+nfail);
 	if(nfail > 0){
@@ -127,6 +128,62 @@ quad(verts: array of Vtx, w, h: int, z, r, g, b: real)
 	verts[1] = Vtx(fw,  0.0, z, 1.0, 0.0,0.0, r,g,b,1.0);
 	verts[2] = Vtx(fw,  fh,  z, 1.0, 0.0,0.0, r,g,b,1.0);
 	verts[3] = Vtx(0.0, fh,  z, 1.0, 0.0,0.0, r,g,b,1.0);
+}
+
+# projectmesh (C) must reproduce the pure-Limbo transform/project/shade path
+testproject()
+{
+	W := 320;
+	H := 240;
+	nv := 3;
+	mvp := Matrix.perspective(rm->PI/4.0, real W/real H, 0.1, 100.0);
+	rot := Matrix.rotatey(0.5);		# a rotation, as projectmesh requires
+
+	mverts := array[] of {
+		Vector3(0.3, -0.2, -2.0),
+		Vector3(-0.5, 0.4, -3.0),
+		Vector3(0.1, 0.6, -1.5),
+	};
+	mnorm := array[] of {
+		Vector3(1.0, 0.0, 0.0),
+		Vector3(0.0, 1.0, 0.0),
+		Vector3(0.0, 0.0, 1.0),
+	};
+	pos := array[nv*3] of real;
+	nrm := array[nv*3] of real;
+	for(i := 0; i < nv; i++){
+		pos[i*3] = mverts[i].x; pos[i*3+1] = mverts[i].y; pos[i*3+2] = mverts[i].z;
+		nrm[i*3] = mnorm[i].x; nrm[i*3+1] = mnorm[i].y; nrm[i*3+2] = mnorm[i].z;
+	}
+
+	lv := Vector3(0.4, 0.7, 0.6).normalize();
+	light := array[] of {lv.x, lv.y, lv.z};
+	amb := 0.3;
+	base := array[] of {0.9, 0.8, 0.5};
+
+	out := array[nv] of Vtx;
+	raster->projectmesh(out, pos, nrm, nil, nv, mvp.m, rot.m,
+		real W, real H, light, amb, base);
+
+	ok := 1;
+	for(i = 0; i < nv; i++){
+		(cv, wv) := mverts[i].transformp(mvp);
+		if(wv == 0.0)
+			wv = 0.0001;
+		iw := 1.0/wv;
+		sx := (cv.x*iw*0.5 + 0.5)*real W;
+		sy := (1.0 - (cv.y*iw*0.5 + 0.5))*real H;
+		nw := mnorm[i].transform(rot);
+		d := nw.dot(lv);
+		if(d < 0.0)
+			d = 0.0;
+		inten := amb + (1.0 - amb)*d;
+		if(!feq(out[i].x, sx) || !feq(out[i].y, sy) || !feq(out[i].z, cv.z*iw)
+		|| !feq(out[i].iw, iw) || !feq(out[i].r, base[0]*inten)
+		|| !feq(out[i].g, base[1]*inten) || !feq(out[i].b, base[2]*inten))
+			ok = 0;
+	}
+	check(ok, "projectmesh matches Limbo transformp");
 }
 
 testraster()
