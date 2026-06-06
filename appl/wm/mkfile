@@ -43,6 +43,7 @@ TARG=\
 	prof.dis\
 	raycube.dis\
 	raycube3.dis\
+	rayteapot.dis\
 ##	qt.dis\
 	readmail.dis\
 	remotelogon.dis\

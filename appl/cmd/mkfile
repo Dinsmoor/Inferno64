@@ -120,6 +120,7 @@ TARG=\
 	pwd.dis\
 	ramfile.dis\
 	randpass.dis\
+	raytest.dis\
 	raw2iaf.dis\
 	rawdbfs.dis\
 	rcmd.dis\
