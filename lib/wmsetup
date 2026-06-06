@@ -46,6 +46,7 @@ menu Misc			'Colours'			{wmrun wm/colors}
 menu Misc			'Clock'			{wmrun wm/date}
 menu Games			'Tetris'			{wmrun wm/tetris}
 menu Games			'Bounce'			{wmrun wm/bounce}
+menu Games			'Teapot (3D)'		{wmrun wm/rayteapot}
 #menu Games			'Game client'		{wmrun games/gameclient >/dev/null >[2=1]}
 #menu Games			'Game client (local)'	{wmrun games/gameclient -l > /dev/null >[2=1]}
 

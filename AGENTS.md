@@ -5,6 +5,8 @@ This document orients AI agents working on the Inferno OS codebase. Read this fi
 - **AGENTS_DIS.md** — Dis virtual machine, bytecode format, GC, channels
 - **AGENTS_LIMBO.md** — Limbo language, compiler, module system
 - **AGENTS_KERNEL.md** — Kernel internals, 9P protocol, device drivers, process management
+- **AGENTS_GRAPHICS.md** — Draw, Tk, prefab, wm windows (incl. software-rendered frames)
+- **AGENTS_3D.md** — raylib-in-Limbo: Raymath, the `$Raster3` C kernel, OBJ loader
 
 ---
 

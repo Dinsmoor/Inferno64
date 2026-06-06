@@ -437,6 +437,59 @@ screen.draw(dest_rect, buf, nil, buf.r.min);
 
 **Screen ownership**: A `Screen` is bound to a specific `Display`. All windows on that `Screen` must be created from the same `Display`. Mixing displays is not supported.
 
+## Hosting a software-rendered (animated) frame in a WM window
+
+If you compute pixels yourself (a software renderer, a video frame, the
+`$Raster3` 3D rasterizer — see [AGENTS_3D.md](AGENTS_3D.md)) and want them in a
+*normal managed window* (titlebar, resize, hide) rather than full-screen, use a
+`tkclient` toplevel with a **`panel`** widget as the drawing surface:
+
+```limbo
+# in win_config, build a panel that grows with the window:
+"panel .pbd.p -width 512 -height 384",
+"pack .pbd.p -fill both -expand 1",     # WITHOUT -expand the panel caps at its
+"pack .pbd -side top -fill both -expand 1",   # requested size: it shrinks but
+                                              # will not grow past 512x384.
+
+# (re)allocate when the panel size changes (initial load AND every reshape):
+setimage(win: ref Toplevel): int {
+    w := int tk->cmd(win, ".pbd.p cget -actwidth");   # ACTUAL size, not -width
+    h := int tk->cmd(win, ".pbd.p cget -actheight");
+    disp  = win.image.display.newimage(((0,0),(w,h)), win.image.chans, 0, Draw->Black);
+    fbimg = win.image.display.newimage(((0,0),(w,h)), Draw->XRGB32, 0, Draw->Black);
+    tk->putimage(win, ".pbd.p", disp, nil);           # bind image to the panel
+    # ... reallocate your pixel/depth buffers to w*h, recompute aspect/projection
+}
+
+# per frame: render into your XRGB32 byte buffer, then:
+fbimg.writepixels(fbimg.r, pix);          # raw bytes -> XRGB32 scratch image
+disp.draw(disp.r, fbimg, nil, fbimg.r.min);  # converts to the panel's channels
+tk->cmd(win, sys->sprint(".pbd.p dirty 0 0 %d %d", w, h));
+tk->cmd(win, "update");                    # flush the dirty region to screen
+```
+
+Two gotchas that produce exactly-broken-looking windows:
+
+- **`-fill both -expand 1` on the panel**, or the render area shrinks correctly
+  but refuses to grow past its requested size.
+- **Forward *all* WM control messages to `tkclient->wmctl`**, not just the ones
+  you recognise. A loop that special-cases `"exit"` and reshape (`!…`) but drops
+  the rest leaves *only close working* — resize/minimize/move silently die:
+
+  ```limbo
+  c := <-wmcmd =>
+      case c {
+      "exit" => return;                    # (kill your render proc first)
+      *      => tkclient->wmctl(win, c);   # everything else, incl. reshape
+                if(c != nil && c[0] == '!') setimage(win);  # rebuild on reshape
+      }
+  ```
+
+Animate with a separate ticker proc sending on a channel that the main `alt`
+selects on alongside `win.ctxt.kbd/ptr/ctl` and `wmcmd`; do the render in the
+main proc on each tick so all image ops stay single-threaded. `appl/wm/rayteapot.b`
+is the worked example; `appl/wm/polyhedra.b` is the older in-tree precedent.
+
 ## Key Files
 
 | File | Purpose |
@@ -456,6 +509,8 @@ screen.draw(dest_rect, buf, nil, buf.r.min);
 | `libdraw/draw.c` | draw/gendraw primitives |
 | `include/memdraw.h` | In-memory drawing structures |
 | `appl/wm/clock.b` | Simple wmclient + direct draw example |
+| `appl/wm/rayteapot.b` | tkclient panel + software 3D (see AGENTS_3D.md) |
+| `libinterp/raster3.c` | `$Raster3` software rasterizer / z-buffer / vertex kernel |
 | `appl/demo/chat/chat.b` | Tk text interface example |
 | `appl/wm/colors.b` | Tk + image manipulation example |
 | `man/2/draw-display` | Display operations reference |
