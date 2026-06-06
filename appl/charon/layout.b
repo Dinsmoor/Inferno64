@@ -618,6 +618,22 @@ reflow(f: ref Frame) : int
 	return 1;
 }
 
+# Re-render f from already-serialized DOM HTML.  This is a full re-parse+layout
+# (so the new DOM structure/text takes effect), but deliberately omits the
+# script side of a normal load: layout() runs no scripts once the HTML carries
+# no <script> (the serializer strips it), and we skip framedone/onload and
+# history.  That keeps a script-driven mutation->repaint from re-firing event
+# handlers (which would loop).  Called on the main proc via Event.Edomrefresh.
+domrender(f: ref Frame, html: string): int
+{
+	if(f == nil || html == "")
+		return 0;
+	bs := CU->stringreq(html);
+	layout(f, bs, 0);
+	G->flush(f.r);
+	return 1;
+}
+
 # The items its within f are Iimage items,
 # and its image, ci, now has at least a ci.mims[0], which may be partially
 # or fully filled.

@@ -39,6 +39,7 @@ duplicating it. Exit status is nonzero if any suite has a `not ok` or errors.
 |------|---------|
 | `run.sh` | host harness: compile → run under emu-g → aggregate TAP |
 | `suites/01_cssparse.b` | validates the CSS2.1 parser (see below) |
+| `fixtures/minimum-standards.html` | self-contained HTML5+CSS3+JS conformance smoke test — the pragmatic *minimum* render bar, each block tagged MUST/STRETCH, degrades to readable with no CSS and no JS. Load via `file://` in a live emu. |
 | `fixtures/css21_default.css` | W3C CSS2.1 Appendix D default HTML4 sheet — conformance input *and* the UA default sheet for the cascade |
 | `fixtures/bible/{index.html,page.css,inline.css}` | byte-for-byte capture of the live testbed page + its stylesheets |
 | `_build/` | generated `.dis` (git-ignored; wiped each run) |

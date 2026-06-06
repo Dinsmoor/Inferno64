@@ -18,6 +18,7 @@ include "cookiesrv.m";
 include "chutils.m";
 include "lex.m";
 include "script.m";
+include "dom.m";
 include "build.m";
 include "layout.m";
 include "img.m";

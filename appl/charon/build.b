@@ -17,6 +17,8 @@ LX: Lex;
 U: Url;
 	Parsedurl: import U;
 J: Script;
+dom: Dom;
+	Builder: import dom;	# Dom->Builder, for Builder.new()
 
 # CSS engine: W3C CSS2.1 parser (css.m) + Charon cascade (csseng.m)
 include "css.m";
@@ -203,6 +205,12 @@ init(cu: CharonUtils)
 	cssengine = load Csseng Csseng->PATH;
 	if(cssengine != nil)
 		cssengine->init();
+
+	# Retained DOM tree (optional: if the module is missing, the tree is just
+	# not built and di.domroot stays nil; rendering is unaffected).
+	dom = load Dom Dom->PATH;
+	if(dom != nil)
+		dom->init();
 }
 
 #############################################################################
@@ -235,7 +243,97 @@ ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemS
 		ps.literal = 1;
 		pushfontstyle(ps, FntT);
 	}
-	return ref ItemSource(ts, mtype, di, f, psstk, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil);
+	isrc := ref ItemSource(ts, mtype, di, f, psstk, 0, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil);
+	# Start the retained DOM tree; domfeed() in getitems grows it per token.
+	if(dom != nil){
+		isrc.dombld = Builder.new();
+		di.domroot = isrc.dombld.root;
+	}
+	return isrc;
+}
+
+#############################################################################
+# DOM tree construction — grows the retained Dom->Node tree from the token
+# stream, in parallel with (and independent of) display-item generation.  The
+# per-token dispatch (domfeed) is driven from getitems; htmltodom() runs it over
+# a whole token list for reuse/testing.  HTML's optional-end-tag and misnesting
+# tolerance lives in the Builder (close() pops to the nearest matching tag;
+# stray end tags are ignored).  v1 limitation: implied end tags (e.g. a <p> that
+# auto-closes a previous <p>) are not synthesised, so such siblings nest — same
+# shape as the CSS context stack today; refine later via blockbrk[] auto-close.
+#############################################################################
+
+# HTML void (empty) elements: emitted as start tags with no end tag, so add them
+# as leaf children without pushing the open-element stack.
+domvoid(tag: int): int
+{
+	case tag {
+	LX->Tarea or LX->Tbase or LX->Tbasefont or LX->Tbr or LX->Tcol or
+	LX->Thr or LX->Timage or LX->Timg or LX->Tinput or LX->Tisindex or
+	LX->Tlink or LX->Tmeta or LX->Tparam or LX->Tsource =>
+		return 1;
+	}
+	return 0;
+}
+
+# token attributes -> (name, value) pairs in source order, names resolved via
+# Lex's load-time attrnames table.
+domattrs(lx: Lex, tok: ref Token): list of (string, string)
+{
+	rev: list of (string, string);
+	for(al := tok.attr; al != nil; al = tl al){
+		a := hd al;
+		if(a.attid >= 0 && a.attid < len lx->attrnames){
+			nm := lx->attrnames[a.attid];
+			if(nm != "")
+				rev = (nm, a.value) :: rev;
+		}
+	}
+	res: list of (string, string);
+	for(; rev != nil; rev = tl rev)
+		res = hd rev :: res;
+	return res;
+}
+
+# dispatch one token into the DOM builder.
+domfeed(lx: Lex, b: ref Dom->Builder, tok: ref Token)
+{
+	tag := tok.tag;
+	if(tag == LX->Data){
+		if(tok.text != "")
+			b.addtext(tok.text);
+		return;
+	}
+	if(tag == LX->Comment){
+		b.addcomment(tok.text);
+		return;
+	}
+	if(tag == LX->Notfound)
+		return;
+	if(tag >= RBRA && tag < LX->Data){		# end tag
+		b.close(lx->tagname(tag - RBRA));
+		return;
+	}
+	if(tag > LX->Comment && tag < LX->Numtags){	# start tag
+		name := lx->tagname(tag);
+		attrs := domattrs(lx, tok);
+		if(domvoid(tag))
+			b.void(name, attrs);
+		else
+			b.open(name, attrs);
+	}
+}
+
+htmltodom(lx: Lex, toks: list of ref Token): ref Dom->Node
+{
+	if(dom == nil)
+		dom = load Dom Dom->PATH;
+	if(dom == nil)
+		return nil;
+	b := Builder.new();
+	for(; toks != nil; toks = tl toks)
+		domfeed(lx, b, hd toks);
+	return b.root;
 }
 
 #############################################################################
@@ -279,6 +377,10 @@ TokLoop:
 		tok := toks[toki];
 		if(dbg > 1)
 			sys->print("build: curstate %ux, token %s\n", ps.curstate, tok.tostring());
+		# Grow the retained DOM tree (independent of item generation and the CSS
+		# context below).  Each token reaches this point exactly once.
+		if(is.dombld != nil)
+			domfeed(LX, is.dombld, tok);
 		tag := tok.tag;
 		brk := byte 0;
 		brksp := 0;
@@ -3562,6 +3664,7 @@ Docinfo.reset(d: self ref Docinfo)
 	d.evmask = 0;
 	d.kidinfo = nil;
 	d.frameid = -1;
+	d.domroot = nil;
 	d.ffrestyled = 0;
 
 	d.anchors = nil;

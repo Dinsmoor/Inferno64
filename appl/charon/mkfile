@@ -8,6 +8,8 @@ TARG=\
 	ctype.dis\
 	dechunk.dis\
 	date.dis\
+	dom.dis\
+	domjs.dis\
 	event.dis\
 	file.dis\
 	ftp.dis\
@@ -52,6 +54,8 @@ MODULES=\
 	ctype.m\
 	date.m\
 	dechunk.m\
+	dom.m\
+	domjs.m\
 	event.m\
 	gui.m\
 	gzipfilter.m\

@@ -436,6 +436,7 @@ Docinfo: adt {
 	evmask: int;
 	kidinfo: ref Kidinfo;			# if a frameset
 	frameid: int;				# id of document frame
+	domroot: ref Dom->Node;			# retained DOM tree (Document node), built during parse
 	ffrestyled: int;				# a form field got CSS at EOF (page declared
 						# its stylesheet after the field) -> needs a
 						# post-load reflow to apply control geometry
@@ -511,6 +512,7 @@ ItemSource: adt
 	reqdurl: ref Url->Parsedurl;
 	reqddata: array of byte;
 	toks: array of ref Lex->Token;
+	dombld: ref Dom->Builder;	# grows doc.domroot as tokens are consumed
 
 	new: fn(bs: ref CharonUtils->ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemSource;
 	getitems: fn(is: self ref ItemSource) : ref Item;
@@ -518,4 +520,9 @@ ItemSource: adt
 
 init: fn(cu: CharonUtils);
 trim_white: fn(data: string): string;
+# Build a retained DOM tree from a token list (the same per-token dispatch
+# getitems drives, exposed for reuse + headless testing).  lx is a loaded Lex
+# handle (only its load-time tagname/attrnames tables are used, so no init or
+# CharonUtils is required).
+htmltodom: fn(lx: Lex, toks: list of ref Lex->Token): ref Dom->Node;
 };

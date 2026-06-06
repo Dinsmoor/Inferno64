@@ -231,6 +231,9 @@ measurestring: fn(s: string) : Draw->Point;
 drawall: fn(f: ref Frame);
 relayout: fn(f: ref Frame, l: ref Lay, targetw: int, just: byte);
 reflow: fn(f: ref Frame) : int;
+# Re-render f from already-serialized DOM HTML (no script execution, no history);
+# used to repaint after a script mutates the DOM.
+domrender: fn(f: ref Frame, html: string) : int;
 
 stringwidth: fn(s: string): int;
 };

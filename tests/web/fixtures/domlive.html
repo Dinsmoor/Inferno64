@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!--
+  Live smoke for "Charon renders from the DOM": on load, a script mutates the
+  DOM via getElementById; Charon should re-render the frame from the mutated
+  tree, so the page shows the CHANGED text instead of the ORIGINAL.
+-->
+<html>
+<head><title>domlive</title></head>
+<body onload="document.getElementById('out').textContent = 'CHANGED-BY-DOM';" bgcolor="#ffffff">
+<h1>DOM live test</h1>
+<div id="out">ORIGINAL-TEXT</div>
+<script>
+// also drive it from an inline script setter, in case onload routing differs
+document.getElementById('out').textContent = 'CHANGED-BY-DOM';
+</script>
+</body>
+</html>

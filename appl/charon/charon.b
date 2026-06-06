@@ -347,6 +347,13 @@ Forloop:
 			f := findframe(top, e.frameid);
 			if (f != nil)
 				g = ref GoSpec (GoSettext, e.url, 0, e.text, f.name, "", nil);
+		Edomrefresh =>
+			# script mutated the DOM: repaint from the serialized tree, with no
+			# script execution (see L->domrender).  Not a navigation, so g stays nil.
+			f := findframe(top, e.frameid);
+			if (f != nil)
+				L->domrender(f, e.text);
+			g = nil;
 		Elostfocus =>
 			setfocus(nil);
 			g = nil;

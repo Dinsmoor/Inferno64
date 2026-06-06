@@ -34,7 +34,9 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD" "$(dirname "$TAPLIB")"
 
 compile() {  # src.b -> out.dis ; echoes errors, returns limbo rc
-	"$LIMBO" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/appl/charon" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
+	# appl/charon first so Charon's url.m (with Parsedurl) wins over module/url.m
+	# for suites that pull common.m; the only file present in both trees.
+	"$LIMBO" -I "$ROOT/appl/charon" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
 }
 
 # Charon modules the suites load by their installed PATH (/dis/charon/*.dis).

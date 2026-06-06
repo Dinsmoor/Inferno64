@@ -2,9 +2,11 @@ implement JScript;
 
 include "common.m";
 include "ecmascript.m";
+include "domjs.m";
 
 ES: Ecmascript;
 	Exec, Obj, Call, Prop, Val, Ref, RefVal, Builtin, ReadOnly: import ES;
+DJ: Domjs;		# DOM <-> JS binding (getElementById/createElement/... over doc.domroot)
 me: ESHostobj;
 
 # local copies from CU
@@ -198,6 +200,9 @@ objspecs := array[] of {
     ObjSpec("document",
 	array[] of {MethSpec
 		("close", nil),
+		("createElement", array[] of { "tagname" }),
+		("getElementById", array[] of { "id" }),
+		("getElementsByTagName", array[] of { "tagname" }),
 		("open", array[] of { "mimetype", "replace" }),
 		("write", array[] of { "string" }),
 		("writeln", array[] of { "string" }) },
@@ -430,6 +435,7 @@ mimespecs := array[] of {
 #	4:	print value of expression statements and abort on runtime errors
 dbg := 0;
 dbgdom := 0;
+domdirty := 0;		# set by the domjs reflow callback when a handler mutates the DOM
 
 top: ref ScriptWin;
 createdimages : list of ref Obj;
@@ -467,6 +473,15 @@ init(cu: CharonUtils) : string
 	me = load ESHostobj SELF;
 	if(me == nil)
 		return sys->sprint("jscript: could not load  self as a ESHostobj: %r");
+
+	# DOM binding: getElementById/createElement/... delegate to domjs, which
+	# shares this engine instance.  Optional — if it fails to load, those
+	# document methods simply return null/undefined.
+	DJ = load Domjs Domjs->PATH;
+	if(DJ != nil){
+		DJ->init(ES);
+		DJ->setreflow(domreflow);	# scripts that mutate the DOM flag a re-render
+	}
 	if(dbg >= 3) {
 		ES->debug['p'] = 1;	# print parsed code
 		ES->debug['e'] = 1;	# prinv ops as they are executed
@@ -1199,6 +1214,14 @@ checkopener()
 # if e.formid > 0	=> target is Form (e.fieldid == -1)
 # if e.imageid >= 0	=> target is Image
 # otherwise		=> target is window
+# domjs reflow callback: a script mutated the DOM tree.  Just flag it; do_on
+# re-renders the frame from the updated tree once the handler finishes (so a
+# handler making many changes triggers a single re-render).
+domreflow()
+{
+	domdirty = 1;
+}
+
 do_on(e: ref ScriptEvent)
 {
 	if(dbgdom)
@@ -1235,6 +1258,7 @@ do_on(e: ref ScriptEvent)
 	ow := ex.global;
 	od := getobj(ex, ow, "document");
 	sw.docwriteout = nil;
+	domdirty = 0;			# the reflow callback sets this if this handler mutates the DOM
 	
 {
 	# event target types
@@ -1376,6 +1400,13 @@ do_on(e: ref ScriptEvent)
 	if(e.reply != nil)
 		e.reply <-= nil;
 	checkdocwrite(top);
+	# DOM changed during this handler -> re-render the frame from the updated DOM
+	# tree.  The serialized HTML omits <script> and this Esettext path does not
+	# call framedone, so scripts are not re-run (no mutation->refresh loop).
+	if(domdirty && DJ != nil && f != nil && f.doc != nil && f.doc.domroot != nil){
+		E->evchan <-= ref Event.Edomrefresh(f.id, DJ->serialize(f.doc.domroot));
+		domdirty = 0;
+	}
 	jevchan <-= ref doneevent;
 }
 exception exc{
@@ -1909,6 +1940,15 @@ defaultval(ex: ref Exec, o: ref Obj, tyhint: int): ref Val
 	return ES->defaultval(ex, o, tyhint);
 }
 
+# the retained DOM root for the frame whose document object is o (nil if none).
+docroot(o: ref Obj): ref Dom->Node
+{
+	sw := top.findbyobj(o);
+	if(sw != nil && sw.frame != nil && sw.frame.doc != nil)
+		return sw.frame.doc.domroot;
+	return nil;
+}
+
 call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref Ref
 {
 	if(dbgdom)
@@ -1922,6 +1962,21 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 	"document.prototype.close" =>
 		# ignore for now
 		;
+	"document.prototype.getElementById" =>
+		if(DJ != nil)
+			ans = ES->valref(DJ->elembyid(ex, docroot(this), ES->toString(ex, ES->biarg(args, 0))));
+		else
+			ans = ES->valref(ES->null);
+	"document.prototype.getElementsByTagName" =>
+		if(DJ != nil)
+			ans = ES->valref(DJ->elembytag(ex, docroot(this), ES->toString(ex, ES->biarg(args, 0))));
+		else
+			ans = ES->valref(ES->null);
+	"document.prototype.createElement" =>
+		if(DJ != nil)
+			ans = ES->valref(DJ->createelem(ex, ES->toString(ex, ES->biarg(args, 0))));
+		else
+			ans = ES->valref(ES->null);
 	"document.prototype.write" =>
 		sw := top.findbyobj(this);
 		if (sw != nil) {
