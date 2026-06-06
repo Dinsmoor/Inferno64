@@ -31,6 +31,7 @@ y.debug
 /libinterp/cryptmod.h
 /libinterp/drawmod.h
 /libinterp/freetypemod.h
+/libinterp/imageiomod.h
 /libinterp/ipintsmod.h
 /libinterp/keyring.h
 /libinterp/keyringif.h

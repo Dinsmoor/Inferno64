@@ -1,0 +1,19 @@
+# Imageio - native image decoding, layered on the vendored stb libraries
+# (libstb).  The actual codec work is C (libstb/stb/stb_image.h, wrapped by
+# libstb/stbwrap.c); this builtin only marshals Limbo arguments.
+#
+# decode() turns an in-memory image of any stb-supported format (PNG, JPEG,
+# BMP, TGA, GIF, PSD, HDR, PIC, PNM) into 8-bit RGBA bytes: 4 channels,
+# top-to-bottom, byte order R,G,B,A per pixel.  That is exactly the pixel
+# layout of a Draw ABGR32 image, so the bytes can be written straight into one
+# with writepixels and no reordering -- which is what the Imageload library
+# (/dis/lib/imageload.dis) does to hand you a ready ref Draw->Image.
+
+Imageio: module
+{
+	PATH:	con "$Imageio";
+
+	# Decode image data to 8-bit RGBA.  On success returns (w, h, rgba, nil)
+	# where rgba has w*h*4 bytes (R,G,B,A order); on failure (0, 0, nil, err).
+	decode:	fn(data: array of byte): (int, int, array of byte, string);
+};

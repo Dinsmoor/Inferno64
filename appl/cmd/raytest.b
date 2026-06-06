@@ -20,6 +20,8 @@ include "raymath.m";
 include "raster3.m";
 	raster: Raster3;
 	Vtx: import Raster3;
+include "imageio.m";
+	imageio: Imageio;
 
 RayTest: module
 {
@@ -69,8 +71,14 @@ init(nil: ref Draw->Context, nil: list of string)
 		sys->fprint(stderr, "raytest: cannot load $Raster3\n");
 		raise "fail:load";
 	}
+	imageio = load Imageio Imageio->PATH;
+	if(imageio == nil){
+		sys->fprint(stderr, "raytest: cannot load $Imageio\n");
+		raise "fail:load";
+	}
 
 	testmath();
+	testimageio();
 	testraster();
 	testproject();
 
@@ -198,6 +206,61 @@ isgreen(pix: array of byte, idx: int): int
 	return int pix[idx+1] > 200 && int pix[idx+2] < 50;
 }
 
+testimageio()
+{
+	# embedded 2x2 RGBA PNG; pixels top->bottom, left->right:
+	#   (0,0) red    (1,0) green
+	#   (0,1) blue   (1,1) yellow @ alpha 128
+	png := array[] of {
+		byte 16r89, byte 16r50, byte 16r4e, byte 16r47, byte 16r0d, byte 16r0a, byte 16r1a, byte 16r0a,
+		byte 16r00, byte 16r00, byte 16r00, byte 16r0d, byte 16r49, byte 16r48, byte 16r44, byte 16r52,
+		byte 16r00, byte 16r00, byte 16r00, byte 16r02, byte 16r00, byte 16r00, byte 16r00, byte 16r02,
+		byte 16r08, byte 16r06, byte 16r00, byte 16r00, byte 16r00, byte 16r72, byte 16rb6, byte 16r0d,
+		byte 16r24, byte 16r00, byte 16r00, byte 16r00, byte 16r14, byte 16r49, byte 16r44, byte 16r41,
+		byte 16r54, byte 16r78, byte 16rda, byte 16r63, byte 16rf8, byte 16rcf, byte 16rc0, byte 16rf0,
+		byte 16r1f, byte 16r0c, byte 16r81, byte 16r34, byte 16r10, byte 16r30, byte 16r34, byte 16r00,
+		byte 16r00, byte 16r47, byte 16r4b, byte 16r08, byte 16r79, byte 16rc3, byte 16r25, byte 16r87,
+		byte 16reb, byte 16r00, byte 16r00, byte 16r00, byte 16r00, byte 16r49, byte 16r45, byte 16r4e,
+		byte 16r44, byte 16rae, byte 16r42, byte 16r60, byte 16r82,
+	};
+	(w, h, rgba, err) := imageio->decode(png);
+	check(rgba != nil && err == nil, "imageio decode ok");
+	if(rgba == nil){
+		sys->fprint(stderr, "raytest: imageio decode: %s\n", err);
+		return;
+	}
+	check(w == 2 && h == 2, "imageio decode 2x2");
+	check(len rgba == 16, "imageio rgba is w*h*4");
+	if(len rgba >= 16){
+		check(texel(rgba, 0, 255,0,0,255),   "decode texel(0,0) red");
+		check(texel(rgba, 1, 0,255,0,255),   "decode texel(1,0) green");
+		check(texel(rgba, 2, 0,0,255,255),   "decode texel(0,1) blue");
+		check(texel(rgba, 3, 255,255,0,128), "decode texel(1,1) yellow a=128");
+	}
+
+	# junk input must fail gracefully (error, no crash, no image)
+	(bw, bh, bad, berr) := imageio->decode(array[] of {byte 1, byte 2, byte 3, byte 4});
+	check(bad == nil && berr != nil && bw == 0 && bh == 0, "imageio rejects junk");
+}
+
+texel(rgba: array of byte, i: int, r, g, b, a: int): int
+{
+	o := i*4;
+	return int rgba[o]==r && int rgba[o+1]==g && int rgba[o+2]==b && int rgba[o+3]==a;
+}
+
+# a full-image quad with uv spanning 0..1 and a white base (so the texture
+# shows unmodulated)
+texquad(verts: array of Vtx, w, h: int, z: real)
+{
+	fw := real w;
+	fh := real h;
+	verts[0] = Vtx(0.0, 0.0, z, 1.0, 0.0,0.0, 1.0,1.0,1.0,1.0);
+	verts[1] = Vtx(fw,  0.0, z, 1.0, 1.0,0.0, 1.0,1.0,1.0,1.0);
+	verts[2] = Vtx(fw,  fh,  z, 1.0, 1.0,1.0, 1.0,1.0,1.0,1.0);
+	verts[3] = Vtx(0.0, fh,  z, 1.0, 0.0,1.0, 1.0,1.0,1.0,1.0);
+}
+
 testraster()
 {
 	w := 8;
@@ -247,4 +310,19 @@ testraster()
 	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
 	img.readpixels(img.r, pix);
 	check(isgreen(pix, idx), "zbuffer rejects far");
+
+	# TEXTURED: sample a solid-green texture through the perspective-correct
+	# path.  Building the texture via writepixels into an ABGR32 image and then
+	# having memmesh read green back also validates the ABGR32 (R,G,B,A) byte
+	# order -- the exact layout $Imageio/stb_image hands back.
+	tex := disp.newimage(Rect((0,0),(1,1)), draw->ABGR32, 0, draw->Black);
+	if(tex != nil){
+		tex.writepixels(tex.r, array[] of {byte 0, byte 255, byte 0, byte 255});
+		img.draw(img.r, black, nil, (0,0));
+		raster->cleardepth(zbuf, 1e30);
+		texquad(verts, w, h, 0.0);
+		raster->drawmesh(img, zbuf, verts, tris, tex, Raster3->TEXTURED, Raster3->CULLNONE);
+		img.readpixels(img.r, pix);
+		check(isgreen(pix, idx), "textured quad samples texture (ABGR32)");
+	}
 }

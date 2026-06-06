@@ -38,6 +38,7 @@ lib
 	sec
 	mp
 	mbedtls
+	stb
 
 	9
 
@@ -56,6 +57,7 @@ mod
 	loader
 	freetype
 	raster3
+	imageio
 
 port
 	alloc

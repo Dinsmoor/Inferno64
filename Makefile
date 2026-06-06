@@ -53,6 +53,7 @@ EMUDIRS := \
 	libtk       \
 	libfreetype \
 	libmbedtls  \
+	libstb      \
 	libmemdraw  \
 	libmemlayer \
 	utils/data2c \

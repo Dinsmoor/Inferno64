@@ -94,6 +94,9 @@ Draw: module
 	RGBA32: con Chans((((CRed<<4)|8)<<24 | ((CGreen<<4)|8)<<16 | ((CBlue<<4)|8))<<8 | ((CAlpha<<4)|8));
 	ARGB32: con Chans(((CAlpha<<4)|8)<<24 | ((CRed<<4)|8)<<16 | ((CGreen<<4)|8)<<8 | ((CBlue<<4)|8));	# stupid VGAs
 	XRGB32: con Chans(((CIgnore<<4)|8)<<24 | ((CRed<<4)|8)<<16 | ((CGreen<<4)|8)<<8 | ((CBlue<<4)|8));	# stupid VGAs
+	BGR24: con Chans(((CBlue<<4)|8)<<16 | ((CGreen<<4)|8)<<8 | ((CRed<<4)|8));
+	ABGR32: con Chans(((CAlpha<<4)|8)<<24 | ((CBlue<<4)|8)<<16 | ((CGreen<<4)|8)<<8 | ((CRed<<4)|8));	# R,G,B,A byte order (stb_image)
+	XBGR32: con Chans(((CIgnore<<4)|8)<<24 | ((CBlue<<4)|8)<<16 | ((CGreen<<4)|8)<<8 | ((CRed<<4)|8));
 
 	# Coordinate of a pixel on display
 	Point: adt

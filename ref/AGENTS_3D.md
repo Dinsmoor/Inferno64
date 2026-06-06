@@ -13,7 +13,8 @@ resolution is **hybrid**: the hot rasterizer and vertex kernels are **C** (the
 
 See also: [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md) (Draw/Tk/wm — including how to
 host a software-rendered animated frame in a window), [AGENTS_LIMBO.md](AGENTS_LIMBO.md)
-(language; mind the reserved words), [AGENTS_DIS.md](AGENTS_DIS.md) (why C kernels).
+(language; mind the reserved words), [AGENTS_DIS.md](AGENTS_DIS.md) (why C kernels),
+[AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md) (decoding PNG/JPEG/… into textures via stb).
 
 ---
 

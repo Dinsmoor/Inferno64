@@ -1,0 +1,16 @@
+<../mkconfig
+
+# Vendored stb (public domain / MIT), built as one static lib for emu.
+# Upstream single-header sources live under libstb/stb/ (mirrors the libmbedtls
+# vendoring). stbwrap.c is the only translation unit: it pulls in the chosen
+# *_IMPLEMENTATION blocks behind a tiny Inferno-free C API. These are plain ISO
+# C and must NOT include lib9.h (stbwrap.c sees only libc + the stb headers).
+
+LIB=libstb.a
+
+OFILES=\
+	stbwrap.$O\
+
+stbwrap.$O: stbwrap.c stb/stb_image.h
+
+<$ROOT/mkfiles/mksyslib-$SHELLTYPE

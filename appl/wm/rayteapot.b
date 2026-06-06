@@ -28,6 +28,10 @@ include "raster3.m";
 include "objloader.m";
 	objloader: Objloader;
 	Mesh: import Objloader;
+include "math.m";
+	math: Math;
+include "imageload.m";
+	imageload: Imageload;
 
 RayTeapot: module
 {
@@ -50,6 +54,9 @@ nv: int;
 view: Matrix;
 light, base: array of real;
 amb: real;
+tex: ref Image;		# texture image (nil => flat-shaded gold)
+uv: array of real;	# per-vertex texture coords, 2 each (nil => untextured)
+rmode: int;		# Raster3 shading mode (GOURAUD or TEXTURED)
 
 win_config := array[] of {
 	"frame .pbd -bd 2",
@@ -75,6 +82,11 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	rm->init();
 	objloader->init();
 	tkclient->init();
+
+	# optional: Math (for the UV wrap) and Imageload (for the texture); if
+	# either is missing we fall back to flat-shaded gold.
+	math = load Math Math->PATH;
+	imageload = load Imageload Imageload->PATH;
 
 	stderr := sys->fildes(2);
 	path := "/lib/models/teapot.obj";
@@ -113,6 +125,20 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	}
 	verts = array[nv] of Vtx;
 
+	# ugly-but-fun spherical texture coords from the centred model positions
+	# (the teapot .obj ships no UVs); only when Math is available.
+	if(math != nil){
+		uv = array[nv*2] of real;
+		for(i = 0; i < nv; i++){
+			x := pos[i*3]; y := pos[i*3+1]; z := pos[i*3+2];
+			r := math->sqrt(x*x + y*y + z*z);
+			if(r == 0.0)
+				r = 1.0;
+			uv[i*2]   = 0.5 + math->atan2(z, x)/(2.0*rm->PI);
+			uv[i*2+1] = 0.5 - math->asin(y/r)/rm->PI;
+		}
+	}
+
 	lv := Vector3(0.4, 0.7, 0.6).normalize();
 	light = array[] of {lv.x, lv.y, lv.z};
 	amb = 0.32;
@@ -131,6 +157,19 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	tkclient->startinput(win, "kbd"::"ptr"::nil);
 	if(setimage(win) <= 0)
 		return;
+
+	# load the texture (needs a display); fall back to gold if missing
+	rmode = Raster3->GOURAUD;
+	if(imageload != nil && uv != nil){
+		(t, terr) := imageload->readfile(win.image.display, "/lib/models/teapot_tex.png");
+		if(t == nil)
+			sys->fprint(stderr, "rayteapot: texture: %s (flat shading)\n", terr);
+		tex = t;
+	}
+	if(tex != nil){
+		rmode = Raster3->TEXTURED;
+		base = array[] of {1.0, 1.0, 1.0};	# white base: texture shows, still lit
+	}
 
 	tick := chan of int;
 	tpidc := chan of int;
@@ -203,15 +242,16 @@ render(ang: real)
 	rot := Matrix.rotatexyz(Vector3(0.0, ang, 0.0));
 	mvp := rot.mul(view).mul(proj);
 
-	# whole vertex stage in C: transform, project, viewport, shade
-	raster->projectmesh(verts, pos, nrm, nil, nv, mvp.m, rot.m,
+	# whole vertex stage in C: transform, project, viewport, shade (+ uv copy)
+	raster->projectmesh(verts, pos, nrm, uv, nv, mvp.m, rot.m,
 		real W, real H, light, amb, base);
 
-	# clear, then rasterize straight into the panel image (no scratch buffer)
+	# clear, then rasterize straight into the panel image (no scratch buffer);
+	# tex/rmode are nil/GOURAUD when no texture loaded, TEXTURED otherwise
 	disp.draw(disp.r, bg, nil, (0,0));
 	raster->cleardepth(zbuf, 1e30);
-	raster->drawmesh(disp, zbuf, verts, tris, nil,
-		Raster3->GOURAUD, Raster3->CULLNONE);
+	raster->drawmesh(disp, zbuf, verts, tris, tex,
+		rmode, Raster3->CULLNONE);
 
 	tk->cmd(mainwin, sys->sprint(".pbd.p dirty 0 0 %d %d", W, H));
 	tk->cmd(mainwin, "update");
