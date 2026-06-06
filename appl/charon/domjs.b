@@ -11,6 +11,9 @@ include "draw.m";
 include "math.m";
 include "ecmascript.m";
 include "dom.m";
+include "raymath.m";
+include "raster3.m";
+include "objloader.m";
 include "domjs.m";
 
 sys: Sys;
@@ -21,9 +24,15 @@ ES: Ecmascript;
 	Exec, Obj, Val, Ref, Builtin: import ES;
 dom: Dom;
 	Node: import dom;
+rm: Raymath;				# canvas 3D context: vectors/matrices (pure Limbo)
+	Vector3, Matrix: import rm;
+raster: Raster3;			# canvas 3D context: native C rasterizer ($Raster3)
+	Vtx: import Raster3;
+objl: Objloader;			# canvas 3D context: Wavefront .obj loader
+	Mesh: import Objloader;
 me: ESHostobj;
 
-docproto, elemproto, ctxproto: ref Obj;	# shared prototypes (methods live here)
+docproto, elemproto, ctxproto, glproto: ref Obj;	# shared prototypes (methods live here)
 nodetab: array of ref Node;		# index -> node
 objtab:  array of ref Obj;		# index -> host obj (lazily created, for identity)
 ntab: int;
@@ -37,6 +46,22 @@ CFILL, CCLEAR, CSTROKE: con iota;	# canvas rectangle op modes
 pathx, pathy, pathsub: array of int;	# point coords + 1==starts a new subpath
 pathn: int;
 
+# Canvas 3D context (getContext('webgl'/'3d') -> Domgl) scene state.  Like the
+# 2D path above, this is module-global: JS is single-threaded and one active 3D
+# canvas at a time is the practical case.  It survives across animation timer
+# ticks (the timer path does not rebuild the JS exec context); a full re-render
+# would reset it, but a canvas-only animation never triggers one.
+glready: int;				# defaults installed?
+glproj, glview, glmodel: Matrix;	# projection, view, model (model == normal matrix)
+glclr: array of int;			# clear colour {r,g,b}, 0..255
+gllight: array of real;			# light direction (3 reals), nil == unlit
+glamb: real;				# ambient term, 0..1
+glbase: array of real;			# base/material colour (3 reals), 0..1
+glzbuf: array of real;			# depth buffer, sized to the canvas (Dx*Dy)
+glpos, glnrm: array of real;		# loaded model: 3 reals/vertex (model space)
+gltris: array of int;			# loaded model: 3 indices/triangle
+glnv: int;				# loaded model: vertex count
+
 init(es: Ecmascript)
 {
 	sys = load Sys Sys->PATH;
@@ -46,6 +71,14 @@ init(es: Ecmascript)
 	dom = load Dom Dom->PATH;
 	if(dom != nil)
 		dom->init();
+	# canvas 3D context (optional: pages without a 3D canvas never touch these).
+	rm = load Raymath Raymath->PATH;
+	if(rm != nil)
+		rm->init();			# loads $Math for Raymath
+	raster = load Raster3 Raster3->PATH;
+	objl = load Objloader Objloader->PATH;
+	if(objl != nil)
+		objl->init();
 	me = load ESHostobj SELF;
 	nodetab = array[16] of ref Node;
 	objtab = array[16] of ref Obj;
@@ -137,6 +170,21 @@ mkprotos(ex: ref Exec)
 	instm(ex, ctxproto, "Domctx", "arc", array[] of {"x", "y", "r", "a0", "a1", "ccw"});
 	instm(ex, ctxproto, "Domctx", "stroke", array[0] of string);
 	instm(ex, ctxproto, "Domctx", "fill", array[0] of string);
+	# minimal immediate-mode 3D context (over $Raster3 + Raymath).  Not WebGL-
+	# conformant: submit a mesh + camera/model matrices, get a lit, z-buffered
+	# frame.  Offered under the "webgl"/"3d" getContext kinds for convenience.
+	glproto = ES->mkobj(ex.objproto, "Domgl");
+	instm(ex, glproto, "Domgl", "clearColor", array[] of {"r", "g", "b"});
+	instm(ex, glproto, "Domgl", "perspective", array[] of {"fovy", "near", "far"});
+	instm(ex, glproto, "Domgl", "lookAt", array[] of {"ex", "ey", "ez", "tx", "ty", "tz", "ux", "uy", "uz"});
+	instm(ex, glproto, "Domgl", "rotate", array[] of {"rx", "ry", "rz"});
+	instm(ex, glproto, "Domgl", "light", array[] of {"x", "y", "z", "ambient"});
+	instm(ex, glproto, "Domgl", "color", array[] of {"r", "g", "b"});
+	instm(ex, glproto, "Domgl", "loadModel", array[] of {"path"});
+	instm(ex, glproto, "Domgl", "clear", array[0] of string);
+	instm(ex, glproto, "Domgl", "drawModel", array[0] of string);
+	instm(ex, glproto, "Domgl", "drawMesh", array[] of {"verts", "tris"});
+	instm(ex, glproto, "Domgl", "flush", array[0] of string);
 }
 
 instm(ex: ref Exec, proto: ref Obj, class, name: string, args: array of string)
@@ -302,8 +350,41 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 			v = argval(args, 0);
 		}
 	"Domelem.prototype.getContext" =>
-		# only "2d" is offered; the context is bound to this canvas node.
-		v = ctxval(ex, nodeof(ex, this));
+		# "2d" -> CanvasRenderingContext2D; "webgl"/"3d" -> the immediate-mode
+		# 3D context.  Either way the context is bound to this canvas node.
+		case tolower(argstr(ex, args, 0)) {
+		"webgl" or "experimental-webgl" or "webgl2" or "3d" =>
+			v = glval(ex, nodeof(ex, this));
+		* =>
+			v = ctxval(ex, nodeof(ex, this));
+		}
+	"Domgl.prototype.clearColor" =>
+		glclr = array[] of {argnum(ex, args, 0), argnum(ex, args, 1), argnum(ex, args, 2)};
+	"Domgl.prototype.perspective" =>
+		glperspective(ex, this, argreal(ex, args, 0), argreal(ex, args, 1), argreal(ex, args, 2));
+	"Domgl.prototype.lookAt" =>
+		glview = Matrix.lookat(
+			Vector3(argreal(ex, args, 0), argreal(ex, args, 1), argreal(ex, args, 2)),
+			Vector3(argreal(ex, args, 3), argreal(ex, args, 4), argreal(ex, args, 5)),
+			Vector3(argreal(ex, args, 6), argreal(ex, args, 7), argreal(ex, args, 8)));
+	"Domgl.prototype.rotate" =>
+		glmodel = Matrix.rotatexyz(Vector3(argreal(ex, args, 0), argreal(ex, args, 1), argreal(ex, args, 2)));
+	"Domgl.prototype.light" =>
+		lv := Vector3(argreal(ex, args, 0), argreal(ex, args, 1), argreal(ex, args, 2)).normalize();
+		gllight = array[] of {lv.x, lv.y, lv.z};
+		glamb = argreal(ex, args, 3);
+	"Domgl.prototype.color" =>
+		glbase = array[] of {argreal(ex, args, 0)/255.0, argreal(ex, args, 1)/255.0, argreal(ex, args, 2)/255.0};
+	"Domgl.prototype.loadModel" =>
+		glloadmodel(argstr(ex, args, 0));
+	"Domgl.prototype.clear" =>
+		glclear(ex, this);
+	"Domgl.prototype.drawModel" =>
+		gldrawmodel(ex, this);
+	"Domgl.prototype.drawMesh" =>
+		gldrawjs(ex, this, args);
+	"Domgl.prototype.flush" =>
+		canvasdamaged();
 	"Domctx.prototype.fillRect" =>
 		ctxrect(ex, this, args, CFILL);
 	"Domctx.prototype.clearRect" =>
@@ -659,6 +740,176 @@ ctxfill(ex: ref Exec, ctxo: ref Obj)
 		i = j;
 	}
 	canvasdamaged();
+}
+
+# ---- canvas 3D context (Domgl over $Raster3 + Raymath) ------------------
+
+# a Domgl host object bound to canvas node n.  Requires the 3D stack ($Raster3
+# builtin + raymath.dis); returns null if either failed to load.
+glval(ex: ref Exec, n: ref Node): ref Val
+{
+	if(n == nil || raster == nil || rm == nil)
+		return ES->null;
+	if(!glready)
+		glsetup();
+	o := ES->mkobj(glproto, "Domgl");
+	o.host = me;
+	ES->put(ex, o, "@PRIVdomix", ES->numval(real nodeix(n)));
+	return ES->objval(o);
+}
+
+# install sane defaults so a context renders something even before the page
+# sets a camera (identity matrices, a soft key light, black clear).
+glsetup()
+{
+	glproj = Matrix.identity();
+	glview = Matrix.identity();
+	glmodel = Matrix.identity();
+	glclr = array[] of {0, 0, 0};
+	lv := Vector3(0.4, 0.7, 0.6).normalize();
+	gllight = array[] of {lv.x, lv.y, lv.z};
+	glamb = 0.35;
+	glbase = array[] of {0.80, 0.80, 0.85};
+	glready = 1;
+}
+
+# (re)size the depth buffer to match the canvas image (one real per pixel).
+glzset(cim: ref Image)
+{
+	n := cim.r.dx() * cim.r.dy();
+	if(glzbuf == nil || len glzbuf != n)
+		glzbuf = array[n] of real;
+}
+
+# set the projection; aspect comes from the canvas image dimensions.
+glperspective(ex: ref Exec, glo: ref Obj, fovydeg, near, far: real)
+{
+	cim := canvasimof(ex, glo);
+	asp := 1.0;
+	if(cim != nil && cim.r.dy() != 0)
+		asp = real cim.r.dx() / real cim.r.dy();
+	glproj = Matrix.perspective(fovydeg * Raymath->DEG2RAD, asp, near, far);
+}
+
+# clear the canvas to the clear colour and reset the depth buffer.  The fill is
+# a buffered Draw op; drawmesh flushes it before rasterizing (see AGENTS_3D.md).
+glclear(ex: ref Exec, glo: ref Obj)
+{
+	cim := canvasimof(ex, glo);
+	if(cim == nil)
+		return;
+	cim.draw(cim.r, cim.display.rgb(glclr[0], glclr[1], glclr[2]), nil, (0,0));
+	glzset(cim);
+	raster->cleardepth(glzbuf, 1e30);
+}
+
+# load a Wavefront .obj, centre + uniformly scale it to ~[-1,1], and pack its
+# positions/normals/indices for repeated drawModel calls (parsed once in Limbo,
+# never marshalled through JS).  Mirrors wm/rayteapot's setup.
+glloadmodel(path: string)
+{
+	glnv = 0;
+	if(objl == nil || rm == nil)
+		return;
+	(mesh, err) := objl->readobj(path);
+	if(mesh == nil || err != nil)
+		return;
+	nv := len mesh.verts;
+	centre := mesh.min.add(mesh.max).scale(0.5);
+	ext := mesh.max.sub(mesh.min);
+	span := ext.x;
+	if(ext.y > span) span = ext.y;
+	if(ext.z > span) span = ext.z;
+	if(span == 0.0) span = 1.0;
+	sc := 2.0 / span;
+	pos := array[nv*3] of real;
+	nrm := array[nv*3] of real;
+	for(i := 0; i < nv; i++){
+		v := mesh.verts[i].sub(centre).scale(sc);
+		pos[i*3] = v.x; pos[i*3+1] = v.y; pos[i*3+2] = v.z;
+		nrm[i*3] = mesh.normals[i].x;
+		nrm[i*3+1] = mesh.normals[i].y;
+		nrm[i*3+2] = mesh.normals[i].z;
+	}
+	glpos = pos; glnrm = nrm;
+	gltris = mesh.tris;
+	glnv = nv;
+}
+
+# render the loaded model: the whole vertex stage (transform/project/shade) runs
+# in C (projectmesh), then drawmesh rasterizes straight into the canvas image.
+gldrawmodel(ex: ref Exec, glo: ref Obj)
+{
+	cim := canvasimof(ex, glo);
+	if(cim == nil || raster == nil || rm == nil || glnv == 0)
+		return;
+	glzset(cim);
+	mvp := glmodel.mul(glview).mul(glproj);
+	verts := array[glnv] of Vtx;
+	raster->projectmesh(verts, glpos, glnrm, nil, glnv, mvp.m, glmodel.m,
+		real cim.r.dx(), real cim.r.dy(), gllight, glamb, glbase);
+	raster->drawmesh(cim, glzbuf, verts, gltris, nil,
+		Raster3->GOURAUD, Raster3->CULLNONE);
+}
+
+# draw a JS-supplied mesh: verts is a flat [x,y,z, r,g,b, ...] array (colour
+# 0..255), tris a flat index array.  Per-vertex colour, unlit (Gouraud over the
+# vertex colours).  The per-vertex projection loop is Limbo -- fine for the small
+# meshes (a cube) a page would inline; large meshes belong in loadModel.
+gldrawjs(ex: ref Exec, glo: ref Obj, args: array of ref Val)
+{
+	cim := canvasimof(ex, glo);
+	if(cim == nil || raster == nil || rm == nil)
+		return;
+	vflat := jsnums(ex, argval(args, 0));
+	iflat := jsnums(ex, argval(args, 1));
+	if(vflat == nil || iflat == nil || len vflat < 18)
+		return;
+	glzset(cim);
+	w := cim.r.dx(); h := cim.r.dy();
+	mvp := glmodel.mul(glview).mul(glproj);
+	nv := len vflat / 6;
+	verts := array[nv] of Vtx;
+	for(k := 0; k < nv; k++){
+		b := k*6;
+		verts[k] = glprojvtx(Vector3(vflat[b], vflat[b+1], vflat[b+2]), mvp,
+			vflat[b+3]/255.0, vflat[b+4]/255.0, vflat[b+5]/255.0, w, h);
+	}
+	tris := array[len iflat] of int;
+	for(ti := 0; ti < len iflat; ti++)
+		tris[ti] = int iflat[ti];
+	raster->drawmesh(cim, glzbuf, verts, tris, nil,
+		Raster3->GOURAUD, Raster3->CULLNONE);
+}
+
+# project a model-space point through mvp to a screen-space Vtx (parameterized
+# port of wm/raycube3's projvtx).
+glprojvtx(p: Vector3, mvp: Matrix, r, g, b: real, w, h: int): Vtx
+{
+	(cv, wv) := p.transformp(mvp);
+	if(wv == 0.0)
+		wv = 0.0001;
+	iw := 1.0 / wv;
+	sx := (cv.x*iw*0.5 + 0.5) * real w;
+	sy := (1.0 - (cv.y*iw*0.5 + 0.5)) * real h;
+	return Vtx(sx, sy, cv.z*iw, iw, 0.0, 0.0, r, g, b, 1.0);
+}
+
+# pull a JS array (length + numeric indices) into a Limbo array of real.  O(n)
+# property gets -- acceptable for a few hundred verts; loadModel avoids it for
+# big meshes.
+jsnums(ex: ref Exec, v: ref Val): array of real
+{
+	if(!ES->isobj(v))
+		return nil;
+	o := v.obj;
+	n := int ES->toNumber(ex, ES->get(ex, o, "length"));
+	if(n <= 0)
+		return nil;
+	a := array[n] of real;
+	for(i := 0; i < n; i++)
+		a[i] = ES->toNumber(ex, ES->get(ex, o, string i));
+	return a;
 }
 
 # brush from a context colour property (fillStyle/strokeStyle); default black.

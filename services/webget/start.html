@@ -1,17 +1,52 @@
-<head><title>Welcome to Inferno</title></head>
-<body bgcolor=#ff5500 link=#000000>
-<font color=#ffffff>
-<br><br>
-<center>
-<table bgcolor=#000000>
-<tr>
-<td valign=middle><img src="vnlogo.gif">
-<td valign=middle><img src="inferno.gif">
-</table>
-<br><br>
-<h2>brought to you by 
-<a href="http://www.vitanuova.com">
-Vita Nuova
-</a></h2>
-</center>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Charon test fixtures</title>
+<style>
+body  { font-family: sans-serif; background: #0b0d12; color: #c8ccd6;
+        margin: 0; padding: 24px 32px; }
+h1    { color: #cda76b; margin: 0 0 4px 0; }
+.sub  { color: #6f7787; margin: 0 0 24px 0; }
+h2    { color: #8fb4e3; border-bottom: 1px solid #222; padding-bottom: 4px;
+        margin-top: 28px; }
+ul    { list-style: none; margin: 0; padding: 0; }
+li    { margin: 10px 0; }
+a     { color: #5fb0ff; text-decoration: none; font-weight: bold; }
+a:hover { text-decoration: underline; }
+.d    { color: #8b93a3; }
+code  { color: #cda76b; }
+</style>
+</head>
+<body>
+
+<h1>Charon test fixtures</h1>
+<p class="sub">tests/web &mdash; click through to a fixture, or type a URL above.</p>
+
+<h2>Canvas</h2>
+<ul>
+<li><a href="file:/tests/web/fixtures/canvas3d_teapot.html">3D canvas &mdash; spinning teapot</a>
+    <span class="d">&mdash; the Utah teapot through the $Raster3 z-buffer rasterizer (getContext('3d')), driven by setInterval.</span></li>
+<li><a href="file:/tests/web/fixtures/canvas_anim.html">2D canvas &mdash; animation</a>
+    <span class="d">&mdash; a setInterval spoke + orbiting dot; exercises the canvas-damage fast repaint path.</span></li>
+<li><a href="file:/tests/web/fixtures/canvas.html">2D canvas &mdash; static</a>
+    <span class="d">&mdash; rectangles, paths, arc, lineWidth, fillText.</span></li>
+</ul>
+
+<h2>DOM &amp; scripting</h2>
+<ul>
+<li><a href="file:/tests/web/fixtures/domlive.html">domlive</a>
+    <span class="d">&mdash; live DOM mutation from script (getElementById, textContent, setAttribute).</span></li>
+<li><a href="file:/tests/web/fixtures/domplay.html">domplay</a>
+    <span class="d">&mdash; DOM playground: append/remove nodes and re-render.</span></li>
+</ul>
+
+<h2>Conformance &amp; CSS</h2>
+<ul>
+<li><a href="file:/tests/web/fixtures/minimum-standards.html">minimum-standards</a>
+    <span class="d">&mdash; HTML5 + CSS3 + JS smoke test; each block tagged MUST / STRETCH.</span></li>
+<li><a href="file:/tests/web/fixtures/bible/index.html">bible (testbed capture)</a>
+    <span class="d">&mdash; byte-for-byte capture of the live testbed page + its stylesheets.</span></li>
+</ul>
+
 </body>
+</html>

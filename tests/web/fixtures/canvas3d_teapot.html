@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<!--
+  The Utah teapot, spinning in a Charon <canvas> 3D context.  This is the same
+  software 3D stack as wm/rayteapot: the mesh is loaded from /lib/models/teapot.obj
+  by the Objloader (Limbo, parsed once), and each frame the vertex stage +
+  z-buffered rasterization run in C ($Raster3 projectmesh/drawmesh) straight into
+  the canvas node's backing image.  setInterval drives the spin; the draw touches
+  only canvas pixels, so it takes the Ecanvasrefresh fast path (no relayout).
+
+  getContext('3d') (alias 'webgl') returns the immediate-mode 3D context:
+    clearColor(r,g,b)              background, 0..255
+    perspective(fovyDeg, near, far) projection (aspect from the canvas size)
+    lookAt(ex,ey,ez, tx,ty,tz, ux,uy,uz)  camera
+    rotate(rx,ry,rz)               model rotation (radians)
+    light(x,y,z, ambient)          directional light + ambient term
+    color(r,g,b)                   base/material colour, 0..255
+    loadModel(path)                parse a .obj in Limbo, pack it for drawModel
+    clear() / drawModel() / flush()
+-->
+<html>
+<head>
+<title>Teapot (3D canvas)</title>
+<style>
+body { font-family: sans-serif; background: #0b0d12; color: #c8ccd6; }
+h1   { color: #cda76b; }
+#c   { border: 1px solid #444; }
+</style>
+</head>
+<body onload="init()">
+
+<h1>Spinning teapot &mdash; Charon 3D &lt;canvas&gt;</h1>
+<p>The Utah teapot rendered through the $Raster3 z-buffer rasterizer, driven by
+setInterval.  The heading and buttons stay put (proof the page is not relaid out
+each frame).</p>
+
+<canvas id="c" width="400" height="300"></canvas>
+
+<form>
+<input type="button" value="start" onclick="start()">
+<input type="button" value="stop" onclick="stop()">
+</form>
+
+<script>
+var gl;
+var angle = 0;
+var timer = 0;
+var running = 0;	// separate flag: a timer id can legitimately be 0
+
+function init() {
+	gl = document.getElementById('c').getContext('3d');
+	gl.loadModel('/lib/models/teapot.obj');
+	gl.clearColor(15, 16, 22);
+	gl.perspective(45, 0.1, 100);
+	gl.lookAt(0, 0.5, 3.2,  0, 0, 0,  0, 1, 0);
+	gl.light(0.4, 0.7, 0.6, 0.32);
+	gl.color(242, 199, 107);	// warm gold (raylib teapot palette)
+	frame();			// draw the first frame immediately
+	start();
+}
+
+function frame() {
+	gl.rotate(0, angle, 0);
+	gl.clear();
+	gl.drawModel();
+	gl.flush();
+	angle = angle + 0.04;
+}
+
+function start() {
+	if (!running) {
+		timer = setInterval('frame()', 33);
+		running = 1;
+	}
+}
+
+function stop() {
+	if (running) {
+		clearInterval(timer);
+		running = 0;
+	}
+}
+</script>
+
+</body>
+</html>
