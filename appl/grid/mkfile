@@ -49,7 +49,7 @@ DISBIN=$ROOT/dis/grid
 <$ROOT/mkfiles/mksubdirs
 
 $ROOT/dis/demo/readjpg.dis:	readjpg.dis
-	rm -f $target && cp readjpg.dis $target
+	mkdir -p $ROOT/dis/demo && rm -f $target && cp readjpg.dis $target
 
 readjpg.dis:	readjpg.b $MODULE $SYS_MODULE
 	limbo $LIMBOFLAGS -c -gw readjpg.b

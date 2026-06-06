@@ -43,7 +43,7 @@ uninstall:V:
 	rm -f $INS
 
 $ROOT/dis/sh/alphabet.dis: alphabet.shmod.dis
-	rm -f $ROOT/dis/sh/alphabet.dis && cp alphabet.shmod.dis $ROOT/dis/sh/alphabet.dis
+	mkdir -p $ROOT/dis/sh && rm -f $ROOT/dis/sh/alphabet.dis && cp alphabet.shmod.dis $ROOT/dis/sh/alphabet.dis
 
 <$ROOT/mkfiles/mksubdirs
 

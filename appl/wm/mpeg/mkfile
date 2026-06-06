@@ -39,7 +39,7 @@ all:V:		mpeg.dis
 install:V:	$ROOT/dis/mpeg/mpeg.dis
 
 $ROOT/dis/mpeg/mpeg.dis:	mpeg.dis
-	rm -f $target && cp mpeg.dis $target
+	mkdir -p $ROOT/dis/mpeg && rm -f $target && cp mpeg.dis $target
 
 mpeg.dis:	$MODULES $SYS_MODULE
 

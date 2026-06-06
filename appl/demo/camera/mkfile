@@ -31,7 +31,7 @@ DISBIN=$ROOT/dis/demo/camera
 <$ROOT/mkfiles/mkdis
 
 $DISBIN/%.bit:		%.bit
-	rm -f $target && cp $stem.bit $target
+	mkdir -p $DISBIN && rm -f $target && cp $stem.bit $target
 
 SHFILES=${SHTARG:%.sh=$DISBIN/%}
 install:V:	$SHFILES
@@ -39,4 +39,4 @@ install:V:	$SHFILES
 %.installall:V:	$DISBIN/%
 
 $DISBIN/%:	%.sh
-	cp $stem.sh $target && chmod a+rx $target
+	mkdir -p `dirname $target` && cp $stem.sh $target && chmod a+rx $target

@@ -37,12 +37,14 @@ DISBIN=$ROOT/dis/svc/httpd
 install:V: 	install-logs-$SHELLTYPE
 
 install-logs-rc install-logs-nt:V:
+	mkdir -p $ROOT/services/httpd
 	for (i in $LOGS){
 		rm -f $ROOT/services/httpd/$i && cp $i $ROOT/services/httpd/$i
 	}
 	# chmod 644 $ROOT/services/httpd/httpd.log
 
 install-logs-sh:V:
+	mkdir -p $ROOT/services/httpd
 	for i in $LOGS
 	do
 		rm -f $ROOT/services/httpd/$i && cp $i $ROOT/services/httpd/$i
