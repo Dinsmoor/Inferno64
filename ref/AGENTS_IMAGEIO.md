@@ -11,9 +11,10 @@ There is also a pure-Limbo decoder family (`RImagefile`: `appl/lib/readpng.b`,
 targets the legacy 8-bit CMAP8 cube. `$Imageio` gives you true-colour RGBA in
 one call and is the path the 3D texture work uses.
 
-See also: [AGENTS_3D.md](AGENTS_3D.md) (`$Raster3` textures consume these
-images), [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md) (Draw channels),
-[AGENTS_LIMBO.md](AGENTS_LIMBO.md) (reserved words).
+See also: [AGENTS_STB.md](AGENTS_STB.md) (the full vendored stb suite — what else
+is available and where it's useful), [AGENTS_3D.md](AGENTS_3D.md) (`$Raster3`
+textures consume these images), [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md) (Draw
+channels), [AGENTS_LIMBO.md](AGENTS_LIMBO.md) (reserved words).
 
 ---
 
