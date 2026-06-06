@@ -285,7 +285,7 @@ Resolution order inside `dns.b` (the important part for hosted Inferno):
 > **LP64 note:** the `$Srv` builtin path was historically broken on 64-bit by a
 > stale, 32-bit-ABI `emu/Linux/srv.h`/`srvm.h` (wrong frame offsets → a truncated
 > `String*` argument → wild-address fault in `Srv_iph2a`, observed as a "DNS
-> hang"). Fixed by regenerating those headers per-ABI; see AGENTS_INPRO.md.
+> hang"). Fixed by regenerating those headers per-ABI; see AGENTS_DUALABI.md.
 
 `webgrab` (an HTTP `curl` substitute, below) and `dial` of any `net!host!svc`
 both depend on this path via `cs`.

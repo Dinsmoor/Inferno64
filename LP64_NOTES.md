@@ -3,8 +3,9 @@
 This is the narrative companion to the per-subsystem `AGENTS_*.md` files: how the
 LP64 port of Inferno's `emu` (the Dis virtual machine + Limbo runtime) actually
 came together, the bug families that recurred, the methodology that worked, and
-what is left. If you are picking this up cold, read `AGENTS_INPRO.md` first for
-the authoritative status; this file is the story and the lessons.
+what is left. If you are picking this up cold, read `AGENTS_DUALABI.md` first for
+the authoritative status (and `AGENTS_INPRO.md` for the live checklist of what is
+active right now); this file is the story and the lessons.
 
 ## What "LP64 port" means here
 
@@ -41,7 +42,7 @@ indexed-element address node type (the `Oindex`→`Oindx` rewrite). The endpoint
 a full interactive `sh` — pipes, redirection, globbing, `ps`, env vars, control
 flow, dynamic builtin load — with no known CLI crashes.
 
-The subtle lesson from this phase (documented at length in `AGENTS_INPRO.md`):
+The subtle lesson from this phase (documented at length in `AGENTS_DUALABI.md`):
 **not every `tint`/32-bit temp is a bug.** A `tint` node is only wrong when its
 own type drives a move width *and* it holds a materialised 8-byte address. Those
 are exactly the `Oindx` element-address nodes; intermediates for explicitly-typed

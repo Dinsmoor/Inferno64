@@ -463,7 +463,7 @@ size or the emitted code moves the wrong number of bytes — the truncation
 class. `genmove` (both `limbo/gen.c` and `appl/cmd/limbo/gen.b`) asserts
 `movewidth(op) == mt->size`, a compile-time guard against type/optab/size
 drift. (`tptr = IBY2PTR==IBY2LG ? tbig : tint` is what keeps pointer temps in
-step across both ABIs — see `ref/AGENTS_INPRO.md`.)
+step across both ABIs — see `ref/AGENTS_DUALABI.md`.)
 
 ### GC pointer-map vs layout (libinterp, #4c/#4d)
 

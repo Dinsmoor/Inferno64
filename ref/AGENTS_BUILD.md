@@ -189,7 +189,7 @@ desktop (`wm/wm`) is live and you don't want to disturb it:
 
 > Generated, ABI-specific headers (`emu/Linux/srv.h`/`srvm.h`, `libinterp`'s
 > `runt.h`/`*mod.h`) are removed on `clean`/`nuke` so a full `make` always
-> regenerates them with the current-ABI `limbo`. See AGENTS_INPRO.md for why this
+> regenerates them with the current-ABI `limbo`. See AGENTS_DUALABI.md for why this
 > matters across a 32↔64-bit switch.
 
 ## mk Syntax vs make
