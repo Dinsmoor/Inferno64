@@ -544,7 +544,7 @@ Pdrive: adt {
 	toks:		array of ref Token;	# current token window
 	toki:		int;			# cursor into toks
 	tokslen:	int;			# len toks (cached)
-	brkloop:	int;			# set to request 'break TokLoop'
+	brkloop:	int;			# set to request break out of the token loop
 };
 
 ItemSource.getitems(is: self ref ItemSource) : ref Item
@@ -560,7 +560,6 @@ ItemSource.getitems(is: self ref ItemSource) : ref Item
 	toki := 0;
 	di := is.doc;
 	pd := ref Pdrive(ps, psstk, curtab, toks, toki, tokslen, 0);
-TokLoop:
 	for(;; toki++) {
 		if(toki >= tokslen) {
 			outerps := lastps(psstk);
@@ -678,7 +677,7 @@ TokLoop:
 # semantics can be driven by either the streaming token loop or (Phase 2)
 # the DOM node visitor.  Loop-local state the arms reassign (ps/psstk/curtab
 # and the token cursor toks/toki/tokslen) lives in the Pdrive carrier; the
-# caller syncs its locals around the call.  pd.brkloop signals 'break TokLoop'.
+# caller syncs its locals around the call.  pd.brkloop breaks out of the token loop.
 tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token, tag: int)
 {
 	case tag {

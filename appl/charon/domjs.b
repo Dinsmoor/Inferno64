@@ -8,6 +8,7 @@ implement Domjs;
 
 include "sys.m";
 include "draw.m";
+include "math.m";
 include "ecmascript.m";
 include "dom.m";
 include "domjs.m";
@@ -15,6 +16,7 @@ include "domjs.m";
 sys: Sys;
 draw: Draw;
 	Image, Display, Font, Rect, Point: import draw;
+math: Math;
 ES: Ecmascript;
 	Exec, Obj, Val, Ref, Builtin: import ES;
 dom: Dom;
@@ -29,10 +31,16 @@ reflowfn: ref fn();			# called after a script mutation (may be nil)
 
 CFILL, CCLEAR, CSTROKE: con iota;	# canvas rectangle op modes
 
+# Current path, accumulated by beginPath/moveTo/lineTo/arc and consumed by
+# stroke/fill.  JS is single-threaded, so one global path serves all contexts.
+pathx, pathy, pathsub: array of int;	# point coords + 1==starts a new subpath
+pathn: int;
+
 init(es: Ecmascript)
 {
 	sys = load Sys Sys->PATH;
 	draw = load Draw Draw->PATH;		# for canvas 2D ops (image/display methods)
+	math = load Math Math->PATH;		# sin/cos for canvas arc()
 	ES = es;				# share the caller's initialised engine
 	dom = load Dom Dom->PATH;
 	if(dom != nil)
@@ -116,6 +124,13 @@ mkprotos(ex: ref Exec)
 	instm(ex, ctxproto, "Domctx", "clearRect", array[] of {"x", "y", "w", "h"});
 	instm(ex, ctxproto, "Domctx", "strokeRect", array[] of {"x", "y", "w", "h"});
 	instm(ex, ctxproto, "Domctx", "fillText", array[] of {"text", "x", "y"});
+	instm(ex, ctxproto, "Domctx", "beginPath", array[0] of string);
+	instm(ex, ctxproto, "Domctx", "closePath", array[0] of string);
+	instm(ex, ctxproto, "Domctx", "moveTo", array[] of {"x", "y"});
+	instm(ex, ctxproto, "Domctx", "lineTo", array[] of {"x", "y"});
+	instm(ex, ctxproto, "Domctx", "arc", array[] of {"x", "y", "r", "a0", "a1", "ccw"});
+	instm(ex, ctxproto, "Domctx", "stroke", array[0] of string);
+	instm(ex, ctxproto, "Domctx", "fill", array[0] of string);
 }
 
 instm(ex: ref Exec, proto: ref Obj, class, name: string, args: array of string)
@@ -291,6 +306,20 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 		ctxrect(ex, this, args, CSTROKE);
 	"Domctx.prototype.fillText" =>
 		ctxtext(ex, this, argstr(ex, args, 0), argnum(ex, args, 1), argnum(ex, args, 2));
+	"Domctx.prototype.beginPath" =>
+		pathn = 0;
+	"Domctx.prototype.closePath" =>
+		pathclose();
+	"Domctx.prototype.moveTo" =>
+		pathadd(argnum(ex, args, 0), argnum(ex, args, 1), 1);
+	"Domctx.prototype.lineTo" =>
+		pathadd(argnum(ex, args, 0), argnum(ex, args, 1), 0);
+	"Domctx.prototype.arc" =>
+		ctxarc(ex, args);
+	"Domctx.prototype.stroke" =>
+		ctxstroke(ex, this);
+	"Domctx.prototype.fill" =>
+		ctxfill(ex, this);
 	}
 	return ES->valref(v);
 }
@@ -445,10 +474,11 @@ ctxrect(ex: ref Exec, ctxo: ref Obj, args: array of ref Val, mode: int)
 		cim.draw(r, disp.white, nil, zp);
 	CSTROKE =>
 		b := colorbrush(ex, disp, ctxo, "strokeStyle");
-		cim.draw(Rect(r.min, Point(r.max.x, r.min.y+1)), b, nil, zp);
-		cim.draw(Rect(Point(r.min.x, r.max.y-1), r.max), b, nil, zp);
-		cim.draw(Rect(r.min, Point(r.min.x+1, r.max.y)), b, nil, zp);
-		cim.draw(Rect(Point(r.max.x-1, r.min.y), r.max), b, nil, zp);
+		lw := linewidth(ex, ctxo);
+		cim.draw(Rect(r.min, Point(r.max.x, r.min.y+lw)), b, nil, zp);
+		cim.draw(Rect(Point(r.min.x, r.max.y-lw), r.max), b, nil, zp);
+		cim.draw(Rect(r.min, Point(r.min.x+lw, r.max.y)), b, nil, zp);
+		cim.draw(Rect(Point(r.max.x-lw, r.min.y), r.max), b, nil, zp);
 	* =>
 		cim.draw(r, colorbrush(ex, disp, ctxo, "fillStyle"), nil, zp);
 	}
@@ -467,6 +497,150 @@ ctxtext(ex: ref Exec, ctxo: ref Obj, text: string, x, y: int)
 	# canvas fillText y is the baseline; Draw text() y is the glyph top
 	cim.text(Point(x, y - font.ascent), colorbrush(ex, disp, ctxo, "fillStyle"),
 		Point(0, 0), font, text);
+	mutated();
+}
+
+argreal(ex: ref Exec, args: array of ref Val, i: int): real
+{
+	if(i < len args && args[i] != nil)
+		return ES->toNumber(ex, args[i]);
+	return 0.0;
+}
+
+# lineWidth as a Draw rectangle/poll thickness (>=1 pixel).
+linewidth(ex: ref Exec, ctxo: ref Obj): int
+{
+	lw := ES->toInt32(ex, ES->get(ex, ctxo, "lineWidth"));
+	if(lw < 1)
+		return 1;
+	return lw;
+}
+
+# ---- path building (beginPath/moveTo/lineTo/arc/closePath) --------------
+
+pathadd(x, y, sub: int)
+{
+	if(pathx == nil || pathn >= len pathx){
+		nn := 32;
+		if(pathx != nil)
+			nn = len pathx * 2;
+		nx := array[nn] of int;
+		ny := array[nn] of int;
+		ns := array[nn] of int;
+		for(i := 0; i < pathn; i++){
+			nx[i] = pathx[i];
+			ny[i] = pathy[i];
+			ns[i] = pathsub[i];
+		}
+		pathx = nx; pathy = ny; pathsub = ns;
+	}
+	if(pathn == 0)			# the first point always opens a subpath
+		sub = 1;
+	pathx[pathn] = x;
+	pathy[pathn] = y;
+	pathsub[pathn] = sub;
+	pathn++;
+}
+
+# close the current subpath by drawing back to its first point.
+pathclose()
+{
+	if(pathn == 0)
+		return;
+	s := pathn - 1;
+	while(s > 0 && pathsub[s] == 0)
+		s--;
+	pathadd(pathx[s], pathy[s], 0);
+}
+
+# append an arc to the path as line segments (canvas connects from the
+# current point, so the first segment point is a lineTo).
+ctxarc(ex: ref Exec, args: array of ref Val)
+{
+	if(math == nil)
+		return;
+	cx := argreal(ex, args, 0);
+	cy := argreal(ex, args, 1);
+	r := argreal(ex, args, 2);
+	a0 := argreal(ex, args, 3);
+	a1 := argreal(ex, args, 4);
+	ccw := argnum(ex, args, 5);
+	if(r <= 0.0)
+		return;
+	# sweep from a0 to a1 in the requested direction
+	if(ccw){
+		while(a1 > a0)
+			a1 -= 2.0 * Math->Pi;
+	}else{
+		while(a1 < a0)
+			a1 += 2.0 * Math->Pi;
+	}
+	sweep := a1 - a0;			# signed; a1 normalized by direction above
+	mag := sweep;
+	if(mag < 0.0)
+		mag = -mag;
+	nseg := int(mag * r / 3.0) + 1;		# ~3px chords
+	if(nseg < 2)
+		nseg = 2;
+	if(nseg > 720)
+		nseg = 720;
+	for(i := 0; i <= nseg; i++){
+		t := a0 + sweep * (real i / real nseg);
+		x := cx + r * math->cos(t);
+		y := cy + r * math->sin(t);
+		pathadd(int(x + 0.5), int(y + 0.5), 0);
+	}
+}
+
+# walk subpaths; for each, draw its polyline with the stroke brush.
+ctxstroke(ex: ref Exec, ctxo: ref Obj)
+{
+	cim := canvasimof(ex, ctxo);
+	if(cim == nil || pathn < 2)
+		return;
+	disp := cim.display;
+	b := colorbrush(ex, disp, ctxo, "strokeStyle");
+	rad := (linewidth(ex, ctxo) - 1) / 2;
+	zp := Point(0, 0);
+	i := 0;
+	while(i < pathn){
+		j := i + 1;
+		while(j < pathn && pathsub[j] == 0)
+			j++;
+		n := j - i;
+		if(n >= 2){
+			pts := array[n] of Point;
+			for(k := 0; k < n; k++)
+				pts[k] = Point(pathx[i+k], pathy[i+k]);
+			cim.poly(pts, Draw->Endsquare, Draw->Endsquare, rad, b, zp);
+		}
+		i = j;
+	}
+	mutated();
+}
+
+ctxfill(ex: ref Exec, ctxo: ref Obj)
+{
+	cim := canvasimof(ex, ctxo);
+	if(cim == nil || pathn < 3)
+		return;
+	disp := cim.display;
+	b := colorbrush(ex, disp, ctxo, "fillStyle");
+	zp := Point(0, 0);
+	i := 0;
+	while(i < pathn){
+		j := i + 1;
+		while(j < pathn && pathsub[j] == 0)
+			j++;
+		n := j - i;
+		if(n >= 3){
+			pts := array[n] of Point;
+			for(k := 0; k < n; k++)
+				pts[k] = Point(pathx[i+k], pathy[i+k]);
+			cim.fillpoly(pts, ~0, b, zp);	# nonzero winding
+		}
+		i = j;
+	}
 	mutated();
 }
 

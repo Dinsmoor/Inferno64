@@ -37,8 +37,35 @@ function draw() {
 	ctx.fillRect(90, 70, 150, 90);
 	ctx.fillStyle = 'orange';
 	ctx.fillRect(150, 30, 60, 60);
+
+	// filled triangle via a path
+	ctx.fillStyle = 'purple';
+	ctx.beginPath();
+	ctx.moveTo(240, 20);
+	ctx.lineTo(300, 20);
+	ctx.lineTo(270, 75);
+	ctx.closePath();
+	ctx.fill();
+
+	// filled circle via arc
+	ctx.fillStyle = 'yellow';
+	ctx.beginPath();
+	ctx.arc(60, 130, 28, 0, 6.2832);
+	ctx.fill();
+
+	// thick stroked zig-zag polyline
+	ctx.strokeStyle = 'green';
+	ctx.lineWidth = 4;
+	ctx.beginPath();
+	ctx.moveTo(120, 150);
+	ctx.lineTo(160, 110);
+	ctx.lineTo(200, 150);
+	ctx.lineTo(240, 110);
+	ctx.stroke();
+
 	ctx.fillStyle = 'black';
-	ctx.fillText('Hello, canvas!', 30, 150);
+	ctx.lineWidth = 1;
+	ctx.fillText('Hello, canvas!', 30, 172);
 	ctx.strokeStyle = 'green';
 	ctx.strokeRect(5, 5, 310, 170);
 }
