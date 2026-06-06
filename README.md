@@ -127,6 +127,12 @@ On an x86-64 host the binary lives at `./Linux/amd64/bin/emu` instead. For a
 headless box, run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server)
 and point `DISPLAY` at it before launching `wm/wm`.
 
+**To shut emu down, type `^\` (Ctrl-\\) at the console it was launched from** —
+that is the hard-kill escape hatch (emu reminds you of it in a line it prints on
+startup). `^C` is *not* a host kill: emu runs the terminal in raw mode and passes
+`^C` through to Inferno as a normal byte (so a shell/line-editor inside emu can
+use it to cancel an input line).
+
 When you are chasing one of the heap-corruption bugs, launch emu with the
 crash/observability env vars instead — see the collapsible section at the top of
 this file.

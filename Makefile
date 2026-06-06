@@ -32,6 +32,12 @@ CONF    := emu
 MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE)
 EMUARGS := $(MKARGS) CONF=$(CONF)
 
+# Parallel compiles: mk runs up to $NPROC jobs concurrently within each
+# directory. Default to half the host CPUs (floor, min 1) to leave headroom;
+# override with `make NPROC=8 all`.
+NPROC   ?= $(shell n=$$(nproc 2>/dev/null || echo 1); h=$$((n/2)); [ $$h -ge 1 ] && echo $$h || echo 1)
+
+export NPROC
 export PATH := $(ROOT)/$(OBJDIR)/bin:$(PATH)
 export ROOT
 
