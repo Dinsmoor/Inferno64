@@ -97,6 +97,28 @@ real, debugged crash class.
 
 See [`INSTALL`](INSTALL) for prerequisites, the amd64 notes, and the full details.
 
+## Running
+
+Launch the hosted emulator straight out of the build tree. `-r"$PWD"` makes the
+repo root the Inferno root, and the final argument is the first Dis program to
+run:
+
+```sh
+# graphical desktop (needs an X display; pick a window size)
+./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
+
+# just a shell, no GUI
+./Linux/aarch64/bin/emu -r"$PWD" /dis/sh.dis
+```
+
+On an x86-64 host the binary lives at `./Linux/amd64/bin/emu` instead. For a
+headless box, run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server)
+and point `DISPLAY` at it before launching `wm/wm`.
+
+When you are chasing one of the heap-corruption bugs, launch emu with the
+crash/observability env vars instead — see the collapsible section at the top of
+this file.
+
 ## Are you going to try to push your changes to the upstream repository?
 
 No, I am doing my own thing, but if they want to talk to me then that's fine.
