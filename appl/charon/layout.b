@@ -630,6 +630,12 @@ domrender(f: ref Frame, html: string): int
 		return 0;
 	bs := CU->stringreq(html);
 	layout(f, bs, 0);
+	# layout()/havenewdoc set sw.inbuild=1; framedone clears it and re-syncs the
+	# script-side form/field objects so event handlers keep firing after the
+	# re-render.  It does NOT fire onload or run scripts (that is charon's job on
+	# a real load, and the serialized HTML carries no <script>), so no loop.
+	if(J != nil)
+		J->framedone(f, f.doc.hasscripts);
 	G->flush(f.r);
 	return 1;
 }

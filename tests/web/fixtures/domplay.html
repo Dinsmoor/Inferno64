@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!--
+  Interactive DOM playground.  Every button's onclick mutates the retained DOM
+  via the JS DOM API; Charon then re-renders the frame from the mutated tree.
+  State lives in the DOM (e.g. the counter's text), not JS variables, because a
+  re-render resets the script context -- the DOM is the source of truth.
+
+  Click the buttons and watch the page change.  ES3-level JS (the vintage
+  engine): var/function, string<->number via "- 0" / "'' +", no let/const.
+-->
+<html>
+<head>
+<title>DOM playground</title>
+<style>
+body  { font-family: sans-serif; }
+h1    { color: #1b3a5b; }
+.hot  { color: #c00; font-weight: bold; }
+#count { font-size: 1.6em; font-weight: bold; }
+#msg  { padding: 4px; }
+ul    { background: #f0f0f0; }
+</style>
+</head>
+<body bgcolor="#ffffff">
+
+<h1 id="title">DOM playground</h1>
+<p>Each button changes the DOM with JavaScript and Charon re-renders from it.</p>
+
+<p>Counter: <span id="count">0</span></p>
+<form>
+<input type="button" value=" +1 "
+  onclick="var c = document.getElementById('count'); c.textContent = '' + (c.textContent - 0 + 1);">
+<input type="button" value=" -1 "
+  onclick="var c = document.getElementById('count'); c.textContent = '' + (c.textContent - 0 - 1);">
+<input type="button" value="reset"
+  onclick="document.getElementById('count').textContent = '0';">
+</form>
+
+<p id="msg">message: (none)</p>
+<form>
+<input type="button" value="toggle message"
+  onclick="var m = document.getElementById('msg'); if (m.textContent == 'message: ON') { m.textContent = 'message: OFF'; } else { m.textContent = 'message: ON'; }">
+<input type="button" value="highlight title"
+  onclick="document.getElementById('title').setAttribute('class', 'hot');">
+<input type="button" value="clear highlight"
+  onclick="document.getElementById('title').setAttribute('class', '');">
+</form>
+
+<p>List (createElement + appendChild):</p>
+<ul id="list"><li>item 0</li></ul>
+<form>
+<input type="button" value="add item"
+  onclick="var l = document.getElementById('list'); var li = document.createElement('li'); li.textContent = 'item ' + l.getElementsByTagName('li').length; l.appendChild(li);">
+</form>
+
+</body>
+</html>

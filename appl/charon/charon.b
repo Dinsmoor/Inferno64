@@ -797,8 +797,12 @@ settext(g : ref GoSpec, f : ref Frame, text : string) : string
 	history.add(f, g, GoNormal);
 	resetkeyfocus(f);
 	L->layout(f, bs, 0);
-	if (J != nil)
+	if (J != nil) {
 		J->framedone(f, f.doc.hasscripts);
+		dh := J->domdirtyhtml(f);	# inline scripts mutated the DOM -> repaint from it
+		if (dh != "")
+			L->domrender(f, dh);
+	}
 	history.update(f);
 	error := "";
 	if(f.kids != nil) {
@@ -944,8 +948,12 @@ get(g: ref GoSpec, f: ref Frame, origkind: int, hn: ref HistNode) : string
 		history.add(f, g, origkind);
 		resetkeyfocus(f);
 		srcdata := L->layout(f, bsmain, origkind == GoLink);
-		if (J != nil)
+		if (J != nil) {
 			J->framedone(f, f.doc.hasscripts);
+			dh := J->domdirtyhtml(f);	# inline scripts mutated the DOM -> repaint from it
+			if (dh != "")
+				L->domrender(f, dh);
+		}
 		history.update(f);
 		if(dbgres > 1) {
 			newres = ResourceState.cur();

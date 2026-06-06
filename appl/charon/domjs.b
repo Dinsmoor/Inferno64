@@ -102,6 +102,7 @@ mkprotos(ex: ref Exec)
 	instm(ex, elemproto, "Domelem", "setAttribute", array[] of {"name", "value"});
 	instm(ex, elemproto, "Domelem", "appendChild", array[] of {"child"});
 	instm(ex, elemproto, "Domelem", "removeChild", array[] of {"child"});
+	instm(ex, elemproto, "Domelem", "getElementsByTagName", array[] of {"tag"});
 }
 
 instm(ex: ref Exec, proto: ref Obj, class, name: string, args: array of string)
@@ -236,6 +237,8 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 		v = nodelist(ex, nodeof(ex, this), tolower(argstr(ex, args, 0)));
 	"Domdoc.prototype.createElement" =>
 		v = domval(ex, dom->newelem(tolower(argstr(ex, args, 0)), nil));
+	"Domelem.prototype.getElementsByTagName" =>
+		v = nodelist(ex, nodeof(ex, this), tolower(argstr(ex, args, 0)));
 	"Domelem.prototype.getAttribute" =>
 		n := nodeof(ex, this);
 		if(n != nil)

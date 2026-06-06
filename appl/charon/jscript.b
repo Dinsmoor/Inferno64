@@ -41,6 +41,7 @@ JScript: module
 	havenewdoc: fn(f: ref Layout->Frame);
 	evalscript: fn(f: ref Layout->Frame, s: string) : (string, string, string);
 	framedone: fn(f : ref Layout->Frame, hasscripts : int);
+	domdirtyhtml: fn(f: ref Layout->Frame): string;
 
 	#
 	# implement the host object interface, too
@@ -1220,6 +1221,17 @@ checkopener()
 domreflow()
 {
 	domdirty = 1;
+}
+
+# Called by charon after a page load: if inline scripts mutated the DOM during
+# the build, hand back the serialized tree so charon can re-render from it (the
+# initial item-based render does not reflect script mutations).  Clears the flag.
+domdirtyhtml(f: ref Frame): string
+{
+	if(!domdirty || DJ == nil || f == nil || f.doc == nil || f.doc.domroot == nil)
+		return "";
+	domdirty = 0;
+	return DJ->serialize(f.doc.domroot);
 }
 
 do_on(e: ref ScriptEvent)

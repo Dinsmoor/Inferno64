@@ -87,6 +87,8 @@ init(nil: ref Draw->Context, nil: list of string)
 		"R = document.getElementsByTagName('p').length", "1");
 	chk("documentElement tagName",
 		"R = document.documentElement.tagName", "HTML");
+	chk("element.getElementsByTagName",
+		"R = document.getElementById('main').getElementsByTagName('p').length", "1");
 
 	# --- createElement (detached) ------------------------------------------
 	chk("createElement tagName",
