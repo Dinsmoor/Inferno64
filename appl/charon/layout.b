@@ -624,20 +624,68 @@ reflow(f: ref Frame) : int
 # no <script> (the serializer strips it), and we skip framedone/onload and
 # history.  That keeps a script-driven mutation->repaint from re-firing event
 # handlers (which would loop).  Called on the main proc via Event.Edomrefresh.
-domrender(f: ref Frame, html: string): int
+domrender(f: ref Frame, root: ref Dom->Node): int
 {
-	if(f == nil || html == "")
+	if(f == nil || root == nil)
 		return 0;
-	bs := CU->stringreq(html);
-	layout(f, bs, 0);
-	# layout()/havenewdoc set sw.inbuild=1; framedone clears it and re-syncs the
+	domlayout(f, root);
+	# havenewdoc set sw.inbuild=1; framedone clears it and re-syncs the
 	# script-side form/field objects so event handlers keep firing after the
-	# re-render.  It does NOT fire onload or run scripts (that is charon's job on
-	# a real load, and the serialized HTML carries no <script>), so no loop.
+	# re-render.  It does NOT fire onload or run scripts (scripts already ran and
+	# the DOM walk skips <script>), so no mutation->refresh loop.
 	if(J != nil)
 		J->framedone(f, f.doc.hasscripts);
 	G->flush(f.r);
 	return 1;
+}
+
+# Re-lay-out a frame directly from its retained DOM tree (no HTML round-trip).
+# Mirrors layout()'s frame/Docinfo/Lay setup, but sources display items from
+# the node walk (ItemSource.domitems) and reuses the already-loaded CSS engine.
+# The new Docinfo keeps pointing at the same live tree so JS can keep mutating.
+domlayout(f: ref Frame, root: ref Dom->Node)
+{
+	olddoc := f.doc;
+	di := Docinfo.new();
+	di.domroot = root;
+	if(olddoc != nil) {
+		di.src = olddoc.src;
+		di.base = olddoc.base;
+		di.target = olddoc.target;
+		di.chset = olddoc.chset;
+		di.scripttype = olddoc.scripttype;
+		di.refresh = olddoc.refresh;
+		di.lastModified = olddoc.lastModified;
+	}
+	f.reset();
+	f.doc = di;
+	di.frameid = f.id;
+	if(J != nil)
+		J->havenewdoc(f);
+	oclipr := f.cim.clipr;
+	f.cim.clipr = f.cr;
+	if(f.framebd != 0) {
+		f.cr = f.r.inset(2);
+		drawborder(f.cim, f.cr, 2, DarkGrey);
+	}
+	fillbg(f, f.cr);
+	G->flush(f.cr);
+	f.cim.clipr = oclipr;
+	if(f.flags&FRvscroll)
+		createvscroll(f);
+	if(f.flags&FRhscroll)
+		createhscroll(f);
+	l := Lay.new(f.cr.dx(), Aleft, f.marginw, di.background);
+	f.layout = l;
+	itsrc := ItemSource.newdom(f);
+	itl := itsrc.domitems(root);
+	l.background = di.background;
+	if(itl != nil) {
+		appenditems(f, l, itl);
+		fixframegeom(f);
+		f.dirty(f.totalr);
+		drawall(f);
+	}
 }
 
 # The items its within f are Iimage items,
