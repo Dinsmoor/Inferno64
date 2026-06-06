@@ -31,7 +31,7 @@ install:V:	$DISBIN/dmview.dis $DISBIN/dmwm.dis $DISLIB/drawmux.dis
 nuke:V:	nuke-lib
 
 nuke-lib:V:
-	cd $DISLIB; rm -f $LIBTARG
+	rm -f ${LIBTARG:%=$DISLIB/%}
 
 $DISLIB/%.dis:	%.dis
-	rm -f $DISLIB/$stem.dis && cp $stem.dis $DISLIB/$stem.dis
+	mkdir -p $DISLIB && rm -f $DISLIB/$stem.dis && cp $stem.dis $DISLIB/$stem.dis

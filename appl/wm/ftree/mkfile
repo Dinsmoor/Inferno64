@@ -26,11 +26,11 @@ DISBIN=$ROOT/dis/lib/ftree
 all:V:	ftree.dis $TARG
 
 $ROOT/dis/wm/ftree.dis:	ftree.dis
-	rm -f $ROOT/dis/wm/ftree.dis && cp ftree.dis $ROOT/dis/wm/ftree.dis
+	mkdir -p $ROOT/dis/wm && rm -f $ROOT/dis/wm/ftree.dis && cp ftree.dis $ROOT/dis/wm/ftree.dis
 
 <$ROOT/mkfiles/mkdis
 
 install:V:	$ROOT/dis/wm/ftree.dis
 
 nuke:V:	nuke-std
-	cd $ROOT/dis/wm; rm -f ftree.dis
+	rm -f $ROOT/dis/wm/ftree.dis

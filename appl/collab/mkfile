@@ -46,7 +46,7 @@ install:V: ${SERVERS:%=$DEST/%} \
 	${MAIN:%=$DEST/%}
 
 $DEST/%.dis:	%.dis
-	cp $stem.dis $target
+	mkdir -p `dirname $target` && cp $stem.dis $target
 
 %.dis:		$MODULES ${SYSMODULES:%=$ROOT/module/%}
 
@@ -59,4 +59,4 @@ clean:NV:
 	rm -f *.dis *.sbl */*.dis */*.sbl
 
 nuke:NV: clean
-	cd $DEST && rm -f $ALL
+	rm -f ${ALL:%=$DEST/%}
