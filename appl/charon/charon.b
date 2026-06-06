@@ -348,11 +348,11 @@ Forloop:
 			if (f != nil)
 				g = ref GoSpec (GoSettext, e.url, 0, e.text, f.name, "", nil);
 		Edomrefresh =>
-			# script mutated the DOM: repaint from the serialized tree, with no
+			# script mutated the DOM: repaint by walking the live tree, with no
 			# script execution (see L->domrender).  Not a navigation, so g stays nil.
 			f := findframe(top, e.frameid);
-			if (f != nil)
-				L->domrender(f, e.text);
+			if (f != nil && f.doc != nil && f.doc.domroot != nil)
+				L->domrender(f, f.doc.domroot);
 			g = nil;
 		Elostfocus =>
 			setfocus(nil);
@@ -799,9 +799,8 @@ settext(g : ref GoSpec, f : ref Frame, text : string) : string
 	L->layout(f, bs, 0);
 	if (J != nil) {
 		J->framedone(f, f.doc.hasscripts);
-		dh := J->domdirtyhtml(f);	# inline scripts mutated the DOM -> repaint from it
-		if (dh != "")
-			L->domrender(f, dh);
+		if (J->domdirtied(f) && f.doc != nil && f.doc.domroot != nil)
+			L->domrender(f, f.doc.domroot);	# inline scripts mutated the DOM -> repaint from it
 	}
 	history.update(f);
 	error := "";
@@ -950,9 +949,8 @@ get(g: ref GoSpec, f: ref Frame, origkind: int, hn: ref HistNode) : string
 		srcdata := L->layout(f, bsmain, origkind == GoLink);
 		if (J != nil) {
 			J->framedone(f, f.doc.hasscripts);
-			dh := J->domdirtyhtml(f);	# inline scripts mutated the DOM -> repaint from it
-			if (dh != "")
-				L->domrender(f, dh);
+			if (J->domdirtied(f) && f.doc != nil && f.doc.domroot != nil)
+				L->domrender(f, f.doc.domroot);	# inline scripts mutated the DOM -> repaint from it
 		}
 		history.update(f);
 		if(dbgres > 1) {

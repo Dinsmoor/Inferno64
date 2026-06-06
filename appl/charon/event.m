@@ -46,8 +46,7 @@ Events: module {
 				url: ref Url->Parsedurl;
 				text: string;
 			Edomrefresh =>			# re-render a frame from its mutated DOM (no scripts)
-				frameid: int;
-				text: string;		# serialized DOM HTML
+				frameid: int;		# the live DOM is read from the frame (f.doc.domroot)
 			Elostfocus =>			# main window has lost keyboard focus
 				dummy: int;
 			Edismisspopup =>		# popup window has been dismissed by gui

@@ -41,7 +41,7 @@ JScript: module
 	havenewdoc: fn(f: ref Layout->Frame);
 	evalscript: fn(f: ref Layout->Frame, s: string) : (string, string, string);
 	framedone: fn(f : ref Layout->Frame, hasscripts : int);
-	domdirtyhtml: fn(f: ref Layout->Frame): string;
+	domdirtied: fn(f: ref Layout->Frame): int;
 
 	#
 	# implement the host object interface, too
@@ -1223,15 +1223,15 @@ domreflow()
 	domdirty = 1;
 }
 
-# Called by charon after a page load: if inline scripts mutated the DOM during
-# the build, hand back the serialized tree so charon can re-render from it (the
-# initial item-based render does not reflect script mutations).  Clears the flag.
-domdirtyhtml(f: ref Frame): string
+# Called by charon after a page load: reports whether inline scripts mutated the
+# DOM during the build, so charon can re-render the frame from its (live) tree.
+# Clears the flag.
+domdirtied(f: ref Frame): int
 {
 	if(!domdirty || DJ == nil || f == nil || f.doc == nil || f.doc.domroot == nil)
-		return "";
+		return 0;
 	domdirty = 0;
-	return DJ->serialize(f.doc.domroot);
+	return 1;
 }
 
 do_on(e: ref ScriptEvent)
@@ -1416,7 +1416,7 @@ do_on(e: ref ScriptEvent)
 	# tree.  The serialized HTML omits <script> and this Esettext path does not
 	# call framedone, so scripts are not re-run (no mutation->refresh loop).
 	if(domdirty && DJ != nil && f != nil && f.doc != nil && f.doc.domroot != nil){
-		E->evchan <-= ref Event.Edomrefresh(f.id, DJ->serialize(f.doc.domroot));
+		E->evchan <-= ref Event.Edomrefresh(f.id);
 		domdirty = 0;
 	}
 	jevchan <-= ref doneevent;

@@ -516,6 +516,9 @@ ItemSource: adt
 
 	new: fn(bs: ref CharonUtils->ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemSource;
 	getitems: fn(is: self ref ItemSource) : ref Item;
+	# re-layout from the retained DOM tree (no re-parse); see domitems/domvisit
+	newdom: fn(f: ref Layout->Frame) : ref ItemSource;
+	domitems: fn(is: self ref ItemSource, root: ref Dom->Node) : ref Item;
 };
 
 init: fn(cu: CharonUtils);

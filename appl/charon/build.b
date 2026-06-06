@@ -13,12 +13,12 @@ S: String;
 T: StringIntTab;
 C: Ctype;
 LX: Lex;
-	RBRA, Token, TokenSource: import LX;
+	RBRA, Token, TokenSource, Attr: import LX;
 U: Url;
 	Parsedurl: import U;
 J: Script;
 dom: Dom;
-	Builder: import dom;	# Dom->Builder, for Builder.new()
+	Builder, Node: import dom;	# Dom->Builder for Builder.new(); Node for n.text()
 
 # CSS engine: W3C CSS2.1 parser (css.m) + Charon cascade (csseng.m)
 include "css.m";
@@ -337,6 +337,188 @@ htmltodom(lx: Lex, toks: list of ref Token): ref Dom->Node
 }
 
 #############################################################################
+# Per-token preamble + the DOM node visitor.
+#
+# predispatch()/steptext() are the block-break / CSS-cascade / text bookkeeping
+# the streaming token loop does around tagdispatch; factoring them lets the DOM
+# walker (domvisit) reproduce a parse exactly without re-serializing to HTML.
+#############################################################################
+
+# block-break bookkeeping + CSS enter/exit for one token (start or end tag).
+predispatch(ps: ref Pstate, tok: ref Token, tag: int)
+{
+	brk := byte 0;
+	brksp := 0;
+	if(tag < LX->Numtags) {
+		brk = blockbrk[tag];
+		if((brk&SPBefore) != byte 0)
+			brksp = 1;
+	}
+	else if(tag < LX->Numtags+RBRA) {
+		brk = blockbrk[tag-RBRA];
+		if((brk&SPAfter) != byte 0)
+			brksp = 1;
+	}
+	if(brk != byte 0) {
+		addbrk(ps, brksp, 0);
+		if(ps.inpar) {
+			popjust(ps);
+			ps.inpar = 0;
+		}
+	}
+	# CSS context tracking: push a frame on element start, pop on end.
+	if(cssctx.on) {
+		if(tag < LX->Numtags)
+			cssenter(ps, tok, tag);
+		else if(tag >= RBRA && tag-RBRA < LX->Numtags)
+			cssexit(ps, tag-RBRA);
+	}
+}
+
+# add character data, honouring leading-whitespace suppression.
+steptext(ps: ref Pstate, s: string)
+{
+	if(ps.skipwhite) {
+		s = S->drop(s, whitespace);
+		if(s != "")
+			ps.skipwhite = 0;
+	}
+	if(s != "")
+		addtext(ps, s);
+}
+
+# name -> id reverse lookups.  DOM nodes store the exact tagnames[]/attrnames[]
+# strings (see domattrs/domfeed), so a linear scan recovers the original ids.
+domtagid(name: string): int
+{
+	for(i := 0; i < len LX->tagnames; i++)
+		if(LX->tagnames[i] == name)
+			return i;
+	return LX->Notfound;
+}
+
+domattrid(name: string): int
+{
+	for(i := 0; i < len LX->attrnames; i++)
+		if(LX->attrnames[i] == name)
+			return i;
+	return -1;
+}
+
+# rebuild a start Token (tag id + Attr list) from a DOM element node.
+mkstarttok(node: ref Dom->Node.Element): (int, ref Token)
+{
+	tag := domtagid(node.tag);
+	rev: list of Attr;
+	for(pl := node.attrs; pl != nil; pl = tl pl) {
+		(nm, val) := hd pl;
+		aid := domattrid(nm);
+		if(aid >= 0)
+			rev = Attr(aid, val) :: rev;
+	}
+	al: list of Attr;
+	for(; rev != nil; rev = tl rev)
+		al = hd rev :: al;
+	return (tag, ref Token(tag, "", al));
+}
+
+# elements whose content is not part of the rendered body: head metadata,
+# scripts (already run; never re-run on re-layout) and stylesheets (the loaded
+# CSS engine is preserved across re-layout, so rules need not be re-added).
+domskip(tag: int): int
+{
+	case tag {
+	LX->Thead or LX->Tscript or LX->Tnoscript or LX->Tstyle
+	or LX->Ttitle or LX->Tmeta or LX->Tlink or LX->Tbase =>
+		return 1;
+	}
+	return 0;
+}
+
+# run one synthetic token through the shared preamble + dispatch.  A 1-element
+# token window keeps getpcdata()-based arms (e.g. <select>) safe when there are
+# no following tokens.
+domdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token, tag: int)
+{
+	pd.toks = array[1] of { tok };
+	pd.toki = 0;
+	pd.tokslen = 1;
+	predispatch(pd.ps, tok, tag);
+	tagdispatch(is, di, pd, tok, tag);
+}
+
+# Walk the retained DOM and drive tagdispatch per node, producing the same
+# item list a fresh parse would.  Loop-local state lives in pd; getpcdata-coupled
+# body tags (<textarea>, <option>) get a synthetic [start, Data, end] window so
+# their tagdispatch arms work unchanged.
+domvisit(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, n: ref Dom->Node)
+{
+	pick node := n {
+	Document =>
+		for(c := node.firstkid; c != nil; c = c.nextsib)
+			domvisit(is, di, pd, c);
+	Text =>
+		steptext(pd.ps, node.data);
+	Comment =>
+		;	# not rendered
+	Element =>
+		(tag, stok) := mkstarttok(node);
+		if(tag == LX->Notfound) {
+			# unknown tag: render its children inline (passthrough)
+			for(c := node.firstkid; c != nil; c = c.nextsib)
+				domvisit(is, di, pd, c);
+			return;
+		}
+		if(domskip(tag))
+			return;
+		if(tag == LX->Ttextarea || tag == LX->Toption) {
+			win := array[3] of {
+				stok,
+				ref Token(LX->Data, node.text(), nil),
+				ref Token(tag+RBRA, "", nil)
+			};
+			pd.toks = win;
+			pd.toki = 0;
+			pd.tokslen = 3;
+			predispatch(pd.ps, stok, tag);
+			tagdispatch(is, di, pd, stok, tag);
+			return;	# content is the window; do not recurse
+		}
+		domdispatch(is, di, pd, stok, tag);
+		if(domvoid(tag))
+			return;	# void element: no children, no end tag (matches lexer)
+		for(c := node.firstkid; c != nil; c = c.nextsib)
+			domvisit(is, di, pd, c);
+		domdispatch(is, di, pd, ref Token(tag+RBRA, "", nil), tag+RBRA);
+	}
+}
+
+# A lightweight ItemSource for re-layout straight from the DOM: no TokenSource,
+# no DOM builder, and the loaded CSS engine (in the build.b-global cssctx) is
+# left intact so the cascade is re-run, not rebuilt.
+ItemSource.newdom(f: ref Layout->Frame): ref ItemSource
+{
+	di := f.doc;
+	psstk := list of { Pstate.new() };
+	return ref ItemSource(nil, CU->TextHtml, di, f, psstk,
+		0, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil);
+}
+
+# Produce the display-item list for a frame by walking its retained DOM tree
+# (root), instead of re-parsing serialized HTML.  Mirrors getitems' flush.
+ItemSource.domitems(is: self ref ItemSource, root: ref Dom->Node): ref Item
+{
+	pd := ref Pdrive(hd is.psstk, is.psstk, nil, nil, 0, 0, 0);
+	domvisit(is, is.doc, pd, root);
+	is.psstk = pd.psstk;
+	outerps := lastps(pd.psstk);
+	ans := outerps.items.next;
+	outerps.items = Item.newspacer(ISPnull, 0);
+	outerps.lastit = outerps.items;
+	return ans;
+}
+
+#############################################################################
 # HTML token dispatch — the core per-tag builder.  One large `case tag` over
 # every open/close tag (Ta..Txmp and their +RBRA end forms).  This is the bulk
 # of the file by design: it is an HTML parser's dispatch table, factored into
@@ -396,34 +578,9 @@ TokLoop:
 		if(is.dombld != nil)
 			domfeed(LX, is.dombld, tok);
 		tag := tok.tag;
-		brk := byte 0;
-		brksp := 0;
-		if(tag < LX->Numtags) {
-			brk = blockbrk[tag];
-			if((brk&SPBefore) != byte 0)
-				brksp = 1;
-		}
-		else if(tag < LX->Numtags+RBRA) {
-			brk = blockbrk[tag-RBRA];
-			if((brk&SPAfter) != byte 0)
-				brksp = 1;
-		}
-		if(brk != byte 0) {
-			addbrk(ps, brksp, 0);
-			if(ps.inpar) {
-				popjust(ps);
-				ps.inpar = 0;
-			}
-		}
-		# CSS context tracking: push a frame on element start, pop on end.
-		# Decoupled from Charon's font/colour stacks — overrides are overlaid
-		# at item-stamp time (textit), so this cannot corrupt built-in state.
-		if(cssctx.on) {
-			if(tag < LX->Numtags)
-				cssenter(ps, tok, tag);
-			else if(tag >= RBRA && tag-RBRA < LX->Numtags)
-				cssexit(ps, tag-RBRA);
-		}
+		# block-break + CSS-cascade bookkeeping done per token; shared with the
+		# DOM node visitor (domvisit) so re-layout from the tree matches a parse.
+		predispatch(ps, tok, tag);
 		# check common case first (Data), then case statement on tag
 		if(tag == LX->Data) {
 			# Lexing didn't pay attention to SGML record boundary rules:
@@ -452,13 +609,7 @@ TokLoop:
 				if(i>0 || j <len s)
 					s = s[i:j];
 			}
-			if(ps.skipwhite) {
-				s = S->drop(s, whitespace);
-				if(s != "")
-					ps.skipwhite = 0;
-			}
-			if(s != "")
-				addtext(ps, s);
+			steptext(ps, s);
 		}
 		else {
 			pd.ps = ps; pd.psstk = psstk; pd.curtab = curtab;
