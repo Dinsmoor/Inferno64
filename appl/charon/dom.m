@@ -40,6 +40,11 @@ Dom: module
 		Element =>
 			tag:	string;				# lower-cased tag name ("div", "p", ...)
 			attrs:	list of (string, string);	# raw attributes, in source order
+			# Retained render state lives on the node (it must survive re-layout,
+			# which discards the display items, and the JS exec context, which is
+			# rebuilt each re-render).  For <canvas>: the backing image the 2D
+			# context draws into and layout blits.  nil for every other element.
+			canvasim: ref Draw->Image;
 		Text =>
 			data:	string;				# character data
 		Comment =>

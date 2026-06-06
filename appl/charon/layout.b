@@ -2367,6 +2367,15 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 			else if(i.align == Amiddle)
 				yy += l.ascent - (i.imheight/2);
 			drawimg(f, Point(cx,yy), i);
+		Icanvas =>
+			if(!inview)
+				break;
+			cim := canvasbacking(f, i);	# lazily alloc node.canvasim (needs display)
+			if(cim != nil) {
+				yy := y + l.ascent - i.height;	# bottom-align like an image
+				im.draw(Rect(Point(cx,yy), Point(cx+i.width, yy+i.height)),
+					cim, nil, zp);
+			}
 		Iformfield =>
 			ff := i.formfield;
 			if(ff.ctlid >= 0 && ff.ctlid < len f.controls) {
@@ -2417,6 +2426,23 @@ drawline(f : ref Frame, layorigin : Point, l: ref Line, lay: ref Lay)
 		}
 		x += it.width;
 	}
+}
+
+# Find (or lazily allocate) the backing image a <canvas> draws into.  It lives on
+# the persistent DOM node so it survives re-layout and JS-context rebuilds; we
+# allocate it here because this is where a Display is available.  White ground.
+canvasbacking(f: ref Frame, i: ref Item.Icanvas): ref Draw->Image
+{
+	if(i.node == nil || i.width <= 0 || i.height <= 0)
+		return nil;
+	pick e := i.node {
+	Element =>
+		if(e.canvasim == nil)
+			e.canvasim = display.newimage(Rect((0,0),(i.width,i.height)),
+				f.cim.chans, 0, D->White);
+		return e.canvasim;
+	}
+	return nil;
 }
 
 drawimg(f: ref Frame, iorigin: Point, i: ref Item.Iimage)

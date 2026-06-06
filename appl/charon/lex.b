@@ -37,6 +37,7 @@ tagnames = array[] of {
 	"bq",
 	"br",
 	"button",
+	"canvas",
 	"caption",
 	"center",
 	"cite",

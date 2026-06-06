@@ -8,7 +8,7 @@ Lex: module
 	Ta, Tabbr, Tacronym, Taddress, Tapplet, Tarea,
 		Tarticle, Taside, Taudio, Tb,
 		Tbase, Tbasefont, Tbdo, Tbig, Tblink, Tblockquote, Tbody,
-		Tbq, Tbr, Tbutton, Tcaption, Tcenter, Tcite, Tcode, Tcol, Tcolgroup,
+		Tbq, Tbr, Tbutton, Tcanvas, Tcaption, Tcenter, Tcite, Tcode, Tcol, Tcolgroup,
 		Tdd, Tdel, Tdfn, Tdir, Tdiv, Tdl, Tdt, Tem,
 		Tfieldset, Tfigcaption, Tfigure, Tfont, Tfooter, Tform, Tframe, Tframeset,
 		Th1, Th2, Th3, Th4, Th5, Th6, Thead, Theader, Thr, Thtml, Ti, Tiframe, Timage,

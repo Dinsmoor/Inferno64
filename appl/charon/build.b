@@ -471,6 +471,14 @@ domvisit(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, n: ref Dom->Node)
 		}
 		if(domskip(tag))
 			return;
+		if(tag == LX->Tcanvas) {
+			# inline replaced element: emit its item (carrying the node, which
+			# owns the backing image) and ignore fallback children.
+			predispatch(pd.ps, stok, tag);
+			additem(pd.ps, canvasitem(node), stok);
+			predispatch(pd.ps, ref Token(tag+RBRA, "", nil), tag+RBRA);
+			return;
+		}
 		if(tag == LX->Ttextarea || tag == LX->Toption) {
 			win := array[3] of {
 				stok,
@@ -833,6 +841,20 @@ tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token,
 		# <!ELEMENT BR - O EMPTY>
 		LX->Tbr =>
 			addlinebrk(pd.ps, atabval(tok, LX->Aclear, clear_tab, 0));
+
+		# <!ELEMENT CANVAS - - (%flow)*>  (we ignore fallback content)
+		# Initial parse: the DOM builder has just opened this canvas node, so
+		# is.dombld.cur owns the backing image; the re-layout walk emits its own
+		# item (domvisit) with the node in hand.
+		LX->Tcanvas =>
+			cnode: ref Node = nil;
+			if(is.dombld != nil)
+				cnode = is.dombld.cur;
+			pd.ps.skipwhite = 0;
+			additem(pd.ps, canvasitem(cnode), tok);
+
+		LX->Tcanvas+RBRA =>
+			;
 
 		# <!ELEMENT CAPTION - - (%text;)*>
 		LX->Tcaption =>
@@ -3666,6 +3688,30 @@ Item.newfloat(it: ref Item, side: byte) : ref Item
 Item.newspacer(spkind, font: int) : ref Item
 {
 	return ref Item.Ispacer(nil, 0, 0, 0, 0, 0, nil, nil, spkind, font);
+}
+
+# width/height/ascent take the canvas pixel size; the backing image lives on
+# the node (node.canvasim) and is allocated lazily by layout (it needs a display).
+Item.newcanvas(node: ref Dom->Node, w, h: int) : ref Item
+{
+	return ref Item.Icanvas(nil, w, h, h, 0, 0, nil, nil, node);
+}
+
+# build a canvas display item from its element node, taking the pixel size from
+# the width/height content attributes (HTML default 300x150).
+canvasitem(node: ref Node): ref Item
+{
+	w := 300;
+	h := 150;
+	if(node != nil) {
+		ws := node.attr("width");
+		if(ws != "")
+			w = int ws;
+		hs := node.attr("height");
+		if(hs != "")
+			h = int hs;
+	}
+	return Item.newcanvas(node, w, h);
 }
 
 Item.revlist(itl: list of ref Item) : list of ref Item

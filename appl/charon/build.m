@@ -87,6 +87,10 @@ Item: adt
 		Ispacer =>
 			spkind: int;		# ISPnone, etc.
 			fnt: int;			# font number
+		Icanvas =>
+			node: ref Dom->Node;	# the <canvas> element node; owns the backing
+						# Draw image (node.canvasim) that layout blits and
+						# the JS 2D context draws into
 	}
 
 	newtext: fn(s: string, fnt, fg, voff: int, ul: byte) : ref Item;
@@ -98,6 +102,7 @@ Item: adt
 	newtable: fn(t: ref Table) : ref Item;
 	newfloat: fn(i: ref Item, side: byte) : ref Item;
 	newspacer: fn(spkind, font: int) : ref Item;
+	newcanvas: fn(node: ref Dom->Node, w, h: int) : ref Item;
 
 	revlist: fn(itl: list of ref Item) : list of ref Item;
 	print: fn(it: self ref Item);

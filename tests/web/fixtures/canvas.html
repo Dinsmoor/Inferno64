@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!--
+  Canvas spike: a <canvas> element backed by a Draw image that lives on the
+  retained DOM node, drawn via a minimal CanvasRenderingContext2D (getContext,
+  fillStyle/fillRect, strokeStyle/strokeRect, fillText).  draw() runs on load
+  and from the button; each run repaints the frame from the DOM (the image
+  persists on the node across re-renders).
+-->
+<html>
+<head>
+<title>Canvas spike</title>
+<style>
+body { font-family: sans-serif; }
+h1   { color: #1b3a5b; }
+#c   { border: 1px solid #888; }
+</style>
+</head>
+<body onload="draw()">
+
+<h1>Canvas spike</h1>
+<p>A &lt;canvas&gt; drawn with the JS 2D context, blitted from the DOM node.</p>
+
+<canvas id="c" width="320" height="180"></canvas>
+
+<form>
+<input type="button" value="redraw" onclick="draw()">
+</form>
+
+<script>
+function draw() {
+	var ctx = document.getElementById('c').getContext('2d');
+	ctx.fillStyle = '#eef2ff';
+	ctx.fillRect(0, 0, 320, 180);
+	ctx.fillStyle = 'red';
+	ctx.fillRect(20, 20, 110, 70);
+	ctx.fillStyle = '#0080ff';
+	ctx.fillRect(90, 70, 150, 90);
+	ctx.fillStyle = 'orange';
+	ctx.fillRect(150, 30, 60, 60);
+	ctx.fillStyle = 'black';
+	ctx.fillText('Hello, canvas!', 30, 150);
+	ctx.strokeStyle = 'green';
+	ctx.strokeRect(5, 5, 310, 170);
+}
+</script>
+
+</body>
+</html>

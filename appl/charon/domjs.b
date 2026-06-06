@@ -7,26 +7,32 @@ implement Domjs;
 #
 
 include "sys.m";
+include "draw.m";
 include "ecmascript.m";
 include "dom.m";
 include "domjs.m";
 
 sys: Sys;
+draw: Draw;
+	Image, Display, Font, Rect, Point: import draw;
 ES: Ecmascript;
 	Exec, Obj, Val, Ref, Builtin: import ES;
 dom: Dom;
 	Node: import dom;
 me: ESHostobj;
 
-docproto, elemproto: ref Obj;		# shared prototypes (methods live here)
+docproto, elemproto, ctxproto: ref Obj;	# shared prototypes (methods live here)
 nodetab: array of ref Node;		# index -> node
 objtab:  array of ref Obj;		# index -> host obj (lazily created, for identity)
 ntab: int;
 reflowfn: ref fn();			# called after a script mutation (may be nil)
 
+CFILL, CCLEAR, CSTROKE: con iota;	# canvas rectangle op modes
+
 init(es: Ecmascript)
 {
 	sys = load Sys Sys->PATH;
+	draw = load Draw Draw->PATH;		# for canvas 2D ops (image/display methods)
 	ES = es;				# share the caller's initialised engine
 	dom = load Dom Dom->PATH;
 	if(dom != nil)
@@ -103,6 +109,13 @@ mkprotos(ex: ref Exec)
 	instm(ex, elemproto, "Domelem", "appendChild", array[] of {"child"});
 	instm(ex, elemproto, "Domelem", "removeChild", array[] of {"child"});
 	instm(ex, elemproto, "Domelem", "getElementsByTagName", array[] of {"tag"});
+	instm(ex, elemproto, "Domelem", "getContext", array[] of {"kind"});
+	# minimal CanvasRenderingContext2D
+	ctxproto = ES->mkobj(ex.objproto, "Domctx");
+	instm(ex, ctxproto, "Domctx", "fillRect", array[] of {"x", "y", "w", "h"});
+	instm(ex, ctxproto, "Domctx", "clearRect", array[] of {"x", "y", "w", "h"});
+	instm(ex, ctxproto, "Domctx", "strokeRect", array[] of {"x", "y", "w", "h"});
+	instm(ex, ctxproto, "Domctx", "fillText", array[] of {"text", "x", "y"});
 }
 
 instm(ex: ref Exec, proto: ref Obj, class, name: string, args: array of string)
@@ -267,6 +280,17 @@ call(ex: ref Exec, func, this: ref Obj, args: array of ref Val, nil: int): ref R
 			mutated();
 			v = argval(args, 0);
 		}
+	"Domelem.prototype.getContext" =>
+		# only "2d" is offered; the context is bound to this canvas node.
+		v = ctxval(ex, nodeof(ex, this));
+	"Domctx.prototype.fillRect" =>
+		ctxrect(ex, this, args, CFILL);
+	"Domctx.prototype.clearRect" =>
+		ctxrect(ex, this, args, CCLEAR);
+	"Domctx.prototype.strokeRect" =>
+		ctxrect(ex, this, args, CSTROKE);
+	"Domctx.prototype.fillText" =>
+		ctxtext(ex, this, argstr(ex, args, 0), argnum(ex, args, 1), argnum(ex, args, 2));
 	}
 	return ES->valref(v);
 }
@@ -369,6 +393,122 @@ elemtag(n: ref Node): string
 		return e.tag;
 	}
 	return "";
+}
+
+# ---- canvas 2D context --------------------------------------------------
+
+argnum(ex: ref Exec, args: array of ref Val, i: int): int
+{
+	if(i < len args && args[i] != nil)
+		return ES->toInt32(ex, args[i]);
+	return 0;
+}
+
+# a Domctx host object bound to canvas node n (carries its node index).
+ctxval(ex: ref Exec, n: ref Node): ref Val
+{
+	if(n == nil)
+		return ES->null;
+	o := ES->mkobj(ctxproto, "Domctx");
+	o.host = me;
+	ES->put(ex, o, "@PRIVdomix", ES->numval(real nodeix(n)));
+	return ES->objval(o);
+}
+
+# the backing image of the canvas this context draws into (allocated by layout).
+canvasimof(ex: ref Exec, ctxo: ref Obj): ref Image
+{
+	n := nodeof(ex, ctxo);
+	if(n == nil)
+		return nil;
+	pick e := n {
+	Element =>
+		return e.canvasim;
+	}
+	return nil;
+}
+
+ctxrect(ex: ref Exec, ctxo: ref Obj, args: array of ref Val, mode: int)
+{
+	cim := canvasimof(ex, ctxo);
+	if(cim == nil)
+		return;
+	x := argnum(ex, args, 0);
+	y := argnum(ex, args, 1);
+	w := argnum(ex, args, 2);
+	h := argnum(ex, args, 3);
+	disp := cim.display;
+	r := Rect(Point(x, y), Point(x+w, y+h));
+	zp := Point(0, 0);
+	case mode {
+	CCLEAR =>
+		cim.draw(r, disp.white, nil, zp);
+	CSTROKE =>
+		b := colorbrush(ex, disp, ctxo, "strokeStyle");
+		cim.draw(Rect(r.min, Point(r.max.x, r.min.y+1)), b, nil, zp);
+		cim.draw(Rect(Point(r.min.x, r.max.y-1), r.max), b, nil, zp);
+		cim.draw(Rect(r.min, Point(r.min.x+1, r.max.y)), b, nil, zp);
+		cim.draw(Rect(Point(r.max.x-1, r.min.y), r.max), b, nil, zp);
+	* =>
+		cim.draw(r, colorbrush(ex, disp, ctxo, "fillStyle"), nil, zp);
+	}
+	mutated();
+}
+
+ctxtext(ex: ref Exec, ctxo: ref Obj, text: string, x, y: int)
+{
+	cim := canvasimof(ex, ctxo);
+	if(cim == nil || text == "")
+		return;
+	disp := cim.display;
+	font := Font.open(disp, "*default*");
+	if(font == nil)
+		return;
+	# canvas fillText y is the baseline; Draw text() y is the glyph top
+	cim.text(Point(x, y - font.ascent), colorbrush(ex, disp, ctxo, "fillStyle"),
+		Point(0, 0), font, text);
+	mutated();
+}
+
+# brush from a context colour property (fillStyle/strokeStyle); default black.
+colorbrush(ex: ref Exec, disp: ref Display, ctxo: ref Obj, prop: string): ref Image
+{
+	(r, g, b) := parsecolor(ES->toString(ex, ES->get(ex, ctxo, prop)));
+	return disp.rgb(r, g, b);
+}
+
+parsecolor(s: string): (int, int, int)
+{
+	if(s != "" && s[0] == '#'){
+		h := s[1:];
+		if(len h == 3)
+			return (17*hexv(h[0]), 17*hexv(h[1]), 17*hexv(h[2]));
+		if(len h >= 6)
+			return (16*hexv(h[0])+hexv(h[1]), 16*hexv(h[2])+hexv(h[3]), 16*hexv(h[4])+hexv(h[5]));
+		return (0, 0, 0);
+	}
+	case s {
+	"red" =>	return (255, 0, 0);
+	"green" =>	return (0, 128, 0);
+	"blue" =>	return (0, 0, 255);
+	"white" =>	return (255, 255, 255);
+	"yellow" =>	return (255, 255, 0);
+	"orange" =>	return (255, 165, 0);
+	"purple" =>	return (128, 0, 128);
+	"gray" or "grey" =>	return (128, 128, 128);
+	}
+	return (0, 0, 0);	# default / "black" / unknown
+}
+
+hexv(c: int): int
+{
+	if(c >= '0' && c <= '9')
+		return c - '0';
+	if(c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if(c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return 0;
 }
 
 firstelem(n: ref Node): ref Node

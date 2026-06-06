@@ -3,12 +3,14 @@ implement Dom;
 #
 # Charon's retained element-node tree.  See dom.m for the rationale.
 #
-# Pure data structure: depends only on Sys (for tokenize/print), so it builds
-# and unit-tests headless, independent of the rest of Charon and of the
-# ECMAScript engine.
+# Near-pure data structure: depends on Sys (tokenize/print) and Draw (only for
+# the <canvas> backing-image type on Node.Element; no Draw module is loaded
+# here).  It still builds and unit-tests headless, independent of the rest of
+# Charon and of the ECMAScript engine.
 #
 
 include "sys.m";
+include "draw.m";
 include "dom.m";
 
 sys: Sys;
@@ -27,7 +29,7 @@ newdoc(): ref Node
 
 newelem(tag: string, attrs: list of (string, string)): ref Node
 {
-	return ref Node.Element(Nelement, nil, nil, nil, nil, nil, tag, attrs);
+	return ref Node.Element(Nelement, nil, nil, nil, nil, nil, tag, attrs, nil);
 }
 
 newtext(data: string): ref Node
