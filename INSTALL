@@ -1,5 +1,42 @@
 Installing hosted Inferno from source
 
+================================================================
+Quick start (this fork: hosted emu on Linux/aarch64 or amd64)
+================================================================
+
+This fork is driven by the top-level GNU `Makefile`, which wraps the
+native `mk` build with the correct LP64 environment.  From a clean
+checkout (or a fresh `git worktree`) the only command you need is:
+
+        make all              # aarch64 host (default)
+        make OBJTYPE=amd64 all # x86-64 host
+
+`make all` is the ONLY coherent build: it builds the C side first (the
+host libraries, the `limbo` compiler and the `emu` binary), then compiles
+the whole Limbo source tree under appl/ to .dis with that compiler.  The
+two halves MUST match (a stale .dis against a freshly built ABI is a
+real, debugged crash class), so the half builds `make emu` / `make dis`
+are gated behind FORCE=1 and should be avoided.
+
+Bootstrap (mk):  the whole build is driven by `mk`, but `mk` itself is
+build output and is absent from a fresh tree/worktree.  `make all` now
+bootstraps it automatically: the `$(MK)` rule runs `makemk.sh` (host gcc)
+to compile libregexp/libbio/lib9 and `mk`, installing it into
+Linux/$OBJTYPE/bin, and only fires when the `mk` binary is missing.  To
+build mk by itself:
+
+        make bootstrap
+
+Build output lives under Linux/$OBJTYPE/{bin,lib,include} and dis/ (all
+gitignored).  Each git worktree therefore needs its own one-time
+`make all`; worktrees do not share the parent tree's binaries.
+
+Prerequisites: a host C toolchain (gcc, ar), GNU make, and for the
+default GUI `emu` the X11/FreeType build deps.  For a headless,
+graphics-less build use CONF=emu-g.
+
+The original, platform-generic instructions follow.
+
 Overview
 
      Like the native kernels  emu relies on  several  auxil-

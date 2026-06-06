@@ -6,15 +6,24 @@
 
 #	support@vitanuova.com
 
-# change these defines as appropriate here or in mkconfig
-# ROOT should be the root of the Inferno tree
-ROOT=/usr/inferno
-SYSTARG=FreeBSD
-OBJTYPE=386
-SYSTYPE=posix
+# change these defines as appropriate here or in mkconfig, or (preferred)
+# override them from the environment.  The top-level GNU Makefile bootstraps
+# mk by exporting ROOT/SYSTARG/OBJTYPE/SYSTYPE before invoking this script, so
+# a fresh tree or git worktree can build mk without hand-editing anything.
 
-# if you have already changed mkconfig from the distribution, we'll use the definitions from that
-grep -s 'SYSTARG=Plan9' mkconfig || . ./mkconfig
+# Only when the environment selected no target do we fall back to a customised
+# mkconfig (the distribution default leaves SYSTARG=Plan9, which is not a
+# hosted build target and would bootstrap the wrong mk).
+if [ -z "$ROOT$SYSTARG$OBJTYPE" ]; then
+	grep -s 'SYSTARG=Plan9' mkconfig || . ./mkconfig
+fi
+
+# ROOT should be the root of the Inferno tree.  These are defaults only:
+# anything already set (env, or the mkconfig sourced above) takes precedence.
+: ${ROOT:=/usr/inferno}
+: ${SYSTARG:=FreeBSD}
+: ${OBJTYPE:=386}
+: ${SYSTYPE:=posix}
 
 PLAT=$ROOT/$SYSTARG/$OBJTYPE
 
