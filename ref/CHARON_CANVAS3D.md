@@ -222,8 +222,9 @@ glmesh(ex: ref Exec, glo: ref Obj, vflat, iflat: array of real, mode: int)
 `projvtx` is copied from `raycube3.b:114` (NDC→screen + perspective `iw`),
 parameterized on `w,h`. `clear()`/`flush()` are thin wrappers over
 `raster->clearcolor`/`cleardepth` and `img.writepixels(img.r, pix)` +
-`mutated()`. `canvasbufs` lazily allocates `e.canvaspix = array[w*h*4] of byte`
-and `e.canvasz = array[w*h] of real` once the image exists.
+`canvasdamaged()` (the cheap repaint signal — see §4). `canvasbufs` lazily
+allocates `e.canvaspix = array[w*h*4] of byte` and `e.canvasz = array[w*h] of
+real` once the image exists.
 
 ### 3.4 Module loads & emu
 
@@ -235,32 +236,39 @@ and `e.canvasz = array[w*h] of real` once the image exists.
 
 ---
 
-## 4. Animation: the real follow-up
+## 4. Animation: both prerequisites now exist
 
-The 2D context is fine drawing once (onload) or on an event. **3D's whole point
-is animation**, and two gaps stand between this design and a spinning cube in a
-page:
+3D's whole point is animation. The two gaps this doc originally flagged are
+**both now implemented on master** (commit `f70b02b0` and the timer code that
+predates it), so a 3D context can animate the same way:
 
-1. **No frame clock.** There is no `requestAnimationFrame`, and the JS event loop
-   would need a `setInterval`/`setTimeout` to drive redraws. Verify what the
-   engine exposes (`appl/charon/jscript.b`, the timer/event plumbing). If absent,
-   a minimal `setTimeout` + a Charon timer event is a prerequisite. Until then,
-   3D renders **statically** (drawn on load or on a button) — which already
-   demos a lit, depth-buffered teapot, just not spinning.
+1. **Frame clock — DONE.** Charon's JS engine has working
+   `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`
+   (`jscript.b`: `addtimeout`/`dotimeout`/`timeout`/`clrtimeout`, dispatched via
+   `SEtimeout`/`SEinterval` on `jevchan`). A `setInterval('frame()', ms)` drives
+   redraws; JS globals (e.g. a rotation angle) accumulate across ticks because
+   the timer path does **not** rebuild the exec context. There is still no
+   `requestAnimationFrame` (a thin alias over `setTimeout(~16ms)` would add it),
+   but it is not required. Gotcha worth repeating in page code: a timer id can
+   legitimately be `0`, so use a separate boolean to track "running", not
+   `id != 0` (see `tests/web/fixtures/canvas_anim.html`).
 
-2. **Full relayout per frame is too heavy.** `mutated()` currently triggers a
-   full `domrender` (re-walk the DOM, re-run the cascade, rebuild all items).
-   That is fine for occasional 2D repaints but will not sustain animation.
-   The fix is a **canvas-damage fast path**: when only canvas pixels changed
-   (no DOM structure/style mutation), re-blit just that node's `canvasim` into
-   `f.cim` and flush, skipping relayout. Sketch:
-     - add a signal distinct from `Edomrefresh` (e.g. `Ecanvasrefresh(frameid,
-       nodeix)`), sent by a new `flush()`-only path instead of `mutated()`;
-     - in `charon.b`, handle it by finding the node's `Icanvas` item's current
-       laid-out rect (cache it on the node or look it up) and doing a single
-       `im.draw(rect, canvasim, …)` + screen flush.
-   This keeps per-frame cost at one blit. Implement the static path first;
-   add the fast path when wiring the frame clock.
+2. **Canvas-damage fast path — DONE.** Canvas-only draws no longer trigger a full
+   `domrender`. `domjs.b`'s 2D ops call `canvasdamaged()` (a `canvasdirty`
+   callback) instead of `mutated()`; after a handler, `jscript.b` sends
+   `Ecanvasrefresh(frameid)` when only a canvas changed (vs `Edomrefresh` for a
+   real DOM mutation, which wins if both happened). `charon.b` handles it with
+   `L->canvasrefresh(f)` = `f.dirty(f.totalr) + drawall(f)` — repaint from the
+   retained layout (`drawall`'s `Icanvas` arm re-blits `node.canvasim`), no
+   relayout, no cascade, no item-gen, no exec-context rebuild. **The 3D `flush()`
+   reuses this verbatim:** `img.writepixels(img.r, pix)` then `canvasdamaged()`,
+   and the spinning mesh repaints cheaply.
+
+   Remaining optimization (not blocking): `canvasrefresh` currently repaints the
+   whole frame's retained items (still far cheaper than relayout). A finer path
+   would dirty only the canvas item's screen rect — cache that rect on the node
+   when `drawline`'s `Icanvas` arm paints it, and dirty just that. Worth doing
+   only if a busy page animates a small canvas and the full-frame repaint shows.
 
 ---
 
@@ -276,9 +284,10 @@ page:
 - **GC pressure:** `drawMesh` allocates `verts`/`tris` per call from the JS
   arrays; reuse scratch arrays on the node if profiling shows churn.
 - **Threading:** drawing runs on the JS thread; the blit (`drawline`) runs on
-  the layout/draw thread. `writepixels` into the node image then a `mutated()`
-  hand-off is the existing 2D pattern and is safe because the image is the only
-  shared object and the blit reads it whole.
+  the layout/draw thread. `writepixels` into the node image then a
+  `canvasdamaged()` hand-off (→ `Ecanvasrefresh` → `drawall`) is the existing 2D
+  pattern and is safe because the image is the only shared object and the blit
+  reads it whole.
 - **`CULL` winding** (`CULLNEG`/`CULLPOS`) is empirical per vertex winding — pick
   it the way `raycube3.b` does and expose a flag if pages need both.
 
@@ -296,9 +305,10 @@ page:
    vertices come from a JS array literal in the page. Extend `tests/web`
    fixtures (a 3D fixture; the headless suites can at least type-check + run the
    marshaling logic).
-4. **M3 — animation:** frame clock (`setTimeout`/rAF) + the canvas-damage fast
-   path (§4). Spinning cube in a page. This is the payoff and the first time
-   per-frame relayout cost actually matters.
+4. **M3 — animation:** the frame clock (`setInterval`) and the canvas-damage
+   fast path (§4) **already exist on master**, so this reduces to a page that
+   `setInterval`s a `drawMesh` with an advancing rotation matrix. Spinning cube
+   in a page — the payoff, now mostly wiring once M1/M2 land.
 
 ---
 
