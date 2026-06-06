@@ -31,6 +31,9 @@ Domjs: module
 	# `document` object and only want to add the DOM query/factory methods.
 	# Each returns/operates on domjs-hosted element objects.
 	setreflow:	fn(reflow: ref fn());
+	# Like setreflow, but for canvas pixel draws only (no DOM structure change):
+	# lets the host take a cheap repaint-only path instead of a full re-layout.
+	setcanvasdirty:	fn(reflow: ref fn());
 	serialize:	fn(root: ref Dom->Node): string;	# DOM subtree -> re-parseable HTML
 	elembyid:	fn(ex: ref Ecmascript->Exec, root: ref Dom->Node, id: string): ref Ecmascript->Val;
 	elembytag:	fn(ex: ref Ecmascript->Exec, root: ref Dom->Node, tag: string): ref Ecmascript->Val;

@@ -639,6 +639,20 @@ domrender(f: ref Frame, root: ref Dom->Node): int
 	return 1;
 }
 
+# Repaint the frame from its retained layout (f.layout) without relaying out.
+# A <canvas> 2D op draws straight into the node's backing image (node.canvasim);
+# drawall's Icanvas arm re-blits that image, so a full re-blit picks up the new
+# pixels at a fraction of domrender's cost (no DOM walk, no cascade, no item
+# generation, no JS-context rebuild).  Used for timer/event-driven canvas
+# animation.  (A finer path would dirty only the canvas item's rect.)
+canvasrefresh(f: ref Frame)
+{
+	if(f == nil || f.layout == nil)
+		return;
+	f.dirty(f.totalr);
+	drawall(f);
+}
+
 # Re-lay-out a frame directly from its retained DOM tree (no HTML round-trip).
 # Mirrors layout()'s frame/Docinfo/Lay setup, but sources display items from
 # the node walk (ItemSource.domitems) and reuses the already-loaded CSS engine.

@@ -354,6 +354,13 @@ Forloop:
 			if (f != nil && f.doc != nil && f.doc.domroot != nil)
 				L->domrender(f, f.doc.domroot);
 			g = nil;
+		Ecanvasrefresh =>
+			# script only drew into a <canvas>: repaint the retained layout
+			# without relaying out.  Not a navigation, so g stays nil.
+			f := findframe(top, e.frameid);
+			if (f != nil)
+				L->canvasrefresh(f);
+			g = nil;
 		Elostfocus =>
 			setfocus(nil);
 			g = nil;

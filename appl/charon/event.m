@@ -47,6 +47,8 @@ Events: module {
 				text: string;
 			Edomrefresh =>			# re-render a frame from its mutated DOM (no scripts)
 				frameid: int;		# the live DOM is read from the frame (f.doc.domroot)
+			Ecanvasrefresh =>		# repaint a frame's retained layout (no relayout)
+				frameid: int;		# a handler only drew into a <canvas> backing image
 			Elostfocus =>			# main window has lost keyboard focus
 				dummy: int;
 			Edismisspopup =>		# popup window has been dismissed by gui

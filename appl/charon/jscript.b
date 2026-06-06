@@ -437,6 +437,7 @@ mimespecs := array[] of {
 dbg := 0;
 dbgdom := 0;
 domdirty := 0;		# set by the domjs reflow callback when a handler mutates the DOM
+canvasdirty := 0;	# set by the domjs canvas callback when a handler only drew on a <canvas>
 
 top: ref ScriptWin;
 createdimages : list of ref Obj;
@@ -482,6 +483,7 @@ init(cu: CharonUtils) : string
 	if(DJ != nil){
 		DJ->init(ES);
 		DJ->setreflow(domreflow);	# scripts that mutate the DOM flag a re-render
+		DJ->setcanvasdirty(canvasreflow);	# canvas-only draws flag a cheap repaint
 	}
 	if(dbg >= 3) {
 		ES->debug['p'] = 1;	# print parsed code
@@ -1223,6 +1225,15 @@ domreflow()
 	domdirty = 1;
 }
 
+# domjs canvas callback: a handler drew into a <canvas> backing image but did
+# not change DOM structure/style.  do_on repaints the retained layout (no
+# relayout) when the handler finishes -- unless domdirty is also set, in which
+# case the full re-render covers the canvas too.
+canvasreflow()
+{
+	canvasdirty = 1;
+}
+
 # Called by charon after a page load: reports whether inline scripts mutated the
 # DOM during the build, so charon can re-render the frame from its (live) tree.
 # Clears the flag.
@@ -1271,7 +1282,8 @@ do_on(e: ref ScriptEvent)
 	od := getobj(ex, ow, "document");
 	sw.docwriteout = nil;
 	domdirty = 0;			# the reflow callback sets this if this handler mutates the DOM
-	
+	canvasdirty = 0;		# the canvas callback sets this if this handler only drew on a <canvas>
+
 {
 	# event target types
 	TAnchor, TForm, TFormField, TImage, TDocument, TWindow, Tnone: con iota;
@@ -1418,6 +1430,11 @@ do_on(e: ref ScriptEvent)
 	if(domdirty && DJ != nil && f != nil && f.doc != nil && f.doc.domroot != nil){
 		E->evchan <-= ref Event.Edomrefresh(f.id);
 		domdirty = 0;
+		canvasdirty = 0;	# the full re-render repaints the canvas too
+	}else if(canvasdirty && f != nil){
+		# handler only drew into a <canvas>: repaint the retained layout (no relayout)
+		E->evchan <-= ref Event.Ecanvasrefresh(f.id);
+		canvasdirty = 0;
 	}
 	jevchan <-= ref doneevent;
 }

@@ -235,5 +235,9 @@ reflow: fn(f: ref Frame) : int;
 # no history); used to repaint after a script mutates the DOM.
 domrender: fn(f: ref Frame, root: ref Dom->Node) : int;
 
+# Repaint f from its already-laid-out items (no relayout); used after a script
+# only drew into a <canvas> backing image, so the cheap path suffices.
+canvasrefresh: fn(f: ref Frame);
+
 stringwidth: fn(s: string): int;
 };

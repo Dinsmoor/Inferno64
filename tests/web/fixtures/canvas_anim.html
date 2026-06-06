@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<!--
+  Canvas animation: a setInterval timer redraws a <canvas> each tick. The draw
+  touches only canvas pixels (no DOM structure change), so the JS engine takes
+  the Ecanvasrefresh fast path (repaint the retained layout, no relayout).
+  start/stop drive the interval; the heading below stays put (proof the page is
+  not being relaid out each frame).
+-->
+<html>
+<head>
+<title>Canvas animation</title>
+<style>
+body { font-family: sans-serif; }
+h1   { color: #1b3a5b; }
+#c   { border: 1px solid #888; }
+</style>
+</head>
+<body onload="start()">
+
+<h1>Canvas animation</h1>
+<p>A spinning marker driven by setInterval (cheap canvas-only repaint).</p>
+
+<canvas id="c" width="320" height="200"></canvas>
+
+<form>
+<input type="button" value="start" onclick="start()">
+<input type="button" value="stop" onclick="stop()">
+</form>
+
+<script>
+var angle = 0;
+var timer = 0;
+var running = 0;	// separate flag: a timer id can legitimately be 0
+
+function frame() {
+	var ctx = document.getElementById('c').getContext('2d');
+	ctx.fillStyle = '#101820';
+	ctx.fillRect(0, 0, 320, 200);
+
+	var cx = 160, cy = 100, r = 80;
+	// rotating spoke
+	var dx = Math.cos(angle) * r;
+	var dy = Math.sin(angle) * r;
+	ctx.strokeStyle = '#3cf';
+	ctx.lineWidth = 6;
+	ctx.beginPath();
+	ctx.moveTo(cx, cy);
+	ctx.lineTo(cx + dx, cy + dy);
+	ctx.stroke();
+
+	// orbiting dot
+	ctx.fillStyle = 'orange';
+	ctx.beginPath();
+	ctx.arc(cx + dx, cy + dy, 12, 0, 6.2832);
+	ctx.fill();
+
+	// hub
+	ctx.fillStyle = '#3cf';
+	ctx.beginPath();
+	ctx.arc(cx, cy, 10, 0, 6.2832);
+	ctx.fill();
+
+	angle = angle + 0.18;
+}
+
+function start() {
+	if (!running) {
+		timer = setInterval('frame()', 60);
+		running = 1;
+	}
+}
+
+function stop() {
+	if (running) {
+		clearInterval(timer);
+		running = 0;
+	}
+}
+</script>
+
+</body>
+</html>

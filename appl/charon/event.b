@@ -259,6 +259,8 @@ Event.tostring(ev: self ref Event) : string
 			s = "scrollr(" + string e.frameid + ", (" + string e.pt.x + ", " + string e.pt.y + "))";
 		Esettext =>
 			s = "settext(frameid=" + string e.frameid + ", text=" + e.text + ")";
+		Ecanvasrefresh =>
+			s = "canvasrefresh(frameid=" + string e.frameid + ")";
 		Elostfocus =>
 			s = "lostfocus";
 		Edismisspopup =>

@@ -27,7 +27,8 @@ docproto, elemproto, ctxproto: ref Obj;	# shared prototypes (methods live here)
 nodetab: array of ref Node;		# index -> node
 objtab:  array of ref Obj;		# index -> host obj (lazily created, for identity)
 ntab: int;
-reflowfn: ref fn();			# called after a script mutation (may be nil)
+reflowfn: ref fn();			# called after a DOM-structure mutation (may be nil)
+canvasdirtyfn: ref fn();		# called after a canvas-only pixel draw (may be nil)
 
 CFILL, CCLEAR, CSTROKE: con iota;	# canvas rectangle op modes
 
@@ -67,6 +68,11 @@ install(ex: ref Exec, scope: ref Obj, root: ref Dom->Node, reflow: ref fn()): re
 setreflow(reflow: ref fn())
 {
 	reflowfn = reflow;
+}
+
+setcanvasdirty(reflow: ref fn())
+{
+	canvasdirtyfn = reflow;
 }
 
 serialize(root: ref Dom->Node): string
@@ -380,6 +386,17 @@ mutated()
 		reflowfn();
 }
 
+# A <canvas> 2D op changed only the node's backing image (no DOM structure or
+# style change), so the host can repaint its retained layout without a relayout.
+# Fall back to a full reflow if the host did not register a canvas-only callback.
+canvasdamaged()
+{
+	if(canvasdirtyfn != nil)
+		canvasdirtyfn();
+	else if(reflowfn != nil)
+		reflowfn();
+}
+
 settext(n: ref Node, s: string)
 {
 	while(n.firstkid != nil)
@@ -482,7 +499,7 @@ ctxrect(ex: ref Exec, ctxo: ref Obj, args: array of ref Val, mode: int)
 	* =>
 		cim.draw(r, colorbrush(ex, disp, ctxo, "fillStyle"), nil, zp);
 	}
-	mutated();
+	canvasdamaged();
 }
 
 ctxtext(ex: ref Exec, ctxo: ref Obj, text: string, x, y: int)
@@ -497,7 +514,7 @@ ctxtext(ex: ref Exec, ctxo: ref Obj, text: string, x, y: int)
 	# canvas fillText y is the baseline; Draw text() y is the glyph top
 	cim.text(Point(x, y - font.ascent), colorbrush(ex, disp, ctxo, "fillStyle"),
 		Point(0, 0), font, text);
-	mutated();
+	canvasdamaged();
 }
 
 argreal(ex: ref Exec, args: array of ref Val, i: int): real
@@ -616,7 +633,7 @@ ctxstroke(ex: ref Exec, ctxo: ref Obj)
 		}
 		i = j;
 	}
-	mutated();
+	canvasdamaged();
 }
 
 ctxfill(ex: ref Exec, ctxo: ref Obj)
@@ -641,7 +658,7 @@ ctxfill(ex: ref Exec, ctxo: ref Obj)
 		}
 		i = j;
 	}
-	mutated();
+	canvasdamaged();
 }
 
 # brush from a context colour property (fillStyle/strokeStyle); default black.
