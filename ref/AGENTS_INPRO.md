@@ -47,9 +47,11 @@ pushed the boot further and exposed the next unconverted pointer path. This sess
 fixed **five** distinct root causes — call-frame temp, array-literal element-address
 temp, pointer comparison opcodes, optimizer liveness sizes, and the indexed-element
 address node type (the `Oindex`→`Oindx` rewrite) — all detailed below. There are no
-known remaining crashes on the CLI path. (Off-path LP64 items remain deferred:
-exceptions/EXLP64, `$Loader`, the `-S` `Tcasec` listing, devprog/devprof — see
-"Deferred LP64 items".)
+known remaining crashes on the CLI path. (The once-deferred off-path items have
+since been fixed — exceptions/EXLP64 and `$Loader` are done, below; only the `-S`
+`Tcasec` listing and the devprog/devprof pointer-text casts remain — see "Deferred
+LP64 items". One open *runtime* bug remains: the idle-Charon heap corruption, also
+below.)
 
 **Build dependencies:** the rule templates make a `.dis` depend on the `limbo`
 binary (`mkfiles/mkdis`) and a `.o` depend on the per-target flags mkfile
@@ -58,8 +60,8 @@ the build flags change — not just when a source `.b`/`.c` changes. (To force a
 full dis recompile anyway: `find appl -name '*.b' -exec touch {} +`.)
 
 This file records every place where something was turned off, stubbed, or worked
-around, plus the LP64 port design and the open bug, so the next person knows what
-is real vs. deferred.
+around, plus the LP64 port design and the one open runtime bug (the idle-Charon
+heap corruption, below), so the next person knows what is real vs. deferred.
 
 Build with the top-level `Makefile` (wraps `mk`, which has unreliable incremental
 dependency tracking — the Makefile nukes objects between components):
@@ -422,8 +424,9 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
 
 ### Temporary debug instrumentation
 - `emu/Linux/os.c` `sysfault()`: prints `LP64 fault: ... in <module> pc=<n> op=<n>`
-  via `modstatus(&R,...)` (added `#include "interp.h"`). Genuinely useful for the
-  per-module fault triage above; keep, or gate behind a flag before shipping.
+  via `modstatus(&R,...)` (added `#include "interp.h"`). Now a permanent part of the
+  fault path (the recoverable, non-`EMUCRASH` branch — see AGENTS_DEBUGGING.md
+  "Graceful failure isolation"); kept deliberately for per-module fault triage.
 - The `libinterp/xec.c` `OP(consp)`/`OP(headp)` `print("DBG …")` dumps have been
   **removed**, and `appl/cmd/emuinit.b` has been **restored** from git (it is the real
   emuinit again). The `lt.b`/`t64.b` reproducers under `appl/cmd/` can stay as tests.
@@ -612,6 +615,41 @@ rebuilt module frees cleanly:
 - **`emu/port/devprog.c`, `devprof.c`**: a few pointer↔int casts (the `/prog` and
   `/prof` filesystems expose VM pointers as text) warn under LP64; revisit if those
   devices are used.
+
+### Open runtime bug — idle-Charon heap corruption (stray free-tree pointer)
+
+The one known open runtime bug, and it has a strong LP64 fingerprint. Closing a
+Charon window that has been **left idle for ~an hour** (intermittently) aborts the
+whole emu: the pool free-tree integrity auditor (`poolcheck`/`poolaudit`, armed by
+default — `EMUPOOLCHECK`, every 64th GC) detects a corrupt free block, or the
+teardown `pooldel` dereferences the bad pointer and faults.
+
+**Signature (two independent cores analysed):** a freed **128-byte block in the
+`main` pool** whose free-tree **`parent` pointer** has had **bit 36 cleared**
+(equivalently `- 0x10_0000_0000` / `^ (1<<36)`) — the **low 32 bits stay intact**,
+only the high half loses that one bit. Proven by the back-pointer (the real parent's
+`left` child points at the victim, and the stored value is that address minus bit
+36, now unmapped). **Same bit, same size class, only the `parent` field, in two
+ASLR-independent processes** → a systematic software bug, not hardware and not a
+torn/stale store (aligned 64-bit stores don't tear).
+
+**Why it reads as LP64:** bit 36 sits just above the 32-bit boundary, and the bug
+only turns *fatal* when ASLR maps the arena high enough that bit 36 is set in real
+pointers (matches the "ASLR-off masks high-address bugs" observation). That points
+at a 64→32 narrowing / bad mask in some pointer arithmetic. **The allocator is
+exonerated** (`alloc`/`free`/coalesce/`pooldel`/`pooladd`/`poolcompact` all copy
+`parent` as clean 64-bit stores; the free tree is verified *clean during idle* —
+the corrupting write happens at the move-window + close teardown). So an external
+writer is hitting the high half of that slot.
+
+**Status:** characterised, not yet root-caused — **parked**. It is not data-loss
+(crash on close), and `poolcheck`'s `abort()` on detection is the correct, safe
+response (never continue on a corrupt heap). Next step is a static hunt for the
+`1<<36` / `- 0x1000000000` pointer-arith site (weight the draw/teardown path and the
+`tests/lint/baseline.txt` narrowing sites), or mining a fresh core for the freed
+object's identity. Full detail + repro recipe: the project memory note
+`charon-close-heap-corruption` and AGENTS_DEBUGGING.md ("Graceful failure
+isolation", `EMUCRASH`, `EMUPOOLCHECK`).
 
 ## Second LP64 target: Linux/amd64 (x86-64) — glue added, UNBUILT/UNTESTED
 amd64 Linux is also LP64, so it **reuses the entire shared LP64 model** (the

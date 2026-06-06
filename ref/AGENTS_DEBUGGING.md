@@ -400,6 +400,43 @@ signature) and triggers a one-shot dump.
 > proc you can reach; these hooks are for faults/hangs that kill or freeze the
 > system before you can `cat /prog/*/status`.
 
+### Graceful failure isolation — what already survives, what aborts
+
+A single misbehaving app does **not**, in general, take emu down — Dis already
+isolates procs. The full model:
+
+| Failure | Path | Outcome |
+|---|---|---|
+| Limbo proc faults (nil deref, bounds, `raise`) | Dis exception → `killprog`/`killgrp` | that proc(group) dies, **scheduler continues** |
+| Wild-address `SIGSEGV`/`SIGBUS`/`SIGILL`/`SIGFPE` in the VM | `trapmemref`/`trapILL`/`trapFPE` → `sysfault` → `disfault` | converted to a Limbo exception → kills the faulting app, **emu survives** |
+| …same, but with `EMUCRASH=1` | `syscrash` → dump + restore `SIG_DFL` + re-raise | **whole emu dies** with a core (intentional, for debugging) |
+| Heap corruption | `poolcheck` → `abort()` | **whole emu dies** (unrecoverable — the stray free-tree-pointer class) |
+
+`disfault` (`emu/port/dis.c:1035`) `oslongjmp`s back to `vmachine`'s
+`waserror()` loop, which runs the prog's handler or `progexit()`s it, then
+re-enters the scheduler. nil derefs are recognised by `isnilref`
+(`addr==~0 || addr<512`) and stay ordinary exceptions even under `EMUCRASH`.
+
+**Two known gaps (analysed; left as-is by decision, 2026-06-06):**
+
+1. **The `EMUCRASH` trade-off.** `EMUCRASH=1` (the standard dev setting, see
+   [[always-launch-emucrash]]) turns *every* wild fault into a fatal core, so an
+   app crash kills the whole desktop. Without `EMUCRASH`, emu already survives
+   app faults — but then there is no core. You currently get one or the other.
+   A *fork-to-core* design (fault handler `fork()`s; child re-raises for the core,
+   parent `disfault`s and lives) could give both; `fork()` is async-signal-safe
+   and emu already forks in `cmd.c:119`. Not implemented (deliberately, for now).
+2. **The graceful path is not lock-safe.** `disfault`'s longjmp does not release
+   any C-level lock the faulting thread held (there is no per-proc held-lock
+   tracking), so a fault inside a locked region can leak the lock and deadlock
+   later; graceful recovery can also *mask* the original corruption (it resurfaces
+   "layers later"). Making it provably safe would need a per-proc lock stack
+   released in `disfault`. Not implemented.
+
+Decision: the existing model is adequate — run `EMUCRASH` selectively (drop it
+for daily desktop use to keep app crashes isolated; set it when hunting a fault).
+Keep `abort()` on `poolcheck`; never continue on a known-corrupt heap.
+
 ---
 
 ## Catching LP64 width bugs statically and semantically
