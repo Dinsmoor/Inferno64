@@ -471,7 +471,15 @@ termset(void)
 
 	tcgetattr(0, &t);
 	tinit = t;
-	t.c_lflag &= ~(ICANON|ECHO|ISIG);
+	/*
+	 * Raw input (no canonical line editing, no echo) but keep ISIG so the
+	 * tty still turns the control chars into host signals: ^C -> SIGINT
+	 * (caught by cleanexit, below, which tears emu down like a normal Linux
+	 * program), ^Z -> SIGTSTP (suspend), ^\ -> SIGQUIT (core dump). The
+	 * trade-off is that ^C is no longer delivered to Inferno as a console
+	 * interrupt byte.
+	 */
+	t.c_lflag &= ~(ICANON|ECHO);
 	t.c_cc[VMIN] = 1;
 	t.c_cc[VTIME] = 0;
 	tcsetattr(0, TCSANOW, &t);
@@ -682,15 +690,14 @@ readkbd(void)
 		buf[0] = 'H' - '@';
 		break;
 	case CTRLBS:
-		/* hard kill of the whole emu, the escape hatch that ^C used
-		 * to provide. */
+		/*
+		 * Hard kill, kept as a fallback for ttys with ISIG disabled.
+		 * With the normal raw mode set by termset() ^\ is intercepted
+		 * by the tty as SIGQUIT and never reaches here; likewise ^C is
+		 * delivered as SIGINT (-> cleanexit) rather than as a byte.
+		 */
 		cleanexit(0);
 		break;
-	/*
-	 * ^C is intentionally NOT a hard kill any more: it is passed through
-	 * as a normal byte so the interactive shell/line-editor can treat it
-	 * like bash does (cancel the current input line).
-	 */
 	}
 	return buf[0];
 }

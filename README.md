@@ -111,6 +111,18 @@ run:
 ./Linux/aarch64/bin/emu -r"$PWD" /dis/sh.dis
 ```
 
+To run Dis through the **AArch64 JIT** (native code compiler) instead of the
+interpreter, add `-c1`:
+
+```sh
+./Linux/aarch64/bin/emu -c1 -r"$PWD" -g1280x800 wm/wm
+```
+
+`-c` takes a numeric level (`-c1`…`-c9`); any non-zero value turns the compiler
+on, `-c0` (the default) is the pure interpreter. `emu -v` prints `compile` vs
+`interp` so you can confirm which is active. Leave the `-B` flag (which disables
+the JIT's array-bounds checks) **off** while chasing the heap bugs.
+
 On an x86-64 host the binary lives at `./Linux/amd64/bin/emu` instead. For a
 headless box, run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server)
 and point `DISPLAY` at it before launching `wm/wm`.
