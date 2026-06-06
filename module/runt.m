@@ -9,3 +9,4 @@ include "ipints.m";
 include "crypt.m";
 include "loader.m";
 include "freetype.m";
+include "raster3.m";
