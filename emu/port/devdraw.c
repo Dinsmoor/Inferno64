@@ -1989,6 +1989,44 @@ drawqunlock(void)
 	qunlock(&sdraw.q);
 }
 
+/*
+ * Rasterize a triangle mesh straight into a draw image's Memimage (the native
+ * 3D primitive memmesh; see libmemdraw/mesh.c).  Resolves the destination (and
+ * optional texture) the same way drawlsetrefresh does -- by (client path, id)
+ * -- and runs under the draw qlock so it serializes with every other draw op.
+ * Vertex/index/depth storage is caller-owned (Limbo arrays passed straight
+ * through as raw pointers); verts is a Memvtx array.  dst must be an off-screen
+ * (non-layer) image -- the usual double-buffer target you then blit/dirty.
+ */
+int
+drawmesh3(ulong qidpath, int dstid, int texid, double *zbuf,
+	void *verts, int nv, int *idx, int ntri, int mode, int cull)
+{
+	Client *client;
+	DImage *dd, *dt;
+	Memimage *dst, *tex;
+	int ret;
+
+	client = drawclientofpath(qidpath);
+	if(client == nil)
+		return 0;
+	qlock(&sdraw.q);
+	ret = 0;
+	dd = drawlookup(client, dstid, 0);
+	if(dd != nil && dd->image != nil && dd->image->layer == nil){
+		dst = dd->image;
+		tex = nil;
+		if(texid != 0){
+			dt = drawlookup(client, texid, 0);
+			if(dt != nil)
+				tex = dt->image;
+		}
+		ret = memmesh(dst, zbuf, verts, nv, idx, ntri, tex, mode, cull);
+	}
+	qunlock(&sdraw.q);
+	return ret;
+}
+
 void
 interf(void)
 {

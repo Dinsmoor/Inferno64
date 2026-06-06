@@ -22,7 +22,9 @@ host a software-rendered animated frame in a window), [AGENTS_LIMBO.md](AGENTS_L
 | Module | Kind | Files | Purpose |
 |--------|------|-------|---------|
 | `Raymath` | pure Limbo | `module/raymath.m`, `appl/lib/raymath.b` | Vector2/3/4, 4×4 Matrix, quaternions, easings. Mechanical port of raylib `raymath.h`. Backed by `$Math`. |
-| `Raster3` | **C builtin** | `module/raster3.m`, `libinterp/raster3.c` | Per-pixel rasterizer + z-buffer, and the C vertex stage. The one focused C effort. |
+| `memmesh` | **C, libmemdraw** | `libmemdraw/mesh.c` | The native primitive: triangle fill + per-pixel z-buffer + the vertex stage, writing into any `Memimage`. Portable (hosted + native os/). |
+| `drawmesh3` | **C, devdraw** | `emu/port/devdraw.c` | Thin bridge: resolves a Draw image id → `Memimage`, takes the draw qlock, calls `memmesh`. |
+| `Raster3` | **C builtin** | `module/raster3.m`, `libinterp/raster3.c` | Limbo face: marshals args, calls `drawmesh3`/`memmeshproject`. Renders straight into a Draw image. |
 | `Objloader` | pure Limbo | `module/objloader.m`, `appl/lib/objloader.b` | Wavefront `.obj` reader (v/vt/vn, fan-triangulation, smooth normals, bbox). |
 | demos | Limbo | `appl/wm/raycube.b`, `raycube3.b`, `rayteapot.b`; `appl/cmd/raytest.b` | cube (painter), interpenetrating cubes (z-buffer), teapot viewer (windowed), headless self-test. |
 
@@ -51,15 +53,28 @@ Call `rm->init()` once after loading (it loads `$Math`).
 
 ---
 
-## $Raster3 (the C kernel)
+## Architecture: a native draw primitive (not a side kernel)
 
-`module/raster3.m` declares the builtin `PATH: con "$Raster3"`. All buffers are
-**caller-owned Limbo arrays** — there is no Memimage/devdraw coupling; you blit
-the result yourself with `Image.writepixels`.
+The rasterizer **extends the native draw system**: `memmesh` is a libmemdraw
+primitive that writes directly into a Draw image's `Memimage` pixel store, in
+that image's own channel order — no intermediate framebuffer, no XRGB32 array,
+no manual blit. This makes it reusable (any consumer, including Charon's
+`<canvas>`, can rasterize into its own node image) and native-capable.
+
+Three layers:
+- **`libmemdraw/mesh.c`** — `memmesh(dst, zbuf, verts, nv, idx, ntri, tex, mode,
+  cull)` and `memmeshproject(...)`. Portable C; the actual per-pixel and
+  per-vertex math. Writes any 8-bit-channel image (RGB24/XRGB32/RGBA32/BGR…).
+- **`emu/port/devdraw.c` `drawmesh3`** — resolves `(client path, image id) →
+  Memimage` exactly like `drawlsetrefresh`, takes the draw qlock (`sdraw.q`), and
+  calls `memmesh`. The interface is primitive C types only, so no header coupling.
+- **`libinterp/raster3.c`** — the `$Raster3` builtin (`PATH: con "$Raster3"`).
+  Marshals Limbo args: `checkimage(dst)` → libdraw `Image*` → `(display->dataqid,
+  id)` → `drawmesh3`; `projectmesh` calls `memmeshproject` directly.
 
 ```limbo
 Vtx: adt {                  # a vertex already projected to screen space
-    x, y: real;             # screen pixel coordinates
+    x, y: real;             # image-LOCAL pixel coordinates (0,0 == image min)
     z:    real;             # depth (NDC z); smaller is nearer
     iw:   real;             # 1/w_clip, for perspective-correct interpolation
     u, v: real;             # texture coordinates 0..1
@@ -67,52 +82,65 @@ Vtx: adt {                  # a vertex already projected to screen space
 };
 
 cleardepth:  fn(zbuf: array of real, val: real);                  # use 1e30
-clearcolor:  fn(pix: array of byte, w, h, r, g, b: int);          # 0..255
-drawmesh:    fn(pix: array of byte, zbuf: array of real, w, h: int,
+drawmesh:    fn(dst: ref Draw->Image, zbuf: array of real,
                 verts: array of Vtx, tris: array of int,
-                tex: array of byte, tw, th: int, mode, cull: int);
+                tex: ref Draw->Image, mode, cull: int);
 projectmesh: fn(out: array of Vtx, pos, nrm, uv: array of real, nv: int,
                 mvp, nmat: array of real, w, h: real,
                 light: array of real, ambient: real, base: array of real);
 ```
 
+There is no `clearcolor` — clear the destination with ordinary Draw
+(`img.draw(img.r, colour, nil, (0,0))`). `drawmesh` reads `w,h` from `dst.r`;
+the depth buffer is one `real` per pixel of `dst.r` (`Dx*Dy`, or nil to skip the
+depth test).
+
 - **modes**: `FLAT` (vertex-a colour), `GOURAUD` (interpolated), `TEXTURED`
-  (perspective-correct texture modulated by colour). **cull**: `CULLNONE`,
-  `CULLNEG`/`CULLPOS` (by signed screen area — pick per winding).
-- `drawmesh` is an edge-function rasterizer with a per-pixel z-buffer (smaller =
-  nearer; z is NDC z, screen-linear). Texturing is perspective-correct via `iw`.
+  (perspective-correct texture, the texture is itself a Draw image). **cull**:
+  `CULLNONE`, `CULLNEG`/`CULLPOS` (by signed screen area — pick per winding).
 - `projectmesh` runs the **entire vertex stage in C**: model→clip transform,
-  perspective divide, viewport map, and optional directional Gouraud shading,
-  filling the `Vtx` array in one call. Pre-pack model-space `pos`/`nrm` into flat
-  `array of real` once (3 reals/vertex); pass `mvp`/`nmat` as the 16-real
-  `Matrix.m`. Normals are used **un-renormalised** (faithful to `Vector3.transform`
-  + dot shading), so `nmat` must be a rotation and input normals unit.
+  perspective divide, viewport map, optional directional Gouraud shading. Pre-pack
+  model-space `pos`/`nrm` into flat `array of real` once (3 reals/vertex); pass
+  `mvp`/`nmat` as the 16-real `Matrix.m`. Normals are used **un-renormalised**
+  (faithful to `Vector3.transform` + dot shading), so `nmat` must be a rotation.
+- `dst` must be an **off-screen image** (not a live window/layer); render into it,
+  then blit it to your window (the usual double-buffer). `Memvtx` in `memdraw.h`
+  is laid out identically to the Limbo `Vtx` (10 doubles) so the array passes
+  straight through.
 
-### Pixel format (critical)
+### Pixel format
 
-The framebuffer is **XRGB32**: 4 bytes/pixel in memory order **B, G, R, X**
-(the word `X<<24 | R<<16 | G<<8 | B` that `win-x11a.c` expects on a little-endian
-host). Allocate the destination Draw image with `Draw->XRGB32` and blit with
-`Image.writepixels`. The depth buffer is one `real` per pixel. (Derived from
-`win-x11a.c`; it was correct first try — if red/blue ever swap, flip the B/R
-store order in `raster3.c`.)
+`memmesh` writes in the destination's own channel order, derived from its `chan`
+descriptor (`shift[t]/8` = byte offset of channel `t`, little-endian). Any
+8-bit-byte-aligned format works — RGB24, XRGB32, RGBA32, ABGR32, BGR24, GREY8;
+non-8-bit formats (e.g. RGB16) are rejected. The depth buffer is one `real` per
+pixel. (The old code hard-coded XRGB32 B,G,R,X; that is now just one of the
+cases this derives automatically.)
 
-### Locking model
+### Locking / ordering model
 
-`raster3.c` holds the VM lock for the whole call: it only reads/writes
-caller arrays already on the heap, never allocates and never re-enters Dis, so
-the arrays cannot move under it. **No `release()`/`acquire()`** — that pattern is
-for long C calls that might block or call back into the VM (see FreeType/mbedTLS);
-it would be *wrong* here because we hold raw pointers into Limbo arrays.
+`drawmesh3` runs under the draw qlock (`sdraw.q`), the same lock every draw op
+holds, so it serializes with compositing/flush. The VM lock is held throughout
+(we point into caller-owned Limbo arrays — no `release()`/`acquire()`, which
+would let the GC move them).
+
+**The ordering gotcha:** Limbo Draw ops are *buffered* and flushed lazily, but
+`memmesh` writes the Memimage *immediately*. So `Raster3_drawmesh` first calls
+`flushimage(dst.display, 0)` (under `lockdisplay`) to apply any pending ops — e.g.
+the background clear queued just before — *before* it rasterizes. Without that
+flush the clear lands on top of the mesh and you get a blank image (debugged the
+hard way: the direct write was correct but `readpixels` saw black).
 
 ---
 
 ## The pipeline
 
 1. Load/parse mesh (Objloader, Limbo). Centre + uniformly scale to ~[-1,1].
-2. Per frame: build `mvp = model·view·proj`; `projectmesh` (C) → `Vtx[]`.
-3. `clearcolor` + `cleardepth`, then `drawmesh` (C) into the `pix`/`zbuf` arrays.
-4. `writepixels` the XRGB32 `pix` into a Draw image; blit to the window.
+2. Allocate an off-screen Draw image + a `real` depth buffer sized to it.
+3. Per frame: build `mvp = model·view·proj`; `projectmesh` (C) → `Vtx[]`.
+4. Clear the image with native Draw + `cleardepth`, then `drawmesh` (C) writes
+   straight into the image's pixels; blit the image to the window (or hand it to
+   `<canvas>`).
 
 **Painter's vs z-buffer.** A single convex solid (e.g. one cube) can skip the
 z-buffer entirely: sort faces by view-space depth and `fillpoly` with native
@@ -133,16 +161,24 @@ setup, control flow, and asset I/O in Limbo.**
 
 ---
 
-## Build wiring (builtin-module checklist)
+## Build wiring
 
-`$Raster3` follows the FreeType/mbedTLS builtin precedent:
+The native primitive + bridge:
+- `libmemdraw/mesh.c` → add `mesh.$O` to `COMMONFILES` in `libmemdraw/mkfile`
+  (portable, so the common list). Declares `Memvtx`/`memmesh`/`memmeshproject`
+  in `include/memdraw.h`.
+- `emu/port/devdraw.c` `drawmesh3`, declared in `include/draw.h` next to
+  `drawlsetrefresh` (the precedent for a devdraw function libinterp calls).
+
+The `$Raster3` builtin follows the FreeType/mbedTLS precedent:
 - `module/raster3.m` (`PATH: con "$Raster3"`) and an include in `module/runt.m`.
-- `libinterp/raster3.c` with `raster3modinit()` → `builtinmod("$Raster3", …)`.
-- `libinterp/mkfile`: add `raster3.$O` to OFILES, a `raster3mod.h` gen rule
-  (`limbo -t Raster3`), the `.c → mod.h` dependency, `GENHFILES`, and nuke.
-  (`raster3mod.h` is generated — gitignored, not checked in.)
-- `emu/Linux/emu` and `emu/Linux/emu-g`: add `raster3` to the `mod` section
-  (regenerates `emu/Linux/emu.c`).
+- `libinterp/raster3.c` with `raster3modinit()` → `builtinmod("$Raster3", …)`;
+  it includes `<draw.h> <drawif.h> <memdraw.h>` for `checkimage`/`Memvtx`.
+- `libinterp/mkfile`: `raster3.$O` in OFILES + the `raster3mod.h` gen rule
+  (`limbo -t Raster3`) + dep + `GENHFILES` + nuke. (`raster3mod.h` is generated,
+  gitignored. The `F_*`/`Raster3_Vtx` structs are emitted into `runt.h` because
+  raster3.m is in `runt.m`.)
+- `emu/Linux/{emu,emu-g}`: `raster3` in the `mod` section.
 
 `make all` force-regenerates all generated module headers per-ABI, so a 32↔64
 ABI switch can't leave a stale `raster3mod.h`.
@@ -160,10 +196,12 @@ ABI switch can't leave a stale `raster3mod.h`.
 
 ## Testing
 
-- `appl/cmd/raytest.b` — headless self-test, **PASS 15/15**: Raymath identities
-  (I·T, invert, cross/dot/length/normalize, rotate preserves length, lookat) and
-  `$Raster3` z-buffer behaviour (near-over-far, far-rejected), plus a check that
-  `projectmesh` (C) reproduces the Limbo `transformp` path numerically.
-  Run: `emu /dis/raytest.dis`.
+- `appl/cmd/raytest.b` — self-test, **PASS 15/15**: Raymath identities (I·T,
+  invert, cross/dot/length/normalize, rotate preserves length, lookat), a check
+  that `projectmesh` (C) reproduces the Limbo `transformp` path numerically, and
+  `$Raster3` z-buffer behaviour (fills, near-over-far, far-rejected). The raster
+  checks now rasterize into a real Draw image and read it back, so they need a
+  display: run `emu -g320x240 /dis/raytest.dis` (headless they self-skip; the 12
+  Raymath/projectmesh checks still run).
 - `make test_all_unit` (cunit) covers the underlying libs.
 - Visual: `wm/rayteapot` (menu: Games → Teapot (3D)); `wm/raycube`, `wm/raycube3`.

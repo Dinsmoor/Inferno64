@@ -131,6 +131,38 @@ extern void	memfillcolor(Memimage*, ulong);
 extern int		memsetchan(Memimage*, ulong);
 
 /*
+ * 3D software rasterizer (mesh.c): triangle fill with a per-pixel depth buffer,
+ * flat/Gouraud/perspective-correct-textured, writing into any 8-bit-channel
+ * Memimage in its own channel order.  A Memvtx is a vertex already projected to
+ * screen space; its layout matches the Limbo $Raster3 Vtx adt (10 contiguous
+ * doubles) so a Limbo Vtx array can be passed straight through.
+ */
+typedef struct Memvtx Memvtx;
+struct Memvtx
+{
+	double	x, y;		/* screen pixel coordinates (image-local) */
+	double	z;		/* depth (NDC z); smaller is nearer */
+	double	iw;		/* 1/w_clip, for perspective-correct interpolation */
+	double	u, v;		/* texture coordinates 0..1 */
+	double	r, g, b, a;	/* colour 0..1 */
+};
+
+enum {				/* shading modes */
+	MEMmeshFLAT	= 0,
+	MEMmeshGOURAUD	= 1,
+	MEMmeshTEXTURED	= 2,
+};
+enum {				/* back-face culling by signed screen area */
+	MEMmeshCULLNONE	= 0,
+	MEMmeshCULLNEG	= 1,
+	MEMmeshCULLPOS	= 2,
+};
+
+extern int	memmesh(Memimage*, double*, Memvtx*, int, int*, int, Memimage*, int, int);
+extern void	memmeshproject(Memvtx*, double*, double*, double*, int,
+			double*, double*, double, double, double*, double, double*);
+
+/*
  * Graphics
  */
 extern void	memdraw(Memimage*, Rectangle, Memimage*, Point, Memimage*, Point, int);

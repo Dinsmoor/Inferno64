@@ -487,8 +487,14 @@ Two gotchas that produce exactly-broken-looking windows:
 
 Animate with a separate ticker proc sending on a channel that the main `alt`
 selects on alongside `win.ctxt.kbd/ptr/ctl` and `wmcmd`; do the render in the
-main proc on each tick so all image ops stay single-threaded. `appl/wm/rayteapot.b`
-is the worked example; `appl/wm/polyhedra.b` is the older in-tree precedent.
+main proc on each tick so all image ops stay single-threaded.
+
+The pattern above (XRGB32 scratch → `writepixels` → `disp.draw`) suits any
+producer of raw pixel bytes. If a C primitive can write the panel image's
+`Memimage` directly (the `$Raster3` 3D rasterizer does — see AGENTS_3D.md), skip
+the scratch image and rasterize straight into the panel image, then `.p dirty` +
+`update`. `appl/wm/rayteapot.b` is that worked example; `appl/wm/polyhedra.b` is
+the older in-tree precedent for the panel/ticker loop.
 
 ## Key Files
 

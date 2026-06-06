@@ -1,14 +1,19 @@
 implement RayTest;
 
 #
-# raytest - headless self-test for the raylib-in-Limbo port: numeric checks
-# on Raymath plus a z-buffer/raster check on $Raster3.  Prints "raytest: PASS
-# n/n" and exits nonzero on any failure.  Run with:  emu /dis/raytest.dis
+# raytest - self-test for the raylib-in-Limbo port: numeric checks on Raymath
+# and the C vertex stage, plus z-buffer/raster checks on $Raster3.  Prints
+# "raytest: PASS n/n" and exits nonzero on any failure.  The raster checks now
+# rasterize into a real Draw image (the native zero-copy path), so they need a
+# display: run under one, e.g.  emu -g320x240 /dis/raytest.dis  (headless they
+# are skipped; the Raymath + projectmesh checks still run).
 #
 
 include "sys.m";
 	sys: Sys;
 include "draw.m";
+	draw: Draw;
+	Display, Image, Rect: import draw;
 include "raymath.m";
 	rm: Raymath;
 	Vector3, Matrix: import rm;
@@ -52,6 +57,7 @@ init(nil: ref Draw->Context, nil: list of string)
 {
 	sys = load Sys Sys->PATH;
 	stderr = sys->fildes(2);
+	draw = load Draw Draw->PATH;
 	rm = load Raymath Raymath->PATH;
 	if(rm == nil){
 		sys->fprint(stderr, "raytest: cannot load Raymath\n");
@@ -186,42 +192,59 @@ testproject()
 	check(ok, "projectmesh matches Limbo transformp");
 }
 
+# centre pixel is green: G byte high, R byte low (XRGB32 read order B,G,R,X)
+isgreen(pix: array of byte, idx: int): int
+{
+	return int pix[idx+1] > 200 && int pix[idx+2] < 50;
+}
+
 testraster()
 {
 	w := 8;
 	h := 8;
-	pix := array[w*h*4] of byte;
+	disp := Display.allocate(nil);
+	if(disp == nil){
+		sys->fprint(stderr, "raytest: no display; skipping raster tests\n");
+		return;
+	}
+	img := disp.newimage(Rect((0,0),(w,h)), draw->XRGB32, 0, draw->Black);
+	if(img == nil){
+		sys->fprint(stderr, "raytest: cannot allocate image; skipping raster tests\n");
+		return;
+	}
+	black := disp.black;
 	zbuf := array[w*h] of real;
 	verts := array[4] of Vtx;
 	tris := array[] of {0, 1, 2,  0, 2, 3};
+	pix := array[w*h*4] of byte;
 
-	cx := 4;
-	cy := 4;
-	idx := (cy*w + cx)*4;
+	idx := (4*w + 4)*4;	# centre pixel byte offset
 
-	# a single green quad should fill the centre pixel (XRGB32 bytes B,G,R,X)
-	raster->clearcolor(pix, w, h, 0, 0, 0);
+	# a single green quad should fill the centre pixel
+	img.draw(img.r, black, nil, (0,0));
 	raster->cleardepth(zbuf, 1e30);
 	quad(verts, w, h, 0.0, 0.0, 1.0, 0.0);
-	raster->drawmesh(pix, zbuf, w, h, verts, tris, nil, 0, 0,
-		Raster3->GOURAUD, Raster3->CULLNONE);
-	check(int pix[idx+1] > 200 && int pix[idx+2] < 50, "raster fills (green)");
+	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
+	img.readpixels(img.r, pix);
+	check(isgreen(pix, idx), "raster fills (green)");
 
 	# z-buffer: a NEAR green quad must win over a FAR red one, drawn far-first
-	raster->clearcolor(pix, w, h, 0, 0, 0);
+	img.draw(img.r, black, nil, (0,0));
 	raster->cleardepth(zbuf, 1e30);
 	quad(verts, w, h, 0.5, 1.0, 0.0, 0.0);		# far red
-	raster->drawmesh(pix, zbuf, w, h, verts, tris, nil, 0, 0, Raster3->GOURAUD, Raster3->CULLNONE);
+	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
 	quad(verts, w, h, -0.5, 0.0, 1.0, 0.0);		# near green
-	raster->drawmesh(pix, zbuf, w, h, verts, tris, nil, 0, 0, Raster3->GOURAUD, Raster3->CULLNONE);
-	check(int pix[idx+1] > 200 && int pix[idx+2] < 50, "zbuffer near-over-far");
+	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
+	img.readpixels(img.r, pix);
+	check(isgreen(pix, idx), "zbuffer near-over-far");
 
 	# ... and the far red must be REJECTED when drawn after the near green
-	raster->clearcolor(pix, w, h, 0, 0, 0);
+	img.draw(img.r, black, nil, (0,0));
 	raster->cleardepth(zbuf, 1e30);
 	quad(verts, w, h, -0.5, 0.0, 1.0, 0.0);		# near green first
-	raster->drawmesh(pix, zbuf, w, h, verts, tris, nil, 0, 0, Raster3->GOURAUD, Raster3->CULLNONE);
+	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
 	quad(verts, w, h, 0.5, 1.0, 0.0, 0.0);		# far red second (must be hidden)
-	raster->drawmesh(pix, zbuf, w, h, verts, tris, nil, 0, 0, Raster3->GOURAUD, Raster3->CULLNONE);
-	check(int pix[idx+1] > 200 && int pix[idx+2] < 50, "zbuffer rejects far");
+	raster->drawmesh(img, zbuf, verts, tris, nil, Raster3->GOURAUD, Raster3->CULLNONE);
+	img.readpixels(img.r, pix);
+	check(isgreen(pix, idx), "zbuffer rejects far");
 }

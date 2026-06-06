@@ -494,6 +494,7 @@ extern Subfont*	getdefont(Display*);
 extern int		lockdisplay(Display*);
 extern void	unlockdisplay(Display*);
 extern int		drawlsetrefresh(ulong, int, void*, void*);
+extern int		drawmesh3(ulong, int, int, double*, void*, int, int*, int, int, int);
 
 /* Compositing operator utility */
 extern void	_setdrawop(Display*, Drawop);

@@ -7,8 +7,8 @@ implement RayCube3;
 # interpenetrate, occlusion must be decided per pixel by depth.
 #
 # Vertex processing (transform, project, light) is Limbo via Raymath; the
-# inner per-pixel loop is the C kernel $Raster3.  The framebuffer is a plain
-# Limbo XRGB32 byte array, blitted each frame with Image.writepixels.
+# inner per-pixel loop is the C kernel $Raster3, which rasterizes straight into
+# an off-screen Draw image (back buffer) that is then blitted to the screen.
 #
 #	emu -g640x480 /dis/wm/raycube3.dis [nframes]
 #
@@ -69,8 +69,8 @@ init(nil: ref Draw->Context, argv: list of string)
 	W = screen.r.dx();
 	H = screen.r.dy();
 
-	fbimg := disp.newimage(screen.r, draw->XRGB32, 0, draw->Black);
-	pix := array[W*H*4] of byte;
+	back := disp.newimage(screen.r, screen.chans, 0, draw->Black);
+	bg := disp.rgb(12, 12, 18);
 	zbuf := array[W*H] of real;
 	verts := array[48] of Vtx;	# 2 cubes * 6 faces * 4 verts
 	tris := buildtris();
@@ -93,13 +93,12 @@ init(nil: ref Draw->Context, argv: list of string)
 		buildcube(verts, 0, modelA, mvpA, Vector3(0.95, 0.30, 0.30));
 		buildcube(verts, 24, modelB, mvpB, Vector3(0.30, 0.55, 0.95));
 
-		raster->clearcolor(pix, W, H, 12, 12, 18);
+		back.draw(back.r, bg, nil, (0,0));
 		raster->cleardepth(zbuf, 1e30);
-		raster->drawmesh(pix, zbuf, W, H, verts, tris, nil, 0, 0,
+		raster->drawmesh(back, zbuf, verts, tris, nil,
 			Raster3->FLAT, Raster3->CULLNONE);
 
-		fbimg.writepixels(fbimg.r, pix);
-		screen.draw(screen.r, fbimg, nil, fbimg.r.min);
+		screen.draw(screen.r, back, nil, back.r.min);
 		screen.flush(draw->Flushnow);
 
 		ang += 0.03;

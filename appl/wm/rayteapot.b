@@ -36,10 +36,9 @@ RayTeapot: module
 
 # render state, recreated whenever the window is resized
 mainwin: ref Toplevel;
-disp: ref Image;	# panel-bound image (screen channel format)
-fbimg: ref Image;	# XRGB32 scratch the C kernel writes into
+disp: ref Image;	# panel-bound image; the rasterizer writes into it directly
+bg: ref Image;		# background fill colour
 W, H: int;
-pix: array of byte;
 zbuf: array of real;
 proj: Matrix;
 
@@ -188,13 +187,12 @@ setimage(win: ref Toplevel): int
 	if(H < 3) H = 3;
 	r := Rect((0,0), (W,H));
 	disp = win.image.display.newimage(r, win.image.chans, 0, draw->Black);
-	fbimg = win.image.display.newimage(r, draw->XRGB32, 0, draw->Black);
-	if(disp == nil || fbimg == nil){
+	if(disp == nil){
 		sys->fprint(sys->fildes(2), "rayteapot: not enough image memory\n");
 		return 0;
 	}
 	tk->putimage(win, ".pbd.p", disp, nil);
-	pix = array[W*H*4] of byte;
+	bg = win.image.display.rgb(15, 15, 22);
 	zbuf = array[W*H] of real;
 	proj = Matrix.perspective(45.0*rm->DEG2RAD, real W/real H, 0.1, 100.0);
 	return 1;
@@ -209,13 +207,12 @@ render(ang: real)
 	raster->projectmesh(verts, pos, nrm, nil, nv, mvp.m, rot.m,
 		real W, real H, light, amb, base);
 
-	raster->clearcolor(pix, W, H, 15, 15, 22);
+	# clear, then rasterize straight into the panel image (no scratch buffer)
+	disp.draw(disp.r, bg, nil, (0,0));
 	raster->cleardepth(zbuf, 1e30);
-	raster->drawmesh(pix, zbuf, W, H, verts, tris, nil, 0, 0,
+	raster->drawmesh(disp, zbuf, verts, tris, nil,
 		Raster3->GOURAUD, Raster3->CULLNONE);
 
-	fbimg.writepixels(fbimg.r, pix);
-	disp.draw(disp.r, fbimg, nil, fbimg.r.min);
 	tk->cmd(mainwin, sys->sprint(".pbd.p dirty 0 0 %d %d", W, H));
 	tk->cmd(mainwin, "update");
 }
