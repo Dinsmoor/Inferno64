@@ -38,6 +38,12 @@ DEST=$ROOT/dis/collab
 
 ALL = $SERVERS $CLIENTS $LIB $MAIN
 
+# Installed copies under $DEST.  Precompute the pattern-substitution here (parse
+# time) -- mk only expands ${var:%=%} in dependency/assignment lines, not inside
+# a recipe, where it would reach the shell verbatim and abort ("Bad
+# substitution" under dash).
+ALLINST = ${ALL:%=$DEST/%}
+
 all:V:	$ALL
 
 install:V: ${SERVERS:%=$DEST/%} \
@@ -46,7 +52,7 @@ install:V: ${SERVERS:%=$DEST/%} \
 	${MAIN:%=$DEST/%}
 
 $DEST/%.dis:	%.dis
-	cp $stem.dis $target
+	mkdir -p `dirname $target` && cp $stem.dis $target
 
 %.dis:		$MODULES ${SYSMODULES:%=$ROOT/module/%}
 
@@ -59,4 +65,4 @@ clean:NV:
 	rm -f *.dis *.sbl */*.dis */*.sbl
 
 nuke:NV: clean
-	cd $DEST && rm -f $ALL
+	rm -f $ALLINST

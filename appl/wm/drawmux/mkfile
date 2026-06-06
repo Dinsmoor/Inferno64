@@ -22,6 +22,11 @@ SYSMODULES=\
 DISBIN=$ROOT/dis/wm
 DISLIB=$ROOT/dis/lib
 
+# Installed lib copies.  Precompute the pattern-substitution at parse time: mk
+# does not expand ${var:%=%} inside a recipe, where it would reach the shell
+# verbatim and abort ("Bad substitution" under dash).
+LIBINST=${LIBTARG:%=$DISLIB/%}
+
 all:V:	$TARG $LIBTARG
 
 install:V:	$DISBIN/dmview.dis $DISBIN/dmwm.dis $DISLIB/drawmux.dis
@@ -31,7 +36,7 @@ install:V:	$DISBIN/dmview.dis $DISBIN/dmwm.dis $DISLIB/drawmux.dis
 nuke:V:	nuke-lib
 
 nuke-lib:V:
-	cd $DISLIB; rm -f $LIBTARG
+	rm -f $LIBINST
 
 $DISLIB/%.dis:	%.dis
-	rm -f $DISLIB/$stem.dis && cp $stem.dis $DISLIB/$stem.dis
+	mkdir -p $DISLIB && rm -f $DISLIB/$stem.dis && cp $stem.dis $DISLIB/$stem.dis

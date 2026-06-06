@@ -14,15 +14,16 @@ TKSTYLE=std
 #
 #	Except for building kernels, SYSTARG must always be the same as SYSHOST
 #
-SYSHOST=Plan9		# build system OS type (AIX, Hp, Inferno, Irix, Linux, MacOSX, Nt, Plan9, Solaris)
+SYSHOST=Linux		# build system OS type (AIX, Hp, Inferno, Irix, Linux, MacOSX, Nt, Plan9, Solaris)
 SYSTARG=$SYSHOST		# target system OS type (AIX, Hp, Inferno, Irix, Linux, Nt, Plan9, Solaris)
 
 #
 #	specify the architecture of the target system - Plan 9 imports it from the
-#	environment; for other systems it is usually just hard-coded
+#	environment; for other systems it is usually just hard-coded.  This fork's
+#	default host is Linux/aarch64 (LP64); override for x86-64 with OBJTYPE=amd64.
 #
 #OBJTYPE=386			# target system object type (eg, 386, arm, mips, power, s800, sparc)
-OBJTYPE=$objtype
+OBJTYPE=aarch64
 
 #
 #	no changes required beyond this point

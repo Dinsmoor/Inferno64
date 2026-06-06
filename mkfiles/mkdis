@@ -14,7 +14,7 @@ clean:V: 	clean-std
 nuke:V:		nuke-std
 
 $DISBIN/%.dis:	%.dis
-	rm -f $DISBIN/$stem.dis && cp $stem.dis $DISBIN/$stem.dis
+	mkdir -p $DISBIN && rm -f $DISBIN/$stem.dis && cp $stem.dis $DISBIN/$stem.dis
 
 %.dis:		$MODULES $SYS_MODULE
 
@@ -38,5 +38,10 @@ LIMBOCMD=$ROOT/$OBJDIR/bin/limbo
 clean-std:V:
 	rm -f *.dis *.sbl
 
+# Remove the installed targets.  Iterate rather than `rm -f $BINTARG` directly:
+# when TARG is empty (e.g. a dir that ships only SHTARG scripts), the mk
+# substitution ${TARG:%=$DISBIN/%} degenerates to a bare "$DISBIN/", and
+# `rm -f` on that directory aborts the whole nuke pass ("Is a directory").
+# Skipping directory entries keeps nuke robust for every leaf.
 nuke-std:V:	clean-std
-	cd $DISBIN; rm -f $TARG
+	for f in $BINTARG; do test -d "$f" || rm -f "$f"; done

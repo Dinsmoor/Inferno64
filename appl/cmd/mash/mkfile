@@ -57,16 +57,16 @@ SYS_MODULE=${SYSMODULES:%=$MODDIR/%}
 LIMBOFLAGS=-I$MODDIR
 
 $ROOT/dis/mash.dis:	mash.dis
-	rm -f $ROOT/dis/mash.dis && cp mash.dis $ROOT/dis/mash.dis
+	mkdir -p $ROOT/dis && rm -f $ROOT/dis/mash.dis && cp mash.dis $ROOT/dis/mash.dis
 
 $ROOT/dis/lib/mashlib.dis:	mashlib.dis
-	rm -f $ROOT/dis/mashlib.dis && cp mashlib.dis $ROOT/dis/lib/mashlib.dis
+	mkdir -p $ROOT/dis/lib && rm -f $ROOT/dis/lib/mashlib.dis && cp mashlib.dis $ROOT/dis/lib/mashlib.dis
 
 $ROOT/dis/lib/mashparse.dis:	mashparse.dis
-	rm -f $ROOT/dis/mashparse.dis && cp mashparse.dis $ROOT/dis/lib/mashparse.dis
+	mkdir -p $ROOT/dis/lib && rm -f $ROOT/dis/lib/mashparse.dis && cp mashparse.dis $ROOT/dis/lib/mashparse.dis
 
 $ROOT/dis/lib/mash/%.dis:	%.dis
-	rm -f $ROOT/dis/$stem.dis && cp $stem.dis $ROOT/dis/lib/mash/$stem.dis
+	mkdir -p $ROOT/dis/lib/mash && rm -f $ROOT/dis/lib/mash/$stem.dis && cp $stem.dis $ROOT/dis/lib/mash/$stem.dis
 
 %.dis:		$MODULES $SYS_MODULE
 mashlib.dis:	$LIBSRC

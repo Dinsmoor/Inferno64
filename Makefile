@@ -19,6 +19,8 @@ SYSTARG := Linux
 # Both aarch64 and amd64 are LP64, so they share the entire Dis ABI / .dis tree;
 # only the per-arch glue (mkfiles, Linux/$OBJTYPE/include, emu asm) differs.
 OBJTYPE ?= aarch64
+# Host C runtime flavour for the mk bootstrap (lib9/mk select *-$(SYSTYPE).c).
+SYSTYPE := posix
 OBJDIR  := $(SYSTARG)/$(OBJTYPE)
 MK      := $(ROOT)/$(OBJDIR)/bin/mk
 # emu is the full GUI configuration (X11 + libfreetype + libtk + libdraw).
@@ -62,7 +64,20 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis guard-half clean nuke test_all_unit lint lint-update lint-all
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all
+
+# Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
+# fresh tree or git worktree has no mk binary yet (it is build output, not
+# tracked).  makemk.sh compiles libregexp/libbio/lib9 and mk with the host
+# gcc and installs mk into $(OBJDIR)/bin.  This rule fires automatically as a
+# prerequisite of the build, but only when the mk binary is actually missing.
+$(MK):
+	@echo "=== bootstrapping mk (host gcc; no mk binary yet) ==="
+	cd $(ROOT) && env ROOT=$(ROOT) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) SYSTYPE=$(SYSTYPE) sh makemk.sh
+
+# Explicit entry point: `make bootstrap` (re)builds mk if it is missing.
+bootstrap: $(MK)
+	@echo "mk available: $(MK)"
 
 # C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
 #   make test_lib9_unit      run one section's tests
@@ -95,7 +110,7 @@ guard-half:
 emu: guard-half _emu
 dis: guard-half _dis
 
-_emu:
+_emu: $(MK)
 	@set -e; \
 	for dir in $(EMUDIRS); do \
 		echo; \
@@ -115,7 +130,7 @@ _emu:
 # Requires the C side (the limbo binary) to be built first; `make all` ensures
 # this; `make all` ensures it.  nuke clears stale .dis (in both
 # the source dirs and dis/) so the tree is rebuilt clean from source.
-_dis:
+_dis: $(MK)
 	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
 	@set -e; \
 	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke); \

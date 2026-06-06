@@ -1,6 +1,6 @@
 # Porting emu to Linux/aarch64
 
-This doc covers the concrete file-by-file work for the Linux/aarch64 emu port. It assumes familiarity with the kernel architecture (AGENTS_EMU.md), the build system (AGENTS_BUILD.md), and the JIT decision (AGENTS_JIT.md).
+This doc covers the concrete file-by-file work for the Linux/aarch64 emu port. It assumes familiarity with the kernel architecture (AGENTS_EMU.md), the build system (`INSTALL` and the root `Makefile`), and the JIT decision (AGENTS_JIT.md).
 
 ## Current State
 
@@ -16,7 +16,7 @@ Everything else is missing. The portable `emu/Linux/os.c` is largely architectur
 
 ## Complete File Checklist
 
-### Mkfiles (see AGENTS_BUILD.md for the format)
+### Mkfiles
 
 **`mkfiles/mkfile-Linux-aarch64`** — compiler/linker flags.  
 Template: `mkfiles/mkfile-Linux-arm`. Change `CPUS`, `CC`/`AS`/`LD` to the aarch64 toolchain, update include path and `-D` flag:

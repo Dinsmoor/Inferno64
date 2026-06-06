@@ -78,6 +78,25 @@ Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
 Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
 
+## Building
+
+From a clean checkout or a fresh `git worktree`, the only command you need is:
+
+```sh
+make all                 # Linux/aarch64 host (the default)
+make OBJTYPE=amd64 all    # x86-64 host instead
+```
+
+`make all` is the only coherent build: it builds the C side first (host
+libraries, the `limbo` compiler, the `emu` binary), then compiles the whole
+Limbo tree under `appl/` to `.dis`. It needs no pre-existing toolchain — it
+bootstraps `mk` with the host `gcc` automatically. A full nuke+rebuild is cheap
+(~1 min) and is the safe default; the half-builds `make emu` / `make dis` are
+gated behind `FORCE=1` because a stale `.dis` against a freshly built ABI is a
+real, debugged crash class.
+
+See [`INSTALL`](INSTALL) for prerequisites, the amd64 notes, and the full details.
+
 ## Are you going to try to push your changes to the upstream repository?
 
 No, I am doing my own thing, but if they want to talk to me then that's fine.

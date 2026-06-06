@@ -25,7 +25,7 @@ DISBIN=$ROOT/dis/demo/lego
 <$ROOT/mkfiles/mkdis
 
 $DISBIN/%.srec:	%.srec
-	rm -f $target && cp $stem.srec $target
+	mkdir -p $DISBIN && rm -f $target && cp $stem.srec $target
 
 SHFILES=${SHTARG:%.sh=$DISBIN/%}
 install:V:	$SHFILES
@@ -33,4 +33,4 @@ install:V:	$SHFILES
 %.installall:V:	$DISBIN/%
 
 $DISBIN/%:	%.sh
-	cp $stem.sh $target && chmod a+rx $target
+	mkdir -p `dirname $target` && cp $stem.sh $target && chmod a+rx $target

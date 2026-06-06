@@ -92,7 +92,7 @@ all:V:	charon.dis
 install:V:	$ROOT/dis/charon.dis
 
 $ROOT/dis/charon.dis:	charon.dis
-	rm -f $target && cp charon.dis $target
+	mkdir -p $ROOT/dis && rm -f $target && cp charon.dis $target
 
 charon.dis:	$MODULES $SYS_MODULES
 

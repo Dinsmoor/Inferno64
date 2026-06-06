@@ -21,9 +21,9 @@ DISBIN=$ROOT/dis/grid/demo
 <$ROOT/mkfiles/mkdis
 
 $ROOT/dis/grid/demo/blur.dis:	blur.dis
-	rm -f $target && cp blur.dis $target
+	mkdir -p $ROOT/dis/grid/demo && rm -f $target && cp blur.dis $target
 $ROOT/dis/grid/demo/block.dis:	block.dis
-	rm -f $target && cp block.dis $target
+	mkdir -p $ROOT/dis/grid/demo && rm -f $target && cp block.dis $target
 
 blur.dis:	blur.b $MODULE $SYS_MODULE
 	limbo $LIMBOFLAGS -c -gw blur.b

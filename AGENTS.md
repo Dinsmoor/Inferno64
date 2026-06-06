@@ -82,7 +82,7 @@ inferno-os/
 | `OBJTYPE` | Target CPU architecture                              | `aarch64`      |
 | `OBJDIR`  | Where artifacts land (`$SYSTARG/$OBJTYPE`)           | `Linux/aarch64`|
 
-These live in `mkconfig`. For cross-compilation (e.g., kernel builds), `SYSTARG` differs from `SYSHOST`.
+These live in `mkconfig`, whose defaults are now this fork's host: `SYSHOST=Linux`, `OBJTYPE=aarch64` (LP64). For cross-compilation (e.g., kernel builds), `SYSTARG` differs from `SYSHOST`.
 
 ### The `mk` Build Tool
 
@@ -105,15 +105,26 @@ $ROOT/$OBJDIR/include/ architecture-specific headers
 
 ### Using the Makefile Wrapper
 
-The `Makefile` at the repo root is the **recommended entry point** for Linux/aarch64. It always nukes object files before rebuilding each component, bypassing `mk`'s unreliable dependency tracking:
+The `Makefile` at the repo root is the **recommended entry point** and the only coherent build. It works from a *fresh checkout or git worktree* with no toolchain present: it auto-bootstraps `mk` with the host `gcc` (see `make bootstrap`), then builds both halves of the system, always nuking first (mk's incremental dependency tracking is unreliable):
 
 ```sh
-make         # full clean+rebuild of all emu components, in correct order
-make clean   # clean all object files
-make nuke    # nuke all objects and library archives
+make           # == make all (default target)
+make all       # 1) C side: libs + limbo compiler + emu;  2) Dis tree: appl/*.b -> dis/
+make clean     # remove object files
+make nuke      # remove objects, library archives, and installed .dis
+make OBJTYPE=amd64 all   # build for x86-64 instead of the aarch64 default
 ```
 
-The Makefile passes `ROOT`, `SYSHOST`, `SYSTARG`, `OBJTYPE` to every `mk` invocation, so `mkconfig` defaults (which are Plan 9) are irrelevant.
+`make all` is the safe default and is cheap (~1 min) — run it freely. The cost in
+this tree comes from the *lack* of nuking: a stale `.dis` against a freshly built
+compiler/ABI is the exact incoherence behind the truncated-pointer crashes, so a
+full nuke+rebuild is the insurance that prevents it, not an expense.
+
+**Half-builds are gated.** `make emu` (C side only) and `make dis` (Dis tree only)
+each leave the two halves out of sync, so the bare targets refuse to run; opt in
+deliberately with `make emu FORCE=1` / `make dis FORCE=1`.
+
+The Makefile passes `ROOT`, `SYSHOST`, `SYSTARG`, `OBJTYPE` to every `mk` invocation; `mkconfig` now defaults to the same host (`Linux`/`aarch64`), so invoking `mk` directly in a component directory works too.
 
 ### EMUDIRS Build Order
 
@@ -125,10 +136,14 @@ lib9 → libbio → libmp → libsec → libmath
   → limbo          (Limbo compiler, needed by libinterp)
   → libinterp      (Dis VM library)
   → libkeyring → libdraw → libprefab → libtk
-  → libfreetype → libmemdraw → libmemlayer → libdynld
+  → libfreetype → libmbedtls → libmemdraw → libmemlayer
   → utils/data2c → utils/ndate
   → emu            (the emulator binary)
 ```
+
+This is the `EMUDIRS` list in the root `Makefile`. After the C side, `make all`
+builds the Dis tree: it runs `mk nuke` then `mk install` over `appl/`, compiling
+every `.b` to a `.dis` under `dis/` with the freshly built `limbo`.
 
 When running `mk install` in `emu/Linux/`, the emu build auto-recurses into dependencies; but this dependency tracking is unreliable for incremental rebuilds, which is why the Makefile always nukes first.
 

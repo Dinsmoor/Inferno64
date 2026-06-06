@@ -21,4 +21,4 @@ install:V:	$SHFILES
 %.installall:V:	$BIN/%
 
 $BIN/%:	%.sh
-	cp $stem.sh $target && chmod a+rx $target
+	mkdir -p `dirname $target` && cp $stem.sh $target && chmod a+rx $target

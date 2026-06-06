@@ -51,7 +51,7 @@ all:V: $ENGINES $CLIENTS $LIB $MAIN
 install:V:	$ALL
 
 $ROOT/dis/spree/%.dis:	%.dis
-	cp $prereq $target
+	mkdir -p `dirname $target` && cp $prereq $target
 
 %.dis:	%.b
 	limbo -gw -I$ROOT/module -Ilib -o $stem.dis $stem.b
