@@ -344,6 +344,19 @@ htmltodom(lx: Lex, toks: list of ref Token): ref Dom->Node
 # here is build.b-private and called on this hot path).
 #############################################################################
 
+# Loop-local state that getitems' per-tag arms reassign.  Carried in a ref so
+# tagdispatch (the extracted case) can mutate it; getitems syncs its own locals
+# around each call.  Everything else the arms touch persists on the ItemSource.
+Pdrive: adt {
+	ps:		ref Pstate;		# current parse state (== hd psstk)
+	psstk:		list of ref Pstate;	# parse-state stack (table cells/captions)
+	curtab:		ref Table;		# innermost open table (== hd is.tabstk)
+	toks:		array of ref Token;	# current token window
+	toki:		int;			# cursor into toks
+	tokslen:	int;			# len toks (cached)
+	brkloop:	int;			# set to request 'break TokLoop'
+};
+
 ItemSource.getitems(is: self ref ItemSource) : ref Item
 {
 	psstk := is.psstk;
@@ -356,6 +369,7 @@ ItemSource.getitems(is: self ref ItemSource) : ref Item
 	tokslen := len toks;
 	toki := 0;
 	di := is.doc;
+	pd := ref Pdrive(ps, psstk, curtab, toks, toki, tokslen, 0);
 TokLoop:
 	for(;; toki++) {
 		if(toki >= tokslen) {
@@ -446,7 +460,69 @@ TokLoop:
 			if(s != "")
 				addtext(ps, s);
 		}
-		else case tag {
+		else {
+			pd.ps = ps; pd.psstk = psstk; pd.curtab = curtab;
+			pd.toks = toks; pd.toki = toki; pd.tokslen = tokslen;
+			pd.brkloop = 0;
+			tagdispatch(is, di, pd, tok, tag);
+			ps = pd.ps; psstk = pd.psstk; curtab = pd.curtab;
+			toks = pd.toks; toki = pd.toki; tokslen = pd.tokslen;
+			if(pd.brkloop)
+				break;
+		}
+	}
+	if (toki < tokslen)
+		is.toks = toks[toki:];
+	if(tokslen == 0) {
+		# we might have hit eof from lexer
+		# some pages omit trailing </table>
+		bs := is.ts.b;
+		if(bs.eof && bs.lim == bs.edata) {
+			while(curtab != nil) {
+				if(warn)
+					sys->print("warning: <TABLE> not closed\n");
+				if(curtab.cells != nil) {
+					(ps, psstk) = finishcell(curtab, psstk);
+					if(curtab.currows != nil)
+						(hd curtab.currows).flags = byte 0;
+					finish_table(curtab);
+					ps.skipping = 0;
+					additem(ps, Item.newtable(curtab), curtab.tabletok);
+					addbrk(ps, 0, 0);
+				}
+				if(is.tabstk != nil)
+					is.tabstk = tl is.tabstk;
+				if(is.tabstk == nil)
+					curtab = nil;
+				else
+					curtab = hd is.tabstk;
+			}
+		}
+	}
+	outerps := lastps(psstk);
+	ans := outerps.items.next;
+	# note: ans may be nil and di.kids not nil, if there's a frameset!
+	outerps.items = Item.newspacer(ISPnull, 0);
+	outerps.lastit = outerps.items;
+	is.psstk = psstk;
+
+	if(dbg) {
+		if(ans == nil)
+			sys->print("getitems returning nil\n");
+		else
+			ans.printlist("getitems returning:");
+	}
+	return ans;
+}
+
+# Per-element dispatch, factored out of getitems so the same per-tag
+# semantics can be driven by either the streaming token loop or (Phase 2)
+# the DOM node visitor.  Loop-local state the arms reassign (ps/psstk/curtab
+# and the token cursor toks/toki/tokslen) lives in the Pdrive carrier; the
+# caller syncs its locals around the call.  pd.brkloop signals 'break TokLoop'.
+tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token, tag: int)
+{
+	case tag {
 		# Some abbrevs used in following DTD comments
 		# %text = #PCDATA
 		#		| TT | I | B | U | STRIKE | BIG | SMALL | SUB | SUP
@@ -462,10 +538,10 @@ TokLoop:
 		# Anchors are not supposed to be nested, but you sometimes see
 		# href anchors inside destination anchors.
 		LX->Ta =>
-			if(ps.curanchor != 0) {
+			if(pd.ps.curanchor != 0) {
 				if(warn)
 					sys->print("warning: nested <A> or missing </A>\n");
-				endanchor(ps, di.text);
+				endanchor(pd.ps, di.text);
 			}
 			name := aval(tok, LX->Aname);
 			href := aurlval(tok, LX->Ahref, nil, di.base);
@@ -480,23 +556,23 @@ TokLoop:
 			# ignore rel, rev, and title attrs
 			if(href != nil) {
 				di.anchors = ref Anchor(++is.nanchors, name, href, target, evl, 0) :: di.anchors;
-				ps.curanchor = is.nanchors;
-				ps.curfg = di.link;
-				ps.fgstk = ps.curfg :: ps.fgstk;
+				pd.ps.curanchor = is.nanchors;
+				pd.ps.curfg = di.link;
+				pd.ps.fgstk = pd.ps.curfg :: pd.ps.fgstk;
 				# underline, too
-				ps.ulstk = ULunder :: ps.ulstk;
-				ps.curul = ULunder;
+				pd.ps.ulstk = ULunder :: pd.ps.ulstk;
+				pd.ps.curul = ULunder;
 			}
 			if(name != nil) {
 				# add a null item to be destination
-				brkstate := ps.curstate & IFbrk;
-				additem(ps, Item.newspacer(ISPnull, 0), tok);
-				ps.curstate |= brkstate;	# not quite right
-				di.dests = ref DestAnchor(++is.nanchors, name, ps.lastit) :: di.dests;
+				brkstate := pd.ps.curstate & IFbrk;
+				additem(pd.ps, Item.newspacer(ISPnull, 0), tok);
+				pd.ps.curstate |= brkstate;	# not quite right
+				di.dests = ref DestAnchor(++is.nanchors, name, pd.ps.lastit) :: di.dests;
 			}
 
 		LX->Ta+RBRA =>
-			endanchor(ps, di.text);
+			endanchor(pd.ps, di.text);
 
 		# <!ELEMENT APPLET - - (PARAM | %text)* >
 		# We can't do applets, so ignore PARAMS, and let
@@ -511,7 +587,7 @@ TokLoop:
 			if(map == nil) {
 				if(warn)
 					sys->print("warning: <AREA> not inside <MAP>\n");
-				continue;
+				return;
 			}
 			map.areas = Area(S->tolower(astrval(tok, LX->Ashape, "rect")),
 						aurlval(tok, LX->Ahref, nil, di.base),
@@ -520,7 +596,7 @@ TokLoop:
 
 		# <!ELEMENT (B|STRONG) - - (%text)*>
 		LX->Tb or LX->Tstrong =>
-			pushfontstyle(ps, FntB);
+			pushfontstyle(pd.ps, FntB);
 
 		LX->Tb+RBRA or LX->Tcite+RBRA
 		  or LX->Tcode+RBRA or LX->Tdfn+RBRA
@@ -528,7 +604,7 @@ TokLoop:
 		  or LX->Ti+RBRA or LX->Tsamp+RBRA
 		  or LX->Tstrong+RBRA or LX->Ttt+RBRA
 		  or LX->Tvar+RBRA or LX->Taddress+RBRA =>
-			popfontstyle(ps);
+			popfontstyle(pd.ps);
 
 		# <!ELEMENT BASE - O EMPTY>
 		LX->Tbase =>
@@ -537,30 +613,30 @@ TokLoop:
 
 		# <!ELEMENT BASEFONT - O EMPTY>
 		LX->Tbasefont =>
-			ps.adjsize = aintval(tok, LX->Asize, 3) - 3;
+			pd.ps.adjsize = aintval(tok, LX->Asize, 3) - 3;
 
 		# <!ELEMENT (BIG|SMALL) - - (%text)*>
 		LX->Tbig or LX->Tsmall =>
-			sz := ps.adjsize;
+			sz := pd.ps.adjsize;
 			if(tag == LX->Tbig)
 				sz += Large;
 			else
 				sz += Small;
-			pushfontsize(ps, sz);
+			pushfontsize(pd.ps, sz);
 
 		LX->Tbig+RBRA or  LX->Tsmall+RBRA =>
-			popfontsize(ps);
+			popfontsize(pd.ps);
 
 		# <!ELEMENT BLOCKQUOTE - - %body.content>
 		LX->Tblockquote =>
-			changeindent(ps, BQTAB);
+			changeindent(pd.ps, BQTAB);
 
 		LX->Tblockquote+RBRA =>
-			changeindent(ps, -BQTAB);
+			changeindent(pd.ps, -BQTAB);
 
 		# <!ELEMENT BODY O O %body.content>
 		LX->Tbody =>
-			ps.skipping = 0;
+			pd.ps.skipping = 0;
 			bg := Background(nil, color(aval(tok, LX->Abgcolor), di.background.color));
 			bgurl := aurlval(tok, LX->Abackground, nil, di.base);
 			if(bgurl != nil) {
@@ -570,8 +646,8 @@ TokLoop:
 				}
 				di.images = bg.image :: di.images;
 			}
-			di.background = ps.curbg = bg;
-			ps.curbg.image = nil;
+			di.background = pd.ps.curbg = bg;
+			pd.ps.curbg.image = nil;
 			di.text = color(aval(tok, LX->Atext), di.text);
 			di.link = color(aval(tok, LX->Alink), di.link);
 			di.vlink = color(aval(tok, LX->Avlink), di.vlink);
@@ -581,7 +657,7 @@ TokLoop:
 			if(cssctx.on && cssctx.stk != nil) {
 				bfr := hd cssctx.stk;
 				if(bfr.ovbg >= 0)
-					di.background = ps.curbg = Background(nil, bfr.ovbg);
+					di.background = pd.ps.curbg = Background(nil, bfr.ovbg);
 				if(bfr.ovfg >= 0)
 					di.text = bfr.ovfg;
 			}
@@ -592,9 +668,9 @@ TokLoop:
 					di.hasscripts = 1;
 				}
 			}
-			if(di.text != ps.curfg) {
-				ps.curfg = di.text;
-				ps.fgstk = nil;
+			if(di.text != pd.ps.curfg) {
+				pd.ps.curfg = di.text;
+				pd.ps.fgstk = nil;
 			}
 
 		LX->Tbody+RBRA =>
@@ -605,147 +681,147 @@ TokLoop:
 
 		# <!ELEMENT BR - O EMPTY>
 		LX->Tbr =>
-			addlinebrk(ps, atabval(tok, LX->Aclear, clear_tab, 0));
+			addlinebrk(pd.ps, atabval(tok, LX->Aclear, clear_tab, 0));
 
 		# <!ELEMENT CAPTION - - (%text;)*>
 		LX->Tcaption =>
-			if(curtab == nil) {
+			if(pd.curtab == nil) {
 				if(warn)
 					sys->print("warning: <CAPTION> outside <TABLE>\n");
-				continue;
+				return;
 			}
-			if(curtab.caption != nil) {
+			if(pd.curtab.caption != nil) {
 				if(warn)
 					sys->print("warning: more than one <CAPTION> in <TABLE>\n");
-				continue;
+				return;
 			}
-			ps = Pstate.new();
-			psstk = ps :: psstk;
-			curtab.caption_place =atabbval(tok, LX->Aalign, align_tab, Atop);
+			pd.ps = Pstate.new();
+			pd.psstk = pd.ps :: pd.psstk;
+			pd.curtab.caption_place =atabbval(tok, LX->Aalign, align_tab, Atop);
 
 		LX->Tcaption+RBRA =>
-			if(curtab == nil || tl psstk == nil) {
+			if(pd.curtab == nil || tl pd.psstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected </CAPTION>\n");
-				continue;
+				return;
 			}
-			curtab.caption = ps.items.next;
-			psstk = tl psstk;
-			ps = hd psstk;
+			pd.curtab.caption = pd.ps.items.next;
+			pd.psstk = tl pd.psstk;
+			pd.ps = hd pd.psstk;
 
 		LX->Tcenter or LX->Tdiv =>
 			if(tag == LX->Tcenter)
 				al := Acenter;
 			else
-				al = atabbval(tok, LX->Aalign, align_tab, ps.curjust);
-			pushjust(ps, al);
+				al = atabbval(tok, LX->Aalign, align_tab, pd.ps.curjust);
+			pushjust(pd.ps, al);
 
 		LX->Tcenter+RBRA or LX->Tdiv+RBRA =>
-			popjust(ps);
+			popjust(pd.ps);
 
 		# <!ELEMENT DD - O  %flow >
 		LX->Tdd =>
-			if(ps.hangstk == nil) {
+			if(pd.ps.hangstk == nil) {
 				if(warn)
 					sys->print("warning: <DD> not inside <DL\n");
-				continue;
+				return;
 			}
-			h := hd ps.hangstk;
+			h := hd pd.ps.hangstk;
 			if(h != 0)
-				changehang(ps, -10*LISTTAB);
+				changehang(pd.ps, -10*LISTTAB);
 			else
-				addbrk(ps, 0, 0);
-			ps.hangstk = 0 :: ps.hangstk;
+				addbrk(pd.ps, 0, 0);
+			pd.ps.hangstk = 0 :: pd.ps.hangstk;
 
 		#<!ELEMENT (DIR|MENU) - - (LI)+ -(%block) >
 		#<!ELEMENT (OL|UL) - - (LI)+>
 		LX->Tdir or LX->Tmenu or LX->Tol or LX->Tul =>
-			changeindent(ps, LISTTAB);
+			changeindent(pd.ps, LISTTAB);
 			if(tag == LX->Tol)
 				tydef := LT1;
 			else
 				tydef = LTdisc;
 			start := aintval(tok, LX->Astart, 1);
-			ps.listtypestk = listtyval(tok, tydef) :: ps.listtypestk;
-			ps.listcntstk = start :: ps.listcntstk;
+			pd.ps.listtypestk = listtyval(tok, tydef) :: pd.ps.listtypestk;
+			pd.ps.listcntstk = start :: pd.ps.listcntstk;
 
 		LX->Tdir+RBRA or LX->Tmenu+RBRA
 		or LX->Tol+RBRA or LX->Tul+RBRA =>
-			if(ps.listtypestk == nil) {
+			if(pd.ps.listtypestk == nil) {
 				if(warn)
 					sys->print("warning: %s ended no list\n", tok.tostring());
-				continue;
+				return;
 			}
-			addbrk(ps, 0, 0);
-			ps.listtypestk = tl ps.listtypestk;
-			ps.listcntstk = tl ps.listcntstk;
-			changeindent(ps, -LISTTAB);
+			addbrk(pd.ps, 0, 0);
+			pd.ps.listtypestk = tl pd.ps.listtypestk;
+			pd.ps.listcntstk = tl pd.ps.listcntstk;
+			changeindent(pd.ps, -LISTTAB);
 
 		# <!ELEMENT DL - - (DT|DD)+ >
 		LX->Tdl =>
-			changeindent(ps, LISTTAB);
-			ps.hangstk = 0 :: ps.hangstk;
+			changeindent(pd.ps, LISTTAB);
+			pd.ps.hangstk = 0 :: pd.ps.hangstk;
 
 		LX->Tdl+RBRA =>
-			if(ps.hangstk == nil) {
+			if(pd.ps.hangstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected </DL>\n");
-				continue;
+				return;
 			}
-			changeindent(ps, -LISTTAB);
-			if(hd ps.hangstk != 0)
-				changehang(ps, -10*LISTTAB);
-			ps.hangstk = tl ps.hangstk;
+			changeindent(pd.ps, -LISTTAB);
+			if(hd pd.ps.hangstk != 0)
+				changehang(pd.ps, -10*LISTTAB);
+			pd.ps.hangstk = tl pd.ps.hangstk;
 
 		# <!ELEMENT DT - O (%text)* >
 		LX->Tdt =>
-			if(ps.hangstk == nil) {
+			if(pd.ps.hangstk == nil) {
 				if(warn)
 					sys->print("warning: <DT> not inside <DL>\n");
-				continue;
+				return;
 			}
-			h := hd ps.hangstk;
-			ps.hangstk = tl ps.hangstk;
+			h := hd pd.ps.hangstk;
+			pd.ps.hangstk = tl pd.ps.hangstk;
 			if(h != 0)
-				changehang(ps, -10*LISTTAB);
-			changehang(ps, 10*LISTTAB);
-			ps.hangstk = 1 :: ps.hangstk;
+				changehang(pd.ps, -10*LISTTAB);
+			changehang(pd.ps, 10*LISTTAB);
+			pd.ps.hangstk = 1 :: pd.ps.hangstk;
 
 		# <!ELEMENT FONT - - (%text)*>
 		LX->Tfont =>
-			sz := stackhd(ps.fntsizestk, Normal);
+			sz := stackhd(pd.ps.fntsizestk, Normal);
 			(szfnd, nsz) := tok.aval(LX->Asize);
 			if(szfnd) {
 				if(S->prefix("+", nsz))
-					sz = Normal + int (nsz[1:]) + ps.adjsize;
+					sz = Normal + int (nsz[1:]) + pd.ps.adjsize;
 				else if(S->prefix("-", nsz))
-					sz = Normal - int (nsz[1:]) + ps.adjsize;
+					sz = Normal - int (nsz[1:]) + pd.ps.adjsize;
 				else if(nsz != "")
 					sz = Normal + ( int nsz - 3);
 			}
-			ps.curfg = color(aval(tok, LX->Acolor), ps.curfg);
-			ps.fgstk = ps.curfg :: ps.fgstk;
-			pushfontsize(ps, sz);
+			pd.ps.curfg = color(aval(tok, LX->Acolor), pd.ps.curfg);
+			pd.ps.fgstk = pd.ps.curfg :: pd.ps.fgstk;
+			pushfontsize(pd.ps, sz);
 
 		LX->Tfont+RBRA =>
-			if(ps.fgstk == nil) {
+			if(pd.ps.fgstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected </FONT>\n");
-				continue;
+				return;
 			}
-			ps.fgstk = tl ps.fgstk;
-			if(ps.fgstk == nil)
-				ps.curfg = di.text;
+			pd.ps.fgstk = tl pd.ps.fgstk;
+			if(pd.ps.fgstk == nil)
+				pd.ps.curfg = di.text;
 			else
-				ps.curfg = hd ps.fgstk;
-			popfontsize(ps);
+				pd.ps.curfg = hd pd.ps.fgstk;
+			popfontsize(pd.ps);
 
 		# <!ELEMENT FORM - - %body.content -(FORM) >
 		LX->Tform =>
 			if(is.curform != nil) {
 				if(warn)
 					sys->print("warning: <FORM> nested inside another\n");
-				continue;
+				return;
 			}
 			action := aurlval(tok, LX->Aaction, di.base, di.base);
 			name := astrval(tok, LX->Aname, aval(tok, LX->Aid));
@@ -776,7 +852,7 @@ TokLoop:
 			if(is.curform == nil) {
 				if(warn)
 					sys->print("warning: unexpected </FORM>\n");
-				continue;
+				return;
 			}
 			# put fields back in input order
 			fields : list of ref Formfield = nil;
@@ -792,7 +868,7 @@ TokLoop:
 			if(is.kidstk == nil) {
 				if(warn)
 					sys->print("warning: <FRAME> not in <FRAMESET>\n");
-				continue;
+				return;
 			}
 			ks := hd is.kidstk;
 			kd := Kidinfo.new(0);
@@ -839,7 +915,7 @@ TokLoop:
 			if(is.kidstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected </FRAMESET>\n");
-				continue;
+				return;
 			}
 			ks := hd is.kidstk;
 			# put kids back in original order
@@ -855,11 +931,11 @@ TokLoop:
 			is.kidstk = tl is.kidstk;
 			if(is.kidstk == nil) {
 				for(;;) {
-					toks = is.ts.gettoks();
-					if(len toks == 0)
+					pd.toks = is.ts.gettoks();
+					if(len pd.toks == 0)
 						break;
 				}
-				tokslen = 0;
+				pd.tokslen = 0;
 			}
 
 		# <!ELEMENT H1 - - (%text;)*>, etc.
@@ -868,28 +944,28 @@ TokLoop:
 			# don't want extra space if this is first addition
 			# to this item list (BUG: problem if first of bufferful)
 			bramt := 1;
-			if(ps.items == ps.lastit)
+			if(pd.ps.items == pd.ps.lastit)
 				bramt = 0;
-			addbrk(ps, bramt, IFcleft|IFcright);
+			addbrk(pd.ps, bramt, IFcleft|IFcright);
 			# assume Th2 = Th1+1, etc.
 			sz := Verylarge - (tag - LX->Th1);
 			if(sz < Tiny)
 				sz = Tiny;
-			pushfontsize(ps, sz);
-			sty := stackhd(ps.fntstylestk, FntR);
+			pushfontsize(pd.ps, sz);
+			sty := stackhd(pd.ps.fntstylestk, FntR);
 			if(tag == LX->Th1)
 				sty = FntB;
-			pushfontstyle(ps, sty);
-			pushjust(ps, atabbval(tok, LX->Aalign, align_tab, ps.curjust));
-			ps.skipwhite = 1;
+			pushfontstyle(pd.ps, sty);
+			pushjust(pd.ps, atabbval(tok, LX->Aalign, align_tab, pd.ps.curjust));
+			pd.ps.skipwhite = 1;
 
 		LX->Th1+RBRA or LX->Th2+RBRA
 		    or LX->Th3+RBRA or LX->Th4+RBRA
 		    or LX->Th5+RBRA or LX->Th6+RBRA =>
-			addbrk(ps, 1, IFcleft|IFcright);
-			popfontsize(ps);
-			popfontstyle(ps);
-			popjust(ps);
+			addbrk(pd.ps, 1, IFcleft|IFcright);
+			popfontsize(pd.ps);
+			popfontstyle(pd.ps);
+			popjust(pd.ps);
 
 		LX->Thead =>
 			# HTML spec says ignore regular markup in head,
@@ -898,7 +974,7 @@ TokLoop:
 			;
 
 		LX->Thead+RBRA =>
-			ps.skipping = 0;
+			pd.ps.skipping = 0;
 
 		# <!ELEMENT HR - O EMPTY>
 		LX->Thr =>
@@ -908,13 +984,13 @@ TokLoop:
 			if(wd.kind() == Dnone)
 				wd = Dimen.make(Dpercent, 100);
 			nosh := aboolval(tok, LX->Anoshade);
-			additem(ps, Item.newrule(al, sz, nosh, wd), tok);
-			addbrk(ps, 0, 0);
+			additem(pd.ps, Item.newrule(al, sz, nosh, wd), tok);
+			addbrk(pd.ps, 0, 0);
 
 		# <!ELEMENT (I|CITE|DFN|EM|VAR) - - (%text)*>
 		LX->Ti  or LX->Tcite or LX->Tdfn
 		or LX->Tem or LX->Tvar or LX->Taddress =>
-			pushfontstyle(ps, FntI);
+			pushfontstyle(pd.ps, FntI);
 
 		# <!ELEMENT IMG - O EMPTY>
 		LX->Timage or		# common html error supported by other browsers
@@ -922,7 +998,7 @@ TokLoop:
 			tok.tag = LX->Timg;
 			map : ref Map = nil;
 			usemap := aval(tok, LX->Ausemap);
-			oldcuranchor := ps.curanchor;
+			oldcuranchor := pd.ps.curanchor;
 			if(usemap != "") {
 				# can't handle non-local maps
 				if(!S->prefix("#", usemap)) {
@@ -931,17 +1007,17 @@ TokLoop:
 				}
 				else {
 					map = getmap(di, usemap[1:]);
-					if(ps.curanchor == 0) {
+					if(pd.ps.curanchor == 0) {
 						# make an anchor so charon's easy test for whether
 						# there's an action for the item works
 						di.anchors = ref Anchor(++is.nanchors, "", nil, di.target, nil, 0) :: di.anchors;
-						ps.curanchor = is.nanchors;
+						pd.ps.curanchor = is.nanchors;
 					}
 				}
 			}
 			align := atabbval(tok, LX->Aalign, align_tab, Abottom);
 			dfltbd := 0;
-			if(ps.curanchor != 0)
+			if(pd.ps.curanchor != 0)
 				dfltbd = 2;
 			src := aurlval(tok, LX->Asrc, nil, di.base);
 			if(src == nil)
@@ -949,8 +1025,8 @@ TokLoop:
 			if(src == nil) {
 				if(warn)
 					sys->print("warning: <img> has no src attribute\n");
-				ps.curanchor = oldcuranchor;
-				continue;
+				pd.ps.curanchor = oldcuranchor;
+				return;
 			}
 			img := Item.newimage(di, src,
 				aurlval(tok, LX->Alowsrc, nil, di.base),
@@ -967,7 +1043,7 @@ TokLoop:
 				aval(tok, LX->Aname),
 				getgenattr(tok));
 			if(align == Aleft || align == Aright) {
-				additem(ps, Item.newfloat(img, align), tok);
+				additem(pd.ps, Item.newfloat(img, align), tok);
 				# if no hspace specified, use FLTIMGHSPACE
 				(fnd,nil) := tok.aval(LX->Ahspace);
 				if(!fnd) {
@@ -977,22 +1053,22 @@ TokLoop:
 					}
 				}
 			} else {
-				ps.skipwhite = 0;
-				additem(ps, img, tok);
+				pd.ps.skipwhite = 0;
+				additem(pd.ps, img, tok);
 			}
-			if(!ps.skipping)
+			if(!pd.ps.skipping)
 				di.images = img :: di.images;
-			ps.curanchor = oldcuranchor;
+			pd.ps.curanchor = oldcuranchor;
 
 		# <!ELEMENT INPUT - O EMPTY>
 		LX->Tinput =>
-			if (ps.skipping)
-				continue;
-			ps.skipwhite = 0;
+			if (pd.ps.skipping)
+				return;
+			pd.ps.skipwhite = 0;
 			if(is.curform ==nil) {
 				if(warn)
 					sys->print("<INPUT> not inside <FORM>\n");
-					continue;
+					return;
 			}
 			field := Formfield.new(atabval(tok, LX->Atype, input_tab, Ftext),
 					++is.curform.nfields,	# fieldid
@@ -1056,7 +1132,7 @@ TokLoop:
 			ffcss(tok, field);
 			is.curform.fields = field :: is.curform.fields;
 			ffit := Item.newformfield(field);
-			additem(ps, ffit, tok);
+			additem(pd.ps, ffit, tok);
 			if(ffit.genattr != nil) {
 				field.events = ffit.genattr.events;
 				if(field.events != nil && doscripts)
@@ -1065,41 +1141,41 @@ TokLoop:
 
 		# <!ENTITY ISINDEX - O EMPTY>
 		LX->Tisindex =>
-			ps.skipwhite = 0;
+			pd.ps.skipwhite = 0;
 			prompt := astrval(tok, LX->Aprompt, "Index search terms:");
 			target := astrval(tok, LX->Atarget, di.target);
-			additem(ps, textit(ps, prompt), tok);
+			additem(pd.ps, textit(pd.ps, prompt), tok);
 			frm := Form.new(++is.nforms, "", di.base, target, CU->HGet, nil);
 			ff := Formfield.new(Ftext, 1, frm, "_ISINDEX_", "", 50, 1000);
 			frm.fields =  ff :: nil;
 			frm.nfields = 1;
 			di.forms = frm :: di.forms;
-			additem(ps, Item.newformfield(ff), tok);
-			addbrk(ps, 1, 0);
+			additem(pd.ps, Item.newformfield(ff), tok);
+			addbrk(pd.ps, 1, 0);
 
 		# <!ELEMENT LI - O %flow>
 		LX->Tli =>
-			if(ps.listtypestk == nil) {
+			if(pd.ps.listtypestk == nil) {
 				if(warn)
 					sys->print("<LI> not in list\n");
-				continue;
+				return;
 			}
-			ty := hd ps.listtypestk;
+			ty := hd pd.ps.listtypestk;
 			ty2 := listtyval(tok, ty);
 			if(ty != ty2) {
 				ty = ty2;
-				ps.listtypestk = ty2 :: tl ps.listtypestk;
+				pd.ps.listtypestk = ty2 :: tl pd.ps.listtypestk;
 			}
-			v := aintval(tok, LX->Avalue, hd ps.listcntstk);
+			v := aintval(tok, LX->Avalue, hd pd.ps.listcntstk);
 			if(ty == LTdisc || ty == LTsquare || ty == LTcircle)
 				hang := 10*LISTTAB - 3;
 			else
 				hang = 10*LISTTAB - 1;
-			changehang(ps, hang);
-			addtext(ps, listmark(ty, v));
-			ps.listcntstk = (v+1) :: (tl ps.listcntstk);
-			changehang(ps, -hang);
-			ps.skipwhite = 1;
+			changehang(pd.ps, hang);
+			addtext(pd.ps, listmark(ty, v));
+			pd.ps.listcntstk = (v+1) :: (tl pd.ps.listcntstk);
+			changehang(pd.ps, -hang);
+			pd.ps.skipwhite = 1;
 
 		# <!ELEMENT MAP - - (AREA)+>
 		LX->Tmap =>
@@ -1110,7 +1186,7 @@ TokLoop:
 			if(map == nil) {
 				if(warn)
 					sys->print("warning: unexpected </MAP>\n");
-				continue;
+				return;
 			}
 			# put areas back in input order
 			areas : list of Area = nil;
@@ -1120,8 +1196,8 @@ TokLoop:
 			is.curmap = nil;
 
 		LX->Tmeta =>
-			if(ps.skipping)
-				continue;
+			if(pd.ps.skipping)
+				return;
 			(fnd, equiv) := tok.aval(LX->Ahttp_equiv);
 			if(fnd) {
 				v := aval(tok, LX->Acontent);
@@ -1171,55 +1247,55 @@ TokLoop:
 
 		# Nobr is NOT in HMTL 4.0, but it is ubiquitous on the web
 		LX->Tnobr =>
-			ps.skipwhite = 0;
-			ps.curstate &= ~IFwrap;
+			pd.ps.skipwhite = 0;
+			pd.ps.curstate &= ~IFwrap;
 
 		LX->Tnobr+RBRA =>
-			ps.curstate |= IFwrap;
+			pd.ps.curstate |= IFwrap;
 
 		# We do frames, so skip stuff in noframes
 		LX->Tnoframes =>
-			ps.skipping = 1;
+			pd.ps.skipping = 1;
 
 		LX->Tnoframes+RBRA =>
-			ps.skipping = 0;
+			pd.ps.skipping = 0;
 
 		# We do scripts (if enabled), so skip stuff in noscripts
 		LX->Tnoscript =>
 			if(doscripts)
-				ps.skipping = 1;
+				pd.ps.skipping = 1;
 
 		LX->Tnoscript+RBRA =>
 			if(doscripts)
-				ps.skipping = 0;
+				pd.ps.skipping = 0;
 
 		# <!ELEMENT OPTION - O (#PCDATA)>
 		LX->Toption =>
 			if(is.curform == nil || is.curform.fields == nil) {
 				if(warn)
 					sys->print("warning: <OPTION> not in <SELECT>\n");
-				continue;
+				return;
 			}
 			field := hd is.curform.fields;
 			if(field.ftype != Fselect) {
 				if(warn)
 					sys->print("warning: <OPTION> not in <SELECT>\n");
-				continue;
+				return;
 			}
 			val := aval(tok, LX->Avalue);
 			option := ref Option(aboolval(tok, LX->Aselected),
 						val, "");
 			field.options = option :: field.options;
-			(option.display, toki) = getpcdata(toks, toki);
+			(option.display, pd.toki) = getpcdata(pd.toks, pd.toki);
 			option.display = optiontext(option.display);
 			if(val == "")
 				option.value = option.display;
 
 		# <!ELEMENT P - O (%text)* >
 		LX->Tp =>
-			pushjust(ps, atabbval(tok, LX->Aalign, align_tab, ps.curjust));
-			ps.inpar = 1;
-			ps.skipwhite = 1;
+			pushjust(pd.ps, atabbval(tok, LX->Aalign, align_tab, pd.ps.curjust));
+			pd.ps.inpar = 1;
+			pd.ps.skipwhite = 1;
 			
 		LX->Tp+RBRA =>
 			;
@@ -1231,16 +1307,16 @@ TokLoop:
 
 		# <!ELEMENT PRE - - (%text)* -(IMG|BIG|SMALL|SUB|SUP|FONT) >
 		LX->Tpre =>
-			ps.curstate &= ~IFwrap;
-			ps.literal = 1;
-			ps.skipwhite = 0;
-			pushfontstyle(ps, FntT);
+			pd.ps.curstate &= ~IFwrap;
+			pd.ps.literal = 1;
+			pd.ps.skipwhite = 0;
+			pushfontstyle(pd.ps, FntT);
 
 		LX->Tpre+RBRA =>
-			ps.curstate |= IFwrap;
-			if(ps.literal) {
-				popfontstyle(ps);
-				ps.literal = 0;
+			pd.ps.curstate |= IFwrap;
+			if(pd.ps.literal) {
+				popfontstyle(pd.ps);
+				pd.ps.literal = 0;
 			}
 
 		# <!ELEMENT SCRIPT - - CDATA>
@@ -1248,12 +1324,12 @@ TokLoop:
 			if(!doscripts) {
 				if(warn)
 					sys->print("warning: <SCRIPT> ignored\n");
-				ps.skipping = 1;
-				break;
+				pd.ps.skipping = 1;
+				return;
 			}
 			script := "";
-			scripttoki := toki;
-			(script, toki) = getpcdata(toks, toki);
+			scripttoki := pd.toki;
+			(script, pd.toki) = getpcdata(pd.toks, pd.toki);
 
 			# check language version
 			lang :=  astrval(tok, LX->Alanguage, "javascript");
@@ -1268,15 +1344,15 @@ TokLoop:
 					break;
 			}
 			if (!supported)
-				break;
+				return;
 
 			di.hasscripts = 1;
 			scriptsrc := aurlval(tok, LX->Asrc, nil, di.base);
 			if(scriptsrc != nil && is.reqdurl == nil) {
 				is.reqdurl = scriptsrc;
-				toki = scripttoki;
+				pd.toki = scripttoki;
 				# is.reqddata will contain script next time round
-				break TokLoop;
+				{ pd.brkloop = 1; return; }
 			}
 			if (is.reqddata != nil) {
 				script = CU->stripscript(string is.reqddata);
@@ -1285,7 +1361,7 @@ TokLoop:
 			}
 
 			if(script == "")
-				break;
+				return;
 #sys->print("SCRIPT (ver %s)\n%s\nENDSCRIPT\n", lang, script);
 			(err, replace, nil) := J->evalscript(is.frame, script);
 			if(err != "") {
@@ -1293,43 +1369,43 @@ TokLoop:
 					sys->print("Javascript error: %s\n", err);
 			} else {
 				# First, worry about possible transfer back of new values
-				if(di.text != ps.curfg) {
+				if(di.text != pd.ps.curfg) {
 					# The following isn't nearly good enough
 					# (if the fgstk isn't nil, need to replace bottom of stack;
 					# and need to do similar things for all other pstates).
 					# But Netscape 4.0 doesn't do anything at all if change
 					# foreground in a script!
-					if(ps.fgstk == nil)
-						ps.curfg = di.text;
+					if(pd.ps.fgstk == nil)
+						pd.ps.curfg = di.text;
 				}
 				scripttoks := lexstring(replace);
 				ns := len scripttoks;
 				if(ns > 0) {
 					# splice scripttoks into toks, replacing <SCRIPT>...</SCRIPT>
-					if(toki+1 < tokslen && toks[toki+1].tag == LX->Tscript+RBRA)
-						toki++;
-					newtokslen := tokslen - (toki+1-scripttoki) + ns;
+					if(pd.toki+1 < pd.tokslen && pd.toks[pd.toki+1].tag == LX->Tscript+RBRA)
+						pd.toki++;
+					newtokslen := pd.tokslen - (pd.toki+1-scripttoki) + ns;
 					newtoks := array[newtokslen] of ref Token;
-					newtoks[0:] = toks[0:scripttoki];
+					newtoks[0:] = pd.toks[0:scripttoki];
 					newtoks[scripttoki:] = scripttoks;
-					if(toki+1 < tokslen)
-						newtoks[scripttoki+ns:] = toks[toki+1:tokslen];
-					toks = newtoks;
-					tokslen = newtokslen;
-					toki = scripttoki-1;
+					if(pd.toki+1 < pd.tokslen)
+						newtoks[scripttoki+ns:] = pd.toks[pd.toki+1:pd.tokslen];
+					pd.toks = newtoks;
+					pd.tokslen = newtokslen;
+					pd.toki = scripttoki-1;
 					scripttoks = nil;
 				}
 			}
 
 		LX->Tscript+RBRA =>
-			ps.skipping = 0;
+			pd.ps.skipping = 0;
 
 		# <!ELEMENT SELECT - - (OPTION+)>
 		LX->Tselect =>
 			if(is.curform ==nil) {
 				if(warn)
 					sys->print("<SELECT> not inside <FORM>\n");
-					continue;
+					return;
 			}
 			field := Formfield.new(Fselect,
 					++is.curform.nfields,	# fieldid
@@ -1342,24 +1418,24 @@ TokLoop:
 				field.flags = FFmultiple;
 			is.curform.fields = field :: is.curform.fields;
 			ffit := Item.newformfield(field);
-			additem(ps, ffit, tok);
+			additem(pd.ps, ffit, tok);
 			if(ffit.genattr != nil) {
 				field.events = ffit.genattr.events;
 				if(field.events != nil && doscripts)
 					di.hasscripts = 1;
 			}
 			# throw away stuff until next tag (should be <OPTION>)
-			(nil, toki) = getpcdata(toks, toki);
+			(nil, pd.toki) = getpcdata(pd.toks, pd.toki);
 
 		LX->Tselect+RBRA =>
 			if(is.curform == nil || is.curform.fields == nil) {
 				if(warn)
 					sys->print("warning: unexpected </SELECT>\n");
-				continue;
+				return;
 			}
 			field := hd is.curform.fields;
 			if(field.ftype != Fselect)
-				continue;
+				return;
 			# put options back in input order
 			opts : list of ref Option = nil;
 			select := 0;
@@ -1380,25 +1456,25 @@ TokLoop:
 				ulty := ULmid;
 			else
 				ulty = ULunder;
-			ps.ulstk = ulty :: ps.ulstk;
-			ps.curul = ulty;
+			pd.ps.ulstk = ulty :: pd.ps.ulstk;
+			pd.ps.curul = ulty;
 
 		LX->Tstrike+RBRA or LX->Tu+RBRA =>
-			if(ps.ulstk == nil) {
+			if(pd.ps.ulstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected %s\n", tok.tostring());
-				continue;
+				return;
 			}
-			ps.ulstk = tl ps.ulstk;
-			if(ps.ulstk != nil)
-				ps.curul = hd ps.ulstk;
+			pd.ps.ulstk = tl pd.ps.ulstk;
+			if(pd.ps.ulstk != nil)
+				pd.ps.curul = hd pd.ps.ulstk;
 			else
-				ps.curul = ULnone;
+				pd.ps.curul = ULnone;
 
 		# <!ELEMENT STYLE - - CDATA>
 		LX->Tstyle =>
 			csstext := "";
-			(csstext, toki) = getpcdata(toks, toki);
+			(csstext, pd.toki) = getpcdata(pd.toks, pd.toki);
 			if(cssctx.on)
 				cssaddsheet(csstext);
 
@@ -1418,7 +1494,7 @@ TokLoop:
 					href := aurlval(tok, LX->Ahref, nil, di.base);
 					if(href != nil) {
 						is.reqdurl = href;
-						break TokLoop;	# fetch; resume at this <link> with reqddata set
+						{ pd.brkloop = 1; return; }	# fetch; resume at this <link> with reqddata set
 					}
 				}
 			}
@@ -1426,43 +1502,43 @@ TokLoop:
 		# <!ELEMENT (SUB|SUP) - - (%text)*>
 		LX->Tsub or LX->Tsup =>
 			if(tag == LX->Tsub)
-				ps.curvoff += SUBOFF;
+				pd.ps.curvoff += SUBOFF;
 			else
-				ps.curvoff -= SUPOFF;
-			ps.voffstk = ps.curvoff :: ps.voffstk;
-			sz := stackhd(ps.fntsizestk, Normal);
-			pushfontsize(ps, sz-1);
+				pd.ps.curvoff -= SUPOFF;
+			pd.ps.voffstk = pd.ps.curvoff :: pd.ps.voffstk;
+			sz := stackhd(pd.ps.fntsizestk, Normal);
+			pushfontsize(pd.ps, sz-1);
 
 		LX->Tsub+RBRA or LX->Tsup+RBRA =>
-			if(ps.voffstk == nil) {
+			if(pd.ps.voffstk == nil) {
 				if(warn)
 					sys->print("warning: unexpected %s\n", tok.tostring());
-				continue;
+				return;
 			}
-			ps.voffstk = tl ps.voffstk;
-			if(ps.voffstk != nil)
-				ps.curvoff = hd ps.voffstk;
+			pd.ps.voffstk = tl pd.ps.voffstk;
+			if(pd.ps.voffstk != nil)
+				pd.ps.curvoff = hd pd.ps.voffstk;
 			else
-				ps.curvoff = 0;
-			popfontsize(ps);
+				pd.ps.curvoff = 0;
+			popfontsize(pd.ps);
 
 		# <!ELEMENT TABLE - - (CAPTION?, TR+)>
 		LX->Ttable =>
-			if (ps.skipping)
-				continue;
-			ps.skipwhite = 0;
+			if (pd.ps.skipping)
+				return;
+			pd.ps.skipwhite = 0;
 			# Handle an html error (seen on deja.com)
 			# ... sometimes see a nested <table> outside of a cell
 			# imitate observed behaviour of IE/Navigator
-			if (curtab != nil && curtab.cells == nil) {
-				curtab.align = makealign(tok);
-				curtab.width = makedimen(tok, LX->Awidth);
-				curtab.border = aflagval(tok, LX->Aborder);
-				curtab.cellspacing = aintval(tok, LX->Acellspacing, TABSP);
-				curtab.cellpadding = aintval(tok, LX->Acellpadding, TABPAD);
-				curtab.background = Background(nil, color(aval(tok, LX->Abgcolor), -1));
-				curtab.tabletok = tok;
-				continue;
+			if (pd.curtab != nil && pd.curtab.cells == nil) {
+				pd.curtab.align = makealign(tok);
+				pd.curtab.width = makedimen(tok, LX->Awidth);
+				pd.curtab.border = aflagval(tok, LX->Aborder);
+				pd.curtab.cellspacing = aintval(tok, LX->Acellspacing, TABSP);
+				pd.curtab.cellpadding = aintval(tok, LX->Acellpadding, TABPAD);
+				pd.curtab.background = Background(nil, color(aval(tok, LX->Abgcolor), -1));
+				pd.curtab.tabletok = tok;
+				return;
 			}
 			tab := Table.new(++is.ntables,	# tableid
 					makealign(tok),	# align
@@ -1475,48 +1551,48 @@ TokLoop:
 					tok);
 			is.tabstk = tab :: is.tabstk;
 			di.tables = tab :: di.tables;
-			curtab = tab;
+			pd.curtab = tab;
 			# HTML spec says:
 			# don't add items to outer state (until </table>)
 			# but IE and Netscape don't do that
 
 		LX->Ttable+RBRA =>
-			if (ps.skipping)
-				continue;
-			if(curtab == nil) {
+			if (pd.ps.skipping)
+				return;
+			if(pd.curtab == nil) {
 				if(warn)
 					sys->print("warning: unexpected </TABLE>\n");
-				continue;
+				return;
 			}
-			isempty := (curtab.cells == nil);
+			isempty := (pd.curtab.cells == nil);
 			if(isempty) {
 				if(warn)
 					sys->print("warning: <TABLE> has no cells\n");
 			}
 			else {
-				(ps, psstk) = finishcell(curtab, psstk);
-				if(curtab.currows != nil)
-					(hd curtab.currows).flags = byte 0;
-				finish_table(curtab);
+				(pd.ps, pd.psstk) = finishcell(pd.curtab, pd.psstk);
+				if(pd.curtab.currows != nil)
+					(hd pd.curtab.currows).flags = byte 0;
+				finish_table(pd.curtab);
 			}
-			ps.skipping = 0;
+			pd.ps.skipping = 0;
 			if(!isempty) {
-				tabitem := Item.newtable(curtab);
-				al := int curtab.align.halign;
+				tabitem := Item.newtable(pd.curtab);
+				al := int pd.curtab.align.halign;
 				case al {
 				int Aleft or int Aright =>
-					additem(ps, Item.newfloat(tabitem, byte al), tok);
+					additem(pd.ps, Item.newfloat(tabitem, byte al), tok);
 				* =>
 					if(al == int Acenter)
-						pushjust(ps, Acenter);
-					addbrk(ps, 0, 0);
-					if(ps.inpar) {
-						popjust(ps);
-						ps.inpar = 0;
+						pushjust(pd.ps, Acenter);
+					addbrk(pd.ps, 0, 0);
+					if(pd.ps.inpar) {
+						popjust(pd.ps);
+						pd.ps.inpar = 0;
 					}
-					additem(ps, tabitem, curtab.tabletok);
+					additem(pd.ps, tabitem, pd.curtab.tabletok);
 					if(al == int Acenter)
-						popjust(ps);
+						popjust(pd.ps);
 				}
 			}
 			if(is.tabstk == nil) {
@@ -1526,13 +1602,13 @@ TokLoop:
 			else
 				is.tabstk = tl is.tabstk;
 			if(is.tabstk == nil)
-				curtab = nil;
+				pd.curtab = nil;
 			else
-				curtab = hd is.tabstk;
+				pd.curtab = hd is.tabstk;
 			if(!isempty) {
 				# the code at the beginning to add a break after table
 				# changed the nested ps, not the current one
-				addbrk(ps, 0, 0);
+				addbrk(pd.ps, 0, 0);
 			}
 
 		# <!ELEMENT (TH|TD) - O %body.content>
@@ -1540,41 +1616,41 @@ TokLoop:
 		# We push ps on a stack, and use a new one to accumulate
 		# the contents of the cell.
 		LX->Ttd or LX->Tth =>
-			if (ps.skipping)
-				continue;
-			if(curtab == nil) {
+			if (pd.ps.skipping)
+				return;
+			if(pd.curtab == nil) {
 				if(warn)
 					sys->print("%s outside <TABLE>\n", tok.tostring());
-				continue;
+				return;
 			}
-			if(ps.inpar) {
-				popjust(ps);
-				ps.inpar = 0;
+			if(pd.ps.inpar) {
+				popjust(pd.ps);
+				pd.ps.inpar = 0;
 			}
-			(ps, psstk) = finishcell(curtab, psstk);
+			(pd.ps, pd.psstk) = finishcell(pd.curtab, pd.psstk);
 			tr : ref Tablerow = nil;
-			if(curtab.currows != nil)
-				tr = hd curtab.currows;
+			if(pd.curtab.currows != nil)
+				tr = hd pd.curtab.currows;
 			if(tr == nil || tr.flags == byte 0) {
 				if(warn)
 					sys->print("%s outside row\n", tok.tostring());
-				tr = Tablerow.new(Align(Anone,Anone), curtab.background, TFparsing);
-				curtab.currows = tr :: curtab.currows;
+				tr = Tablerow.new(Align(Anone,Anone), pd.curtab.background, TFparsing);
+				pd.curtab.currows = tr :: pd.curtab.currows;
 			}
-			ps = cell_pstate(ps, tag == LX->Tth);
-			psstk = ps :: psstk;
+			pd.ps = cell_pstate(pd.ps, tag == LX->Tth);
+			pd.psstk = pd.ps :: pd.psstk;
 			flags := TFparsing;
 			width := makedimen(tok, LX->Awidth);
 	
 			# nowrap only applies if no width has been specified
 			if(width.kind() == Dnone && aboolval(tok, LX->Anowrap)) {
 				flags |= TFnowrap;
-				ps.curstate &= ~IFwrap;
+				pd.ps.curstate &= ~IFwrap;
 			}
 			if(tag == LX->Tth)
 				flags |= TFisth;
 			bg := Background(nil, color(aval(tok, LX->Abgcolor), tr.background.color));
-			c := Tablecell.new(len curtab.cells + 1, # cell id
+			c := Tablecell.new(len pd.curtab.cells + 1, # cell id
 				aintval(tok, LX->Arowspan, 1),
 				aintval(tok, LX->Acolspan, 1),
 				makealign(tok),
@@ -1591,8 +1667,8 @@ TokLoop:
 				}
 				di.images = bg.image :: di.images;
 			}
-			c.background = ps.curbg = bg;
-			ps.curbg.image = nil;
+			c.background = pd.ps.curbg = bg;
+			pd.ps.curbg.image = nil;
 			if(c.align.halign == Anone) {
 				if(tr.align.halign != Anone)
 					c.align.halign = tr.align.halign;
@@ -1607,25 +1683,25 @@ TokLoop:
 				else
 					c.align.valign = Amiddle;
 			}
-			curtab.cells = c :: curtab.cells;
+			pd.curtab.cells = c :: pd.curtab.cells;
 			tr.cells = c :: tr.cells;
 
 		LX->Ttd+RBRA or LX->Tth+RBRA =>
-			if (ps.skipping)
-				continue;
-			if(curtab == nil || curtab.cells == nil) {
+			if (pd.ps.skipping)
+				return;
+			if(pd.curtab == nil || pd.curtab.cells == nil) {
 				if(warn)
 					sys->print("unexpected %s\n", tok.tostring());
-				continue;
+				return;
 			}
-			(ps, psstk) = finishcell(curtab, psstk);
+			(pd.ps, pd.psstk) = finishcell(pd.curtab, pd.psstk);
 
 		# <!ELEMENT TEXTAREA - - (#PCDATA)>
 		LX->Ttextarea =>
 			if(is.curform ==nil) {
 				if(warn)
 					sys->print("<TEXTAREA> not inside <FORM>\n");
-					continue;
+					return;
 			}
 			nrows := aintval(tok, LX->Arows, 3);
 			ncols := aintval(tok, LX->Acols, 50);
@@ -1641,11 +1717,11 @@ TokLoop:
 			field.rows = nrows;
 			field.cols = ncols;
 			is.curform.fields = field :: is.curform.fields;
-			(field.value, toki) = getpcdata(toks, toki);
-			if(warn && toki < tokslen-1 && toks[toki+1].tag != LX->Ttextarea+RBRA)
-				sys->print("warning: <TEXTAREA> data ended by %s\n", toks[toki+1].tostring());
+			(field.value, pd.toki) = getpcdata(pd.toks, pd.toki);
+			if(warn && pd.toki < pd.tokslen-1 && pd.toks[pd.toki+1].tag != LX->Ttextarea+RBRA)
+				sys->print("warning: <TEXTAREA> data ended by %s\n", pd.toks[pd.toki+1].tostring());
 			ffit :=  Item.newformfield(field);
-			additem(ps, ffit, tok);
+			additem(pd.ps, ffit, tok);
 			if(ffit.genattr != nil) {
 				field.events = ffit.genattr.events;
 				if(field.events != nil && doscripts)
@@ -1654,67 +1730,67 @@ TokLoop:
 
 		# <!ELEMENT TITLE - - (#PCDATA)* -(%head.misc)>
 		LX->Ttitle =>
-			(di.doctitle, toki) = getpcdata(toks, toki);
-			if(warn && toki < tokslen-1 && toks[toki+1].tag != LX->Ttitle+RBRA)
-				sys->print("warning: <TITLE> data ended by %s\n", toks[toki+1].tostring());
+			(di.doctitle, pd.toki) = getpcdata(pd.toks, pd.toki);
+			if(warn && pd.toki < pd.tokslen-1 && pd.toks[pd.toki+1].tag != LX->Ttitle+RBRA)
+				sys->print("warning: <TITLE> data ended by %s\n", pd.toks[pd.toki+1].tostring());
 
 		# <!ELEMENT TR - O (TH|TD)+>
 		# rows are accumulated in reverse order in curtab.currows
 		LX->Ttr =>
-			if (ps.skipping)
-				continue;
-			if(curtab == nil) {
+			if (pd.ps.skipping)
+				return;
+			if(pd.curtab == nil) {
 				if(warn)
 					sys->print("warning: <TR> outside <TABLE>\n");
-				continue;
+				return;
 			}
-			if(ps.inpar) {
-				popjust(ps);
-				ps.inpar = 0;
+			if(pd.ps.inpar) {
+				popjust(pd.ps);
+				pd.ps.inpar = 0;
 			}
-			(ps, psstk) = finishcell(curtab, psstk);
-			if(curtab.currows != nil)
-				(hd curtab.currows).flags = byte 0;
+			(pd.ps, pd.psstk) = finishcell(pd.curtab, pd.psstk);
+			if(pd.curtab.currows != nil)
+				(hd pd.curtab.currows).flags = byte 0;
 			tr := Tablerow.new(makealign(tok),
-					Background(nil, color(aval(tok, LX->Abgcolor), curtab.background.color)),
+					Background(nil, color(aval(tok, LX->Abgcolor), pd.curtab.background.color)),
 					TFparsing);
-			curtab.currows = tr :: curtab.currows;
+			pd.curtab.currows = tr :: pd.curtab.currows;
 
 		LX->Ttr+RBRA =>
-			if (ps.skipping)
-				continue;
-			if(curtab == nil || curtab.currows == nil) {
+			if (pd.ps.skipping)
+				return;
+			if(pd.curtab == nil || pd.curtab.currows == nil) {
 				if(warn)
 					sys->print("warning: unexpected </TR>\n");
-				continue;
+				return;
 			}
-			(ps, psstk) = finishcell(curtab, psstk);
-			tr := hd curtab.currows;
+			(pd.ps, pd.psstk) = finishcell(pd.curtab, pd.psstk);
+			tr := hd pd.curtab.currows;
 			if(tr.cells == nil) {
 				if(warn)
 					sys->print("warning: empty row\n");
-				curtab.currows = tl curtab.currows;
+				pd.curtab.currows = tl pd.curtab.currows;
 			}
 			else
 				tr.flags = byte 0;		# done parsing
 
 		# <!ELEMENT (TT|CODE|KBD|SAMP) - - (%text)*>
 		LX->Ttt or LX->Tcode or LX->Tkbd	or LX->Tsamp =>
-			pushfontstyle(ps, FntT);
+			pushfontstyle(pd.ps, FntT);
 
 		# <!ELEMENT (XMP|LISTING) - - %literal >
 		# additional support exists in LX to ignore character escapes etc.
 		LX->Txmp =>
-			ps.curstate &= ~IFwrap;
-			ps.literal = 1;
-			ps.skipwhite = 0;
-			pushfontstyle(ps, FntT);
+			pd.ps.curstate &= ~IFwrap;
+			pd.ps.literal = 1;
+			pd.ps.skipwhite = 0;
+			pushfontstyle(pd.ps, FntT);
 
 		LX->Txmp+RBRA =>
-			ps.curstate |= IFwrap;
-			if(ps.literal) {
-				popfontstyle(ps);
-				ps.literal = 0;
+			pd.ps.curstate |= IFwrap;
+			if(pd.ps.literal) {
+				popfontstyle(pd.ps);
+				pd.ps.literal = 0;
 			}
 
 		# Tags that have empty action
@@ -1785,49 +1861,6 @@ TokLoop:
 			if(warn)
 				sys->print("warning: unknown HTML tag: %s\n", tok.text);
 		}
-	}
-	if (toki < tokslen)
-		is.toks = toks[toki:];
-	if(tokslen == 0) {
-		# we might have hit eof from lexer
-		# some pages omit trailing </table>
-		bs := is.ts.b;
-		if(bs.eof && bs.lim == bs.edata) {
-			while(curtab != nil) {
-				if(warn)
-					sys->print("warning: <TABLE> not closed\n");
-				if(curtab.cells != nil) {
-					(ps, psstk) = finishcell(curtab, psstk);
-					if(curtab.currows != nil)
-						(hd curtab.currows).flags = byte 0;
-					finish_table(curtab);
-					ps.skipping = 0;
-					additem(ps, Item.newtable(curtab), curtab.tabletok);
-					addbrk(ps, 0, 0);
-				}
-				if(is.tabstk != nil)
-					is.tabstk = tl is.tabstk;
-				if(is.tabstk == nil)
-					curtab = nil;
-				else
-					curtab = hd is.tabstk;
-			}
-		}
-	}
-	outerps := lastps(psstk);
-	ans := outerps.items.next;
-	# note: ans may be nil and di.kids not nil, if there's a frameset!
-	outerps.items = Item.newspacer(ISPnull, 0);
-	outerps.lastit = outerps.items;
-	is.psstk = psstk;
-
-	if(dbg) {
-		if(ans == nil)
-			sys->print("getitems returning nil\n");
-		else
-			ans.printlist("getitems returning:");
-	}
-	return ans;
 }
 
 #############################################################################
