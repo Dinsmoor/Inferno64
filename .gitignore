@@ -66,4 +66,6 @@ y.debug
 /[A-Z]*/*/bin/
 !/[A-Z]*/*/bin/mk
 !/[A-Z]*/*/bin/mkext
+# build-profile stamp written by `make all` (Linux/<arch>/.buildmode)
+/[A-Z]*/*/.buildmode
 raylib-ref/

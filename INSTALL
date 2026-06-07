@@ -11,12 +11,22 @@ checkout (or a fresh `git worktree`) the only command you need is:
         make all              # aarch64 host (default)
         make OBJTYPE=amd64 all # x86-64 host
 
+(Bare `make` is the same as `make all`.)  To just try it, `make run` does a
+full build and opens the graphical desktop; `make help` prints a one-screen
+target summary.
+
 `make all` is the ONLY coherent build: it builds the C side first (the
 host libraries, the `limbo` compiler and the `emu` binary), then compiles
 the whole Limbo source tree under appl/ to .dis with that compiler.  The
 two halves MUST match (a stale .dis against a freshly built ABI is a
 real, debugged crash class), so the half builds `make emu` / `make dis`
 are gated behind FORCE=1 and should be avoided.
+
+Every build is a full nuke+rebuild on purpose (mk's incremental tracking is
+not trusted here).  Install `ccache` to make that cheap: `make` routes
+compiles through it automatically when present.  Because ccache is
+content-addressed it only speeds recompiling UNCHANGED files -- it can never
+serve a stale object for changed source, so the rebuild guarantee is intact.
 
 Build profiles (optimization + arch + instrumentation):
 
@@ -54,7 +64,8 @@ gitignored).  Each git worktree therefore needs its own one-time
 
 Prerequisites: a host C toolchain (gcc, ar), GNU make, and for the
 default GUI `emu` the X11/FreeType build deps.  For a headless,
-graphics-less build use CONF=emu-g.
+graphics-less build use CONF=emu-g.  Optional: `ccache` (auto-detected,
+makes the always-full rebuild near-instant).
 
 The original, platform-generic instructions follow.
 

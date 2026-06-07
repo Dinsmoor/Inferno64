@@ -31,7 +31,7 @@ MK      := $(ROOT)/$(OBJDIR)/bin/mk
 CONF    := emu
 
 # Build profiles.  PROFILE selects an optimization + arch + instrumentation
-# bundle by overriding the arch mkfile's OPTFLAGS / MARCH / DBGFLAGS on the mk
+# bundle by overriding the arch mkfile's OLEVEL / MTUNE / DBGFLAGS on the mk
 # command line (an mk command-line assignment wins over the mkfile's).  The
 # mkfile defaults ARE the debug profile, so PROFILE=debug passes no override.
 #
@@ -69,40 +69,49 @@ EMUARGS := $(MKARGS) CONF=$(CONF)
 NPROC   ?= $(shell n=$$(nproc 2>/dev/null || echo 1); h=$$((n/2)); [ $$h -ge 1 ] && echo $$h || echo 1)
 
 export NPROC
+
+# ccache: route C/asm compiles through it when its compiler-masquerade dir is
+# installed (it shadows gcc/cc/as on PATH).  ccache is CONTENT-addressed, not
+# timestamp-addressed: a cache hit means byte-identical preprocessed source AND
+# flags, so it can NEVER serve a stale object for changed input -- it only makes
+# the always-full nuke+rebuild cheap, without weakening the rebuild guarantee.
+# No-op when ccache is absent.  (We deliberately do NOT inject ccache via CC=:
+# the arch mkfile's CC= must stay a literal compiler -- it is sed-parsed by
+# tests/cunit/run.sh and the emu-disptrcheck target -- and a spaced CC= override
+# would also be mangled by mk's $MKFLAGS forwarding into sub-mk.  PATH is clean.)
+# NB: the var is CCACHE_MASQ, not CCACHE_DIR -- the latter is ccache's own
+# cache-location env var and must not be clobbered.
+CCACHE_MASQ := $(firstword $(wildcard /usr/lib/ccache /usr/lib64/ccache /usr/libexec/ccache))
+ifeq ($(CCACHE_MASQ),)
 export PATH := $(ROOT)/$(OBJDIR)/bin:$(PATH)
+else
+export PATH := $(CCACHE_MASQ):$(ROOT)/$(OBJDIR)/bin:$(PATH)
+endif
 export ROOT
 
-# Build order: each entry depends on all prior entries.
-# utils/iyacc must precede limbo (grammar files), limbo must precede libinterp.
-# utils/data2c and utils/ndate must precede emu (used during emu link).
-EMUDIRS := \
-	lib9        \
-	libbio      \
-	libmp       \
-	libsec      \
-	libmath     \
-	utils/iyacc \
-	limbo       \
-	libinterp   \
-	libkeyring  \
-	libdraw     \
-	libprefab   \
-	libtk       \
-	libfreetype \
-	libmbedtls  \
-	libstb      \
-	libmemdraw  \
-	libmemlayer \
-	utils/data2c \
-	utils/ndate \
-	emu
+# Build order.  Derived (not hand-copied) from the top-level mkfile's EMUDIRS
+# block so `mk` and this wrapper can never disagree about what gets built -- a
+# directory missing from the list is a silently-never-compiled component, the
+# staleness class this build exists to prevent.  The order there encodes deps:
+# utils/iyacc<limbo<libinterp, utils/{data2c,ndate}<emu.  If this extraction
+# ever yields an empty list (mkfile reformatted), the build fails loudly below.
+EMUDIRS := $(shell awk '/^EMUDIRS=/{f=1} f{l=$$0; sub(/^EMUDIRS=/,"",l); gsub(/\\/,"",l); print l} f&&$$0!~/\\$$/{exit}' $(ROOT)/mkfile)
+ifeq ($(strip $(EMUDIRS)),)
+$(error could not extract EMUDIRS from $(ROOT)/mkfile -- check the EMUDIRS block format)
+endif
 
 # The Limbo source tree.  appl/mkfile descends (via mksubdirs) into acme,
 # charon, cmd, lib, math, wm, ... and each leaf compiles its .b to .dis and
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run help warn-running-emu
+
+# Bare `make` builds the system.  Without this, GNU make's default goal would be
+# the first target in the file ($(MK), the mk-bootstrap path target), so `make`
+# with no args would silently do nothing useful -- a footgun (you'd think you
+# built and then run a stale tree).  `make` == `make all`.
+.DEFAULT_GOAL := all
 
 # Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
 # fresh tree or git worktree has no mk binary yet (it is build output, not
@@ -126,9 +135,24 @@ TEST_RUN := ROOT=$(ROOT) OBJDIR=$(OBJDIR) sh $(ROOT)/tests/cunit/run.sh
 
 # Full system: C side first (so the limbo compiler exists), then the Dis tree.
 # This is the ONLY coherent build and should be your default.
-all: _emu _dis
+all: warn-running-emu _emu _dis
+	@echo "$(BUILDMODE)" > $(ROOT)/$(OBJDIR)/.buildmode
 	@echo
 	@echo "Build complete (emu + Dis tree, $(BUILDMODE)): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+# Loud (non-fatal) warning if an emu is running while we rebuild the tree:
+# overwriting its .dis/binaries underneath a live emu corrupts it and produces
+# "fake" faults that look like real bugs.  We do NOT auto-kill (it may be a
+# shared desktop) -- the user restarts it after the build.
+warn-running-emu:
+	@if command -v pgrep >/dev/null 2>&1 && pgrep -x emu >/dev/null 2>&1; then \
+		echo "*****************************************************************" >&2; \
+		echo "WARNING: an emu process is running while you rebuild this tree."   >&2; \
+		echo "  Rebuilding changes its .dis/binaries underneath it and can"      >&2; \
+		echo "  crash it with faults that look like real bugs.  Stop and"        >&2; \
+		echo "  restart that emu AFTER this build finishes."                     >&2; \
+		echo "*****************************************************************" >&2; \
+	fi
 
 # Build-profile convenience targets: a full `make all` in the named profile.
 #   make debug          -g -Og + DISPTRCHECK + EMUCRASH-on  (default; find-the-bug)
@@ -137,11 +161,15 @@ all: _emu _dis
 debug release bleedingedge:
 	@$(MAKE) PROFILE=$@ all
 
-# The easy "just try it" path: build (quietly, only if needed) and open the
-# Inferno graphical desktop.  Builds the bleedingedge profile for the snappiest
-# local experience; re-running just relaunches the existing binary.  Override the
-# window size with `make run RUNGEOM=1920x1080`.
-RUNGEOM ?= 1280x800
+# The easy "just try it" path: do a full coherent build (quietly) and open the
+# Inferno graphical desktop.  It ALWAYS rebuilds (a full `make all`, which is
+# cheap with ccache) rather than launching whatever binary happens to be lying
+# around -- so `make run` can never start a stale tree, and it honestly is the
+# RUNPROFILE it claims (the old "only build if the binary is missing" launched a
+# stale, mislabeled binary).  Override profile/size: make run RUNPROFILE=debug
+# RUNGEOM=1920x1080.
+RUNGEOM    ?= 1280x800
+RUNPROFILE ?= bleedingedge
 run:
 	@if [ -z "$$DISPLAY" ]; then \
 		echo "make run needs an X display (\$$DISPLAY is empty)." >&2; \
@@ -149,14 +177,11 @@ run:
 		echo "    ./$(OBJDIR)/bin/emu -r\"$(ROOT)\" /dis/sh.dis" >&2; \
 		exit 1; \
 	fi
-	@if [ ! -x "$(ROOT)/$(OBJDIR)/bin/emu" ]; then \
-		echo "Building Inferno (bleedingedge; ~1 min, first run only) ..."; \
-		if ! $(MAKE) PROFILE=bleedingedge all >/tmp/inferno-build.log 2>&1; then \
-			echo "build failed -- last 20 lines of /tmp/inferno-build.log:" >&2; \
-			tail -20 /tmp/inferno-build.log >&2; \
-			exit 1; \
-		fi; \
-		echo "Build complete."; \
+	@echo "Building Inferno ($(RUNPROFILE), full coherent build) ..."
+	@if ! $(MAKE) PROFILE=$(RUNPROFILE) all >/tmp/inferno-build.log 2>&1; then \
+		echo "build failed -- last 20 lines of /tmp/inferno-build.log:" >&2; \
+		tail -20 /tmp/inferno-build.log >&2; \
+		exit 1; \
 	fi
 	@echo "Starting the Inferno desktop ($(RUNGEOM)) ..."
 	@$(ROOT)/$(OBJDIR)/bin/emu -r"$(ROOT)" -g$(RUNGEOM) wm/wm
@@ -197,8 +222,8 @@ _emu: $(MK)
 
 # Compile the Limbo source tree to .dis with the freshly built compiler.
 # Requires the C side (the limbo binary) to be built first; `make all` ensures
-# this; `make all` ensures it.  nuke clears stale .dis (in both
-# the source dirs and dis/) so the tree is rebuilt clean from source.
+# that ordering.  nuke clears stale .dis (in both the source dirs and dis/) so
+# the tree is rebuilt clean from source.
 _dis: $(MK)
 	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
 	@set -e; \
@@ -288,3 +313,29 @@ emu-disptrcheck:
 	(cd $(ROOT)/libinterp && $(MK) $(MKARGS) "CC=$$cc -DDISPTRCHECK" install) && \
 	(cd $(ROOT)/emu/$(SYSTARG) && $(MK) $(EMUARGS) install) && \
 	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make all' to revert."
+
+# Quick reference.  `make help` -> this.
+help:
+	@echo "Inferno build -- make wraps mk (mk compiles per component; make"
+	@echo "orchestrates, sets the LP64 env, and bootstraps mk).  Current target:"
+	@echo "  $(SYSTARG)/$(OBJTYPE)   profile=$(PROFILE)   CONF=$(CONF)"
+	@echo
+	@echo "Build:"
+	@echo "  make            full coherent build (== make all), debug profile"
+	@echo "  make release    full build, -O2 portable baseline, no instrumentation"
+	@echo "  make bleedingedge  full build, -O3 -march=native"
+	@echo "  make run        full build (RUNPROFILE=$(RUNPROFILE)) + launch the GUI desktop"
+	@echo
+	@echo "Verify / maintain:"
+	@echo "  make check      per-platform build+test gate (run before pushing)"
+	@echo "  make test_all_unit   C unit tests      make lint   64->32 narrowing lint"
+	@echo "  make clean      remove objects         make nuke   remove objects + .dis"
+	@echo "  make bootstrap  (re)build mk if missing"
+	@echo
+	@echo "Override: OBJTYPE=amd64  CONF=emu-g  NPROC=8  PROFILE=...  (e.g. make OBJTYPE=amd64 all)"
+	@echo
+	@echo "Every build is a full nuke+rebuild of BOTH halves (C side + .dis tree)"
+	@echo "on purpose: it is the only coherent build (a stale .dis against a freshly"
+	@echo "built ABI is a real, debugged crash class).  ccache, if installed, makes"
+	@echo "the full rebuild cheap without weakening that guarantee.  Half builds"
+	@echo "(make emu / make dis) are gated behind FORCE=1."

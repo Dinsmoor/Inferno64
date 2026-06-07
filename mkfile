@@ -5,7 +5,22 @@
 #	- the remaining libraries
 #	- commands
 #	- utilities
-
+#
+# This is the ONE authoritative build-order list: the GNU Makefile wrapper
+# derives its EMUDIRS from this block (awk-extracted) rather than keeping a
+# second copy, so `mk` and `make` can never disagree about what gets built.
+# A directory missing here is a silently-never-compiled component.
+#
+# NOTE: libdynld (Vita Nuova's DLM facility -- runtime-loadable *native*
+# modules with signature-checked linkage, see libdynld/dynld.c) is intentionally
+# absent from the emu build, for two independent reasons:
+#   1. It has per-arch relocation backends only for 386/arm/mips/power/sparc;
+#      there is no LP64 (aarch64/amd64) dynld-$OBJTYPE.c, so it cannot compile.
+#   2. Hosted Unix emu never uses it anyway: libinterp/dlm-Posix.c stubs
+#      dynld()/dynldable() to nil/0, so readmod.c's native-load path is dead on
+#      POSIX. (DLMs are live only in the native kernel / Plan 9 / NT glue.)
+# It is not on emu's link line.  Re-enabling DLMs on hosted LP64 is real work,
+# not a list edit: write dynld-<arch>.c AND implement dlm-Posix.c for real.
 EMUDIRS=\
 	lib9\
 	libbio\
@@ -20,9 +35,10 @@ EMUDIRS=\
 	libprefab\
 	libtk\
 	libfreetype\
+	libmbedtls\
+	libstb\
 	libmemdraw\
 	libmemlayer\
-	libdynld\
 	utils/data2c\
 	utils/ndate\
 	emu\

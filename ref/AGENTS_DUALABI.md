@@ -67,26 +67,47 @@ Build with the top-level `Makefile` (wraps `mk`, which has unreliable incrementa
 dependency tracking — the Makefile nukes objects between components):
 
 ```
-make                  # == make debug all : Linux/aarch64/bin/emu (full GUI; default)
+make                  # == make all : Linux/aarch64/bin/emu (full GUI; debug; default)
 make all CONF=emu-g   # graphics-less headless build (faster; tests run under this)
 make release          # release build: no instrumentation, -O2, portable -march
 make bleedingedge     # -O3 -march=native, no instrumentation (host-tuned)
+make run              # full build + launch the GUI desktop (the easy "try it" path)
+make help             # one-screen target summary + current build settings
 make check            # pre-push gate: the per-platform capability matrix
 ```
 
-**Build profiles (`make debug | release | bleedingedge`, or `PROFILE=`).** A
-profile is an optimization + arch + instrumentation bundle selected by
-overriding three vars the arch mkfiles factor out — `OPTFLAGS`, `MARCH`,
-`DBGFLAGS` — on the mk command line (an mk command-line assignment wins over the
-mkfile's; the mkfile defaults *are* the debug profile, so `PROFILE=debug` passes
-no override). `make <profile>` is a convenience target that runs a full `make
-all` in that profile; `make all PROFILE=<profile>` is equivalent.
+Bare `make` is the default goal `all` (an explicit `.DEFAULT_GOAL`, so it can't
+silently fall through to the mk-bootstrap target). `make run` does a full
+coherent build then launches — it never relaunches a possibly-stale binary.
+`make all` writes the profile it built to `$(OBJDIR)/.buildmode`. The build also
+prints a loud warning if an `emu` is running while you rebuild (overwriting its
+files underneath it crashes it with faults that masquerade as real bugs); it
+does not auto-kill.
 
-| profile | OPTFLAGS | MARCH | DBGFLAGS |
+**ccache (optional, auto-detected).** When a ccache compiler-masquerade dir
+(`/usr/lib/ccache`, …) exists, the Makefile prepends it to `PATH` so all C/asm
+compiles route through ccache — making the always-full nuke+rebuild near-instant.
+ccache is *content-addressed* (hashes preprocessed source + flags), so a hit
+means byte-identical input and it can never serve a stale object for changed
+source: the full-rebuild guarantee is preserved, only the cost drops. It is wired
+via `PATH`, **not** `CC=`, on purpose — the arch mkfile's `CC=` must stay a
+literal compiler (it is `sed`-parsed by `tests/cunit/run.sh` and the
+`emu-disptrcheck` target, and a spaced `CC=` override is mangled by mk's
+`$MKFLAGS` forwarding into sub-mk).
+
+**Build profiles (`make debug | release | bleedingedge`, or `PROFILE=`).** A
+profile is an optimization + arch + instrumentation bundle selected by overriding
+the arch mkfile's `OLEVEL` / `MTUNE` / `DBGFLAGS` on the mk command line (an mk
+command-line assignment wins over the mkfile's; the mkfile defaults *are* the
+debug profile, so `PROFILE=debug` passes no override). `make <profile>` is a
+convenience target that runs a full `make all` in that profile; `make all
+PROFILE=<profile>` is equivalent.
+
+| profile | OLEVEL | MTUNE (`-march=$MTUNE`) | DBGFLAGS |
 |---|---|---|---|
-| `debug` (default) | `-g -Og` | `-march=armv8-a` | `-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS` |
-| `release` | `-g -O2` | `-march=armv8-a` | *(empty)* |
-| `bleedingedge` | `-g -O3` | `-march=native` | *(empty)* |
+| `debug` (default) | `-Og` | `armv8-a` | `-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS` |
+| `release` | `-O2` | `armv8-a` | *(empty)* |
+| `bleedingedge` | `-O3` | `native` | *(empty)* |
 
 `-DDISPTRCHECK` is the "Valgrind for Dis pointers" GC checker (validates every
 GC-reachable Dis pointer each pass; see AGENTS_DEBUGGING.md). `-DEMU_DEBUG_DEFAULTS`
@@ -96,9 +117,20 @@ wild-address fault on reproduction auto-dumps without setting the env var;
 by default in *all* builds (`EMUWATCHDOG=0` disables). Report **relative**
 benchmark numbers (JIT-vs-interp ratios) on debug builds; use `release`/
 `bleedingedge` for absolute numbers, once routine usage bugs are mostly caught.
-The completion banner prints which profile you built. (mk gotcha: a command-line
-value with an embedded `=`, like `-march=native`, must be backslash-escaped and
-quoted — the Makefile does this for `bleedingedge`.)
+The completion banner prints which profile you built. (mk gotcha: profile
+override values **must be single tokens** — no space, no `=` — because mk forwards
+command-line assignments into recursive sub-mk via `$MKFLAGS` *without* re-quoting,
+so a multi-word or `=`-bearing value gets split/mangled in a subdir build. Hence
+`OLEVEL`/`MTUNE` rather than a spaced `OPTFLAGS`/`MARCH` string, and the `-march`
+`=` lives in the mkfile's `CFLAGS` as `-march=$MTUNE`, not in the override.)
+
+**Single source of build order.** The component build order lives **only** in the
+top-level `mkfile`'s `EMUDIRS` block; the GNU `Makefile` *derives* its list from
+there (awk-extracted) instead of keeping a second copy, so `mk` and `make` can
+never disagree about what gets built — a directory missing from the list is a
+silently-never-compiled component (the same staleness class this build guards
+against). `libdynld` is deliberately **not** in the list (see the dropped-modules
+note below).
 
 **`make check` — the pre-push gate.** Runs the capability matrix declared in
 `tests/check/platforms/$(SYSTARG)-$(OBJTYPE).manifest`: builds every required
@@ -271,8 +303,16 @@ These are genuine 64-bit correctness fixes, not shortcuts:
      came up but `wmsetup`/`plumber` broke with "illegal dis instruction".
 - **Now:** `make all` builds `CONF=emu` (libfreetype/libtk/libdraw/win-x11a),
   `wm/wm` renders and is interactive (Xvfb-verified). `make all CONF=emu-g` still
-  gives the fast headless build. `libdynld` remains dropped (no `dynld-aarch64.c`,
-  linked by neither config).
+  gives the fast headless build. `libdynld` (Vita Nuova's DLM facility —
+  runtime-loadable *native* modules with signature-checked linkage) remains
+  dropped for two independent reasons: (1) it has per-arch relocation backends
+  only for 386/arm/mips/power/sparc, no LP64 `dynld-aarch64.c`/`dynld-amd64.c`, so
+  it can't compile; and (2) hosted Unix emu never uses it anyway —
+  `libinterp/dlm-Posix.c` stubs `dynld()`/`dynldable()` to nil/0, so
+  `readmod.c`'s native-load path is dead on POSIX (DLMs are live only in the
+  native kernel / Plan 9 / NT glue). Linked by neither emu config. Re-enabling on
+  LP64 is real work — write `dynld-<arch>.c` **and** implement `dlm-Posix.c` for
+  real — not a list edit.
 - **Debugging the GUI headless:** `Xvfb :99 … & DISPLAY=:99 emu -g1024x768 wm/wm`,
   then screenshot with ImageMagick `import -window root out.png`; drive input with
   `xdotool`.

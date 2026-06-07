@@ -86,10 +86,12 @@ Clone it and run one command:
 make run
 ```
 
-That builds Inferno (quietly, the snappy `-O3 -march=native` build) and opens
-the graphical desktop. The first run compiles for ~a minute; after that `make
-run` just relaunches. You need an X display (a normal Linux desktop session);
-resize the window with `make run RUNGEOM=1920x1080`.
+That does a full, coherent build (quietly, the snappy `-O3 -march=native`
+profile) and opens the graphical desktop. It **always rebuilds** rather than
+launching a possibly-stale binary — a from-scratch build is ~a minute, and
+near-instant on rebuilds if you have `ccache` installed. You need an X display
+(a normal Linux desktop session); resize the window with `make run
+RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
 
 That's all you need to poke around. The rest of this section is for building and
 hacking on it.
@@ -105,8 +107,9 @@ make OBJTYPE=amd64 all    # x86-64 host instead
 
 | command | what it does |
 |---|---|
-| `make run` | build (if needed) **and launch** the graphical desktop — the easy path above; uses the `bleedingedge` profile |
-| `make` / `make all` | full coherent build in the `debug` profile: C side (host libs → the `limbo` compiler → `emu`), then the Dis tree (`appl/*.b` → `dis/`) compiled with that freshly built `limbo` |
+| `make run` | full coherent build **and launch** the graphical desktop — the easy path above; always rebuilds (never launches a stale binary), `RUNPROFILE=bleedingedge` by default |
+| `make` / `make all` | full coherent build in the `debug` profile: C side (host libs → the `limbo` compiler → `emu`), then the Dis tree (`appl/*.b` → `dis/`) compiled with that freshly built `limbo`. Bare `make` is the same as `make all`. |
+| `make help` | one-screen summary of these targets and the current build settings |
 | `make debug` | `make all` in the **debug** profile — `-Og`, the DISPTRCHECK GC checker, `EMUCRASH` crash-dump auto-on. The find-the-bug build (this is the default). |
 | `make release` | `make all` at `-O2`, portable `-march` baseline, no instrumentation |
 | `make bleedingedge` | `make all` at `-O3 -march=native`, no instrumentation (host-tuned) |
@@ -132,7 +135,12 @@ coherent entry point. It exists because:
 - **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
   or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
   previously-debugged crash class. `make` **nukes objects between components** so
-  nothing stale survives (a full rebuild is cheap, ~1 min).
+  nothing stale survives (a full rebuild is cheap, ~1 min — and near-instant with
+  `ccache`, which `make` routes compiles through automatically when it's
+  installed; ccache is content-addressed, so it speeds the full rebuild *without*
+  ever serving a stale object). `make` also warns if an `emu` is running while you
+  rebuild, since overwriting its files underneath it produces crashes that look
+  like real bugs.
 - **both halves must be built in the right order** — the C side produces the
   `limbo` compiler that then compiles the Dis tree; `make` sequences this and
   **regenerates the per-ABI module headers**, so a 32↔64-bit switch can't link
