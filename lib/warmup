@@ -1,0 +1,38 @@
+# wm/warmup -- programs to pre-load (and, under `emu -c1`, JIT-compile) at boot
+# so they launch instantly later.  One program per line; blank lines and lines
+# beginning with '#' are ignored.  Names are resolved like wm menu commands:
+# a bare name or wm/<name> is found under /dis (e.g. "charon" -> /dis/charon.dis,
+# "wm/sh" -> /dis/wm/sh.dis).
+#
+# The default list is everything in the wm launch menu (and submenus) -- the
+# programs a user is most likely to reach for -- so they are warm by the time
+# the desktop is up.  Under -c1 each is compiled in the BACKGROUND (the splash
+# keeps animating); the animation speeds up as the list is worked through.
+#
+# Per-user override: copy this to $home/lib/warmup and edit.  Trim the list (or
+# empty the file) if you would rather boot faster than pre-warm everything.
+
+# top-level menu
+wm/sh
+acme
+wm/edit
+charon
+wm/man
+wm/ftree
+
+# System submenu
+wm/deb
+wm/rt
+wm/task
+wm/memory
+wm/about
+
+# Misc submenu
+wm/coffee
+wm/colors
+wm/date
+
+# Games submenu
+wm/tetris
+wm/bounce
+wm/rayteapot

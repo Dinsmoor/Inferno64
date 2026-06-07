@@ -359,6 +359,7 @@ struct Handler
 
 extern	int	bflag;
 extern	int	cflag;
+extern	int	dontcompile;
 extern	int	nproc;
 extern	Type	Tarray;
 extern	Type	Tstring;
@@ -395,6 +396,8 @@ extern	void*		checktype(void*, Type*, char*, int);
 extern	void		cmovw(void*, void*);
 extern	Channel*	cnewc(Type*, void (*)(void), int);
 extern	int		compile(Module*, int, Modlink*);
+extern	int		lockedcompile(Module*, int, Modlink*);
+extern	int		releasecompile(Module*, int, Modlink*);
 extern	void		cqadd(Progq**, Prog*);
 extern	void		cqdel(Progq**);
 extern	void		cqdelp(Progq**, Prog*);

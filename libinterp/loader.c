@@ -450,10 +450,81 @@ Loader_compile(void *a)
 	*f->ret = 0;
 	m->origmp = f->mp->MP;
 	if(cflag || f->flag)
-	if(compile(m, m->nprog, f->mp)) {
+	if(lockedcompile(m, m->nprog, f->mp)) {	/* serialized vs. background compiles */
 		f->mp->prog = m->prog;
 		f->mp->compiled = 1;
 	} else
 		*f->ret = -1;
 	m->origmp = H;
+}
+
+/*
+ * Like compile, but runs the (long, non-yielding) native-code compiler with the
+ * VM scheduler RELEASED, so other Dis procs keep running while this module is
+ * JIT-compiled on the caller's host thread.  The boot warm-up splash uses this
+ * to compile dormant modules in the background while its animation keeps moving.
+ * Only safe for modules with no running interpreter (compile() swaps m->prog and
+ * frees the old bytecode); warm-up-loaded modules are dormant, so the concurrently
+ * scheduled procs run *other* modules.
+ */
+void
+Loader_compilebg(void *a)
+{
+	Module *m;
+	F_Loader_compilebg *f;
+
+	f = a;
+	*f->ret = -1;
+	if(f->mp == H) {
+		kwerrstr("nil mp");
+		return;
+	}
+	m = f->mp->m;
+	if(m->compiled) {
+		kwerrstr("compiled module");
+		return;
+	}
+	*f->ret = 0;
+	/*
+	 * Do NOT touch m->origmp here.  Unlike Loader_compile (which builds a module
+	 * via the $Loader interface and has no persistent data template), this module
+	 * was loaded from a file, so m->origmp already holds its initialised data
+	 * segment -- the template link.c (newmp) copies to give each launched instance
+	 * its MP.  Overwriting it with the instance MP and then resetting it to H
+	 * destroys that template, so a later launch of the same module gets MP==H and
+	 * faults on the first mp-relative access.  compile() reads the template's
+	 * initial data values directly, which is what we want.
+	 */
+	if(cflag || f->flag)
+	if(releasecompile(m, m->nprog, f->mp)) {
+		f->mp->prog = m->prog;
+		f->mp->compiled = 1;
+	} else
+		*f->ret = -1;
+}
+
+/*
+ * Toggle the global "defer compilation" flag, returning its previous value, so a
+ * caller can `load` a module interpreted under -c1 and then JIT it later with
+ * compilebg.  Bracket each load tightly (nocompile(1); load; nocompile(0)) to
+ * keep the window small.
+ */
+void
+Loader_nocompile(void *a)
+{
+	F_Loader_nocompile *f;
+
+	f = a;
+	*f->ret = dontcompile;
+	dontcompile = f->on;
+}
+
+/* Non-zero when emu is running with the JIT enabled (the -c<N> flag). */
+void
+Loader_compiling(void *a)
+{
+	F_Loader_compiling *f;
+
+	f = a;
+	*f->ret = cflag;
 }

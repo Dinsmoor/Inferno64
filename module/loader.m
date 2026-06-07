@@ -45,4 +45,7 @@ Loader: module
 	ext:		fn(mp: Nilmod, idx, pc: int, tdesc: int): int;
 	dnew:		fn(size: int, map: array of byte): ref Niladt;
 	compile:	fn(mp: Nilmod, flag: int): int;
+	compilebg:	fn(mp: Nilmod, flag: int): int;
+	nocompile:	fn(on: int): int;
+	compiling:	fn(): int;
 };

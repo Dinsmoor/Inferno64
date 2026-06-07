@@ -921,6 +921,66 @@ release(void)
 	strcpy(up->text, "released");
 }
 
+/*
+ * The native-code compiler (compile()) is NOT reentrant: it uses file-scope
+ * scratch state (base/code/pass/mod/litpool/...).  The VM normally serializes
+ * all Dis execution, so only one compile() ever runs -- but releasecompile()
+ * below releases the scheduler so a *background* compile overlaps other procs,
+ * some of which load-time-compile their own modules under -c1.  Two concurrent
+ * compile()s clobber each other's globals (phase error -> garbage native code
+ * -> wild fault).  jitlock serializes every compile() so that can't happen.
+ */
+static QLock	jitlock;
+
+/*
+ * Serialized compile for the load-time path (caller holds the VM).  Longjmp-safe:
+ * a compile error releases the lock and re-raises so the load fails as before.
+ */
+int
+lockedcompile(Module *m, int size, Modlink *ml)
+{
+	int r;
+
+	qlock(&jitlock);
+	if(waserror()){
+		qunlock(&jitlock);
+		nexterror();
+	}
+	r = compile(m, size, ml);
+	poperror();
+	qunlock(&jitlock);
+	return r;
+}
+
+/*
+ * Compile a module to native code with the VM scheduler RELEASED, so other Dis
+ * procs keep running while the (CPU-bound, non-yielding) C compiler runs on
+ * this proc's host thread.  Used by $Loader's compilebg to JIT-compile dormant
+ * modules in the background (e.g. the boot warm-up splash) without freezing the
+ * desktop.  jitlock serializes against any concurrent (load-time) compile.
+ * compile() can error() (longjmp); the waserror() catch drops the lock and
+ * re-acquires the VM so neither is left unbalanced.  Returns 1 on success, 0 on
+ * failure (compile error, or compiler off).
+ */
+int
+releasecompile(Module *m, int size, Modlink *ml)
+{
+	int r;
+
+	release();
+	if(waserror()){
+		qunlock(&jitlock);
+		acquire();
+		return 0;
+	}
+	qlock(&jitlock);
+	r = compile(m, size, ml);
+	qunlock(&jitlock);
+	poperror();
+	acquire();
+	return r;
+}
+
 void
 iyield(void)
 {

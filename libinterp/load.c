@@ -466,11 +466,11 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 
 	if(cflag) {
 		if((m->rt&DONTCOMPILE) == 0 && !dontcompile)
-			compile(m, isize, nil);
+			lockedcompile(m, isize, nil);	/* serialized vs. background compiles */
 	}
 	else
 	if(m->rt & MUSTCOMPILE && !dontcompile) {
-		if(compile(m, isize, nil) == 0) {
+		if(lockedcompile(m, isize, nil) == 0) {
 			kwerrstr("compiler required");
 			goto bad;
 		}

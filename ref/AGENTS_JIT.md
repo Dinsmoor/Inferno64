@@ -416,3 +416,100 @@ so the suite is honest in both modes rather than reporting a spurious failure.
   caller→callee transitions and the exact `R.M`/`R.PC`/`R.IC` at the failure.
 - `gdb`'s `R` symbol is awkward (`R.PC` fails to parse); use C `print()` probes or
   `*(int*)((char*)R.M+16)` style offset reads instead.
+
+---
+
+# JIT and interactive responsiveness — the boot-stall trade-off
+
+## Symptom
+
+`emu -c1 ... wm/wm` is noticeably *less* responsive at startup than the
+interpreter: the desktop takes a while to paint. This is **expected, not a bug**.
+
+## Why
+
+Compilation is **eager, whole-module, and synchronous on the loading proc**
+(`load.c`):
+
+```c
+if(cflag) {
+    if((m->rt&DONTCOMPILE) == 0 && !dontcompile)
+        compile(m, isize, nil);   /* compile the ENTIRE module, right now */
+}
+```
+
+Booting `wm/wm` `load`s dozens of modules (wm, tk, draw, the shared libs, every
+applet you open). With `-c1` each `load` pays a full whole-module translation
+before it returns, so the cost lands as one upfront burst before anything draws.
+
+`cflag` is **not** an optimisation level: in `comp-aarch64.c`, `cflag > 3` / `> 4`
+only switch on debug disassembly dumps. `-c1`, `-c2`, `-c3` produce identical
+code — there is no "lighter, faster-to-start" JIT setting.
+
+## When the JIT is (and isn't) worth it
+
+The JIT only speeds up **CPU-bound Limbo inner loops**. It does nothing for:
+- **event/IO-bound** code — the desktop spends its life blocked on draw / mouse /
+  keyboard, where native vs interpreted is invisible; and
+- **C builtins** — the genuinely heavy paths (`$Raster3` rasteriser, `$Imageio`
+  decode, mbedTLS) are already native C the JIT never touches.
+
+**Recommendation: run the desktop interpreted (`-c0`/omit).** Reserve `-c1` for
+compute-bound batch / benchmark Limbo. If you want native speed on a *specific*
+hot Limbo module without the global boot tax, two targeted hooks already exist:
+
+1. **`MUSTCOMPILE` module flag** (`load.c`, the `else if` arm) — compiles that one
+   module even when `cflag==0`. Leave the global default interpreted; annotate only
+   the hot module.
+2. **`Loader->compile()`** (`loader.c` `Loader_compile`) — a running program can JIT
+   a module on demand (e.g. right before entering its hot loop).
+
+## Future direction: async / tiered compilation ("best of both worlds")
+
+Goal: interpret immediately for instant responsiveness, compile in the
+background, and let native code take over transparently. The VM is unusually
+ready for this because **two normally-missing pieces already exist**:
+
+1. **Mixed compiled/interpreted execution already works and resyncs at call
+   boundaries.** `mcall` (`xec.c`, `if(f->mr->compiled != R.M->compiled) R.IC=1;`)
+   and `ret` (same test → `R.IC=1; R.t=1;`) bounce control back to the dispatcher
+   (`xec.c` `if(R.M->compiled || PC in [jitlo,jithi)) comvec(); else interpret`)
+   whenever execution crosses between a native and an interpreted module. Compiled
+   and interpreted modules already call each other freely.
+2. **Post-load compilation already works.** `Loader_compile` compiles an
+   *already-loaded, running* module and publishes it: `compile(m,…)` then
+   `f->mp->prog = m->prog; f->mp->compiled = 1`.
+
+**Crucial consequence: no on-stack replacement (OSR) is needed.** The hard part of
+tiered JITs — migrating a thread mid-function from interpreted to native — can be
+skipped. The natural tier boundary is the module call: a proc currently *inside*
+an interpreted invocation finishes it interpreted; the *next* entry into the
+module goes native. The `ret`/`mcall` resync above already implements exactly that
+transition.
+
+What is actually missing, in order of difficulty:
+
+1. **Background driver (easy).** A dedicated compiler `kproc` + work queue.
+   `load.c` enqueues the module and returns immediately with `compiled=0`
+   (interpret now); the kproc compiles and publishes. This removes the boot stall.
+2. **Concurrency-safe publication (the real risk).** `compile()` sets
+   `m->compiled=1` and repoints `m->prog` into the JIT arena while other procs may
+   be interpreting the same module. Publishing the flip needs proper
+   release/acquire ordering, the interpreter must only observe it at a safe point
+   (it does — call/ret), **and the original interpreted Inst array must not be
+   freed while in-flight interpreters still read it** (today `freemod`/`compile`
+   free `m->prog` — see the `$Loader` limitation above). This is the same bug class
+   as the documented missing-release-barrier heap corruption (`unlock()` had
+   `coherence=nofence` → stale free-tree → corruption); live module mutation is
+   squarely in that danger zone, so this needs careful barriers verified under
+   EMUCRASH + `make emu-disptrcheck`, not a quick patch.
+3. **Policy (easy, tunable).** Simplest: background-compile every loaded module
+   (eager-but-async) — biggest UX win, no profiling. Later: a call-count threshold
+   so cold modules never burn CPU/memory getting compiled.
+
+Suggested staging: (Phase 1) async-eager behind a new flag, keeping the
+synchronous path for debugging; (Phase 2) add hotspot counters. A "Compiling
+<module>" progress window is a reasonable *interim* only if compilation stays
+synchronous — once Phase 1 lands the desktop just comes up and quietly gets
+faster, making the progress UI redundant. Phase 1's correctness hinges entirely
+on item 2.

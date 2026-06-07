@@ -123,6 +123,13 @@ on, `-c0` (the default) is the pure interpreter. `emu -v` prints `compile` vs
 `interp` so you can confirm which is active. Leave the `-B` flag (which disables
 the JIT's array-bounds checks) **off** while chasing the heap bugs.
 
+Note that the JIT compiles every module **eagerly at load time**, so `-c1` makes
+the desktop slower to start (it pre-compiles everything before painting) and only
+pays off for **compute-bound** Limbo — the GUI is IO-bound and the heavy work
+(`$Raster3`, image decode, TLS) is already native C. For interactive use prefer
+the interpreter; reserve `-c1` for batch/benchmark workloads. See
+`ref/AGENTS_JIT.md` for the trade-off and a sketch of async/tiered compilation.
+
 On an x86-64 host the binary lives at `./Linux/amd64/bin/emu` instead. For a
 headless box, run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server)
 and point `DISPLAY` at it before launching `wm/wm`.

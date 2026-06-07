@@ -63,6 +63,7 @@ TARG=\
 	unibrowse.dis\
 	view.dis\
 	vt.dis\
+	warmup.dis\
 	wish.dis\
 	wm.dis\
 	wmplay.dis\

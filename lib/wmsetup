@@ -28,6 +28,11 @@ fn cd {
 }
 
 plumber >/chan/wmstdout >[2=1]
+
+# "Inferno is warming up" splash: pre-load/JIT-compile the programs listed in
+# $home/lib/warmup (else /lib/warmup) so they launch instantly later.
+wmrun wm/warmup
+
 menu Shell			{wmrun wm/sh}
 menu Acme			{wmrun acme}
 menu Edit				{wmrun wm/edit}
