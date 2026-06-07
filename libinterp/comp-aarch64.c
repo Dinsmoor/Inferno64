@@ -121,6 +121,16 @@ enum
 	RLINK	= 30,		/* link register */
 	ZR	= 31,
 
+	/*
+	 * FP scratch (SIMD&FP register file, d0..d2).  Generated code never
+	 * holds a live FP value across a C call or reschedule, so these need no
+	 * save/restore (FPsave/FPrestore are unnecessary for the partial JIT).
+	 * Distinct register file: DF0==d0 does not alias RA0==x0.
+	 */
+	DF0	= 0,
+	DF1	= 1,
+	DF2	= 2,
+
 	/* condition codes (A64) */
 	EQ=0, NE=1, CS=2, CC=3, MI=4, PL=5, VS=6, VC=7,
 	HI=8, LS=9, GE=10, LT=11, GT=12, LE=13, AL=14, NV=15,
@@ -131,6 +141,7 @@ enum
 	Ldw, Stw,		/* 4-byte word/int */
 	Ldp, Stp,		/* 8-byte pointer/big/real */
 	Ldb, Stb,		/* 1-byte */
+	Ldf, Stf,		/* 8-byte double, in/out of an FP (d) register */
 
 	/* punt operand flags */
 	SRCOP	= (1<<0),
@@ -253,6 +264,33 @@ static u32 strw_r(int rt,int rn,int rm){ return 0xB8206800u|((rm&31)<<16)|((rn&3
 static u32 ldrb_r(int rt,int rn,int rm){ return 0x38606800u|((rm&31)<<16)|((rn&31)<<5)|(rt&31); }
 static u32 strb_r(int rt,int rn,int rm){ return 0x38206800u|((rm&31)<<16)|((rn&31)<<5)|(rt&31); }
 
+/*
+ * Scalar double FP (SIMD&FP register file).  Every encoding below was
+ * validated bit-exact against aarch64-linux-gnu-objdump before use; do not
+ * edit by eye (the abandoned jit-wip used single-precision bases and mislaid
+ * register fields).  Rd[4:0], Rn[9:5], Rm[20:16].
+ */
+static u32 faddd(int rd,int rn,int rm){ return 0x1E602800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 fsubd(int rd,int rn,int rm){ return 0x1E603800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 fmuld(int rd,int rn,int rm){ return 0x1E600800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 fdivd(int rd,int rn,int rm){ return 0x1E601800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 fnegd(int rd,int rn){ return 0x1E614000u|((rn&31)<<5)|(rd&31); }
+static u32 fcmpd(int rn,int rm){ return 0x1E602000u|((rm&31)<<16)|((rn&31)<<5); }	/* fcmp dn,dm */
+static u32 fcmpz(int rn){ return 0x1E602008u|((rn&31)<<5); }				/* fcmp dn,#0.0 */
+static u32 fcsel(int rd,int rn,int rm,int cc){ return 0x1E600C00u|((rm&31)<<16)|((cc&15)<<12)|((rn&31)<<5)|(rd&31); }
+static u32 fmovihalf(int rd){ return 0x1E6C1000u|(rd&31); }	/* fmov dd,#0.5  */
+static u32 fmovinhalf(int rd){ return 0x1E7C1000u|(rd&31); }	/* fmov dd,#-0.5 */
+static u32 scvtfwd(int rd,int rn){ return 0x1E620000u|((rn&31)<<5)|(rd&31); }	/* s32 -> double */
+static u32 scvtfxd(int rd,int rn){ return 0x9E620000u|((rn&31)<<5)|(rd&31); }	/* s64 -> double */
+static u32 fcvtzsdw(int rd,int rn){ return 0x1E780000u|((rn&31)<<5)|(rd&31); }	/* double -> s32, trunc */
+static u32 fcvtzsdx(int rd,int rn){ return 0x9E780000u|((rn&31)<<5)|(rd&31); }	/* double -> s64, trunc */
+static u32 ldrd(int rt,int rn,u32 off){ return 0xFD400000u|(((off>>3)&0xFFF)<<10)|((rn&31)<<5)|(rt&31); }
+static u32 strd(int rt,int rn,u32 off){ return 0xFD000000u|(((off>>3)&0xFFF)<<10)|((rn&31)<<5)|(rt&31); }
+static u32 ldurd(int rt,int rn,int off){ return 0xFC400000u|(((u32)off&0x1FF)<<12)|((rn&31)<<5)|(rt&31); }
+static u32 sturd(int rt,int rn,int off){ return 0xFC000000u|(((u32)off&0x1FF)<<12)|((rn&31)<<5)|(rt&31); }
+static u32 ldrd_r(int rt,int rn,int rm){ return 0xFC606800u|((rm&31)<<16)|((rn&31)<<5)|(rt&31); }
+static u32 strd_r(int rt,int rn,int rm){ return 0xFC206800u|((rm&31)<<16)|((rn&31)<<5)|(rt&31); }
+
 /* load/store pair, 64-bit (for saving callee-saved regs across the C boundary) */
 static u32 stppre(int t1,int t2,int rn,int imm){ return 0xA9800000u|(((u32)(imm/8)&0x7f)<<15)|((t2&31)<<10)|((rn&31)<<5)|(t1&31); }
 static u32 stpoff(int t1,int t2,int rn,int imm){ return 0xA9000000u|(((u32)(imm/8)&0x7f)<<15)|((t2&31)<<10)|((rn&31)<<5)|(t1&31); }
@@ -346,6 +384,16 @@ emitmem(int inst, long disp, int rm, int r)
 		}
 		con(disp, RCON);
 		gen(inst==Ldb ? ldrb_r(r,rm,RCON) : strb_r(r,rm,RCON));
+		return;
+	case Ldf: case Stf:		/* r is an FP (d) register */
+		if(disp >= 0 && (disp&7)==0 && (disp>>3) < 4096) {
+			gen(inst==Ldf ? ldrd(r,rm,disp) : strd(r,rm,disp)); return;
+		}
+		if(disp >= -256 && disp < 256) {
+			gen(inst==Ldf ? ldurd(r,rm,disp) : sturd(r,rm,disp)); return;
+		}
+		con(disp, RCON);
+		gen(inst==Ldf ? ldrd_r(r,rm,RCON) : strd_r(r,rm,RCON));
 		return;
 	}
 }
@@ -890,6 +938,91 @@ arithl(Inst *i, u32 (*op)(int,int,int))
 	opwst(i, Stp, RA0);
 }
 
+/* ---------------------------------------------------------------------- *
+ *  Floating point (native, scalar double).  Reals are 8-byte doubles in
+ *  frame/MP memory; load into a d-register, operate, store back.  Reals
+ *  never appear as AIMM (Inst.imm is a 32-bit WORD), so those modes urk.
+ * ---------------------------------------------------------------------- */
+
+/* address operand `a` (mode) and load/store its real value to/from d-reg r. */
+static void
+fopx(int mode, Adr *a, int ldf, int r)
+{
+	int w = ldf ? Ldf : Stf;
+	int ir;
+
+	switch(mode) {
+	case AFP: mem(w, a->ind, RFP, r); return;
+	case AMP: mem(w, a->ind, RMP, r); return;
+	case AIND|AFP: ir = RFP; break;
+	case AIND|AMP: ir = RMP; break;
+	default: urk("fopx"); return;
+	}
+	mem(Ldp, a->i.f, ir, RTA);		/* 8-byte indirection pointer */
+	mem(w, a->i.s, RTA, r);
+}
+
+static void
+fopwld(Inst *i, int r)			/* F(s) -> d-reg r */
+{
+	fopx(USRC(i->add), &i->s, 1, r);
+}
+
+static void
+fopwst(Inst *i, int r)			/* d-reg r -> F(d) */
+{
+	fopx(UDST(i->add), &i->d, 0, r);
+}
+
+static void
+fmid(Inst *i, int r)			/* F(m) -> d-reg r (defaults to dst operand) */
+{
+	switch(i->add & ARM) {
+	case AXINF: mem(Ldf, i->reg, RFP, r); return;
+	case AXINM: mem(Ldf, i->reg, RMP, r); return;
+	case AXIMM: urk("fmid/imm"); return;
+	default:    fopx(UDST(i->add), &i->d, 1, r); return;
+	}
+}
+
+/* three-operand FP arithmetic: F(d) = F(m) OP F(s) */
+static void
+arithf(Inst *i, u32 (*op)(int,int,int))
+{
+	fmid(i, DF1);			/* F(m) -> d1 */
+	fopwld(i, DF0);			/* F(s) -> d0 */
+	gen(op(DF0, DF1, DF0));		/* d0 = d1 OP d0 */
+	fopwst(i, DF0);
+}
+
+/* conditional FP branch: compare F(s) ? F(m), branch on cc (cc chosen so the
+ * unordered/NaN case takes the IEEE-correct edge — see comp()). */
+static void
+cbraf(Inst *i, int cc)
+{
+	schedcheck(i);
+	fopwld(i, DF0);			/* F(s) -> d0 */
+	fmid(i, DF1);			/* F(m) -> d1 */
+	gen(fcmpd(DF0, DF1));
+	bradis(cc, i->d.ins - mod->prog);
+}
+
+/* real -> integer: replicate the interpreter's round-half-away-from-zero
+ * (f<0 ? f-0.5 : f+0.5) then truncate toward zero.  cvt is fcvtzsdw/fcvtzsdx;
+ * st is Stw/Stp.  Result lands in RA0. */
+static void
+cvtfi(Inst *i, u32 (*cvt)(int,int), int st)
+{
+	fopwld(i, DF0);			/* f -> d0 */
+	gen(fmovihalf(DF1));		/* d1 = +0.5 */
+	gen(fmovinhalf(DF2));		/* d2 = -0.5 */
+	gen(fcmpz(DF0));		/* flags from f - 0.0 */
+	gen(fcsel(DF1, DF2, DF1, MI));	/* d1 = (f<0) ? -0.5 : +0.5 */
+	gen(faddd(DF0, DF0, DF1));	/* f += bias */
+	gen(cvt(RA0, DF0));		/* truncate toward zero -> RA0 */
+	opwst(i, st, RA0);		/* W(d) (Stw) or V(d) (Stp) */
+}
+
 /* shift: count is W(s); value is W(m) -> RA0 */
 static void
 shiftw(Inst *i, u32 (*op)(int,int,int))
@@ -1206,17 +1339,41 @@ comp(Inst *i)
 		punt(i, SRCOP|DSTOP|THREOP, optab[i->op]);
 		break;
 
-	/* floating point (SOFTFP): punt arithmetic, compares, conversions */
-	case IADDF: case ISUBF: case IMULF: case IDIVF:
-		punt(i, SRCOP|DSTOP|THREOP, optab[i->op]);
+	/* ---- floating point (native, scalar double) ---- */
+	case IADDF: arithf(i, faddd); break;
+	case ISUBF: arithf(i, fsubd); break;
+	case IMULF: arithf(i, fmuld); break;
+	case IDIVF: arithf(i, fdivd); break;
+	case INEGF:				/* F(d) = -F(s) */
+		fopwld(i, DF0);
+		gen(fnegd(DF0, DF0));
+		fopwst(i, DF0);
 		break;
-	case INEGF:
-	case ICVTWF: case ICVTFW: case ICVTFL: case ICVTLF:
-		punt(i, SRCOP|DSTOP, optab[i->op]);
+	case ICVTWF:				/* F(d) = (real) W(s)  (int32 -> double) */
+		opwld(i, Ldw, RA0);
+		gen(scvtfwd(DF0, RA0));
+		fopwst(i, DF0);
 		break;
-	case IBEQF: case IBNEF: case IBLTF: case IBLEF: case IBGTF: case IBGEF:
-		punt(i, SRCOP|THREOP|DBRAN|NEWPC|WRTPC, optab[i->op]);
+	case ICVTLF:				/* F(d) = (real) V(s)  (int64 -> double) */
+		opwld(i, Ldp, RA0);
+		gen(scvtfxd(DF0, RA0));
+		fopwst(i, DF0);
 		break;
+	case ICVTFW:				/* W(d) = round(F(s))  (double -> int32) */
+		cvtfi(i, fcvtzsdw, Stw);
+		break;
+	case ICVTFL:				/* V(d) = round(F(s))  (double -> int64) */
+		cvtfi(i, fcvtzsdx, Stp);
+		break;
+	/* branch on F(s) rel F(m); cc picked so NaN/unordered takes the
+	 * IEEE edge: ordered <,<=,>,>= are false on unordered (MI/LS/GT/GE),
+	 * == is false (EQ), != is true (NE). */
+	case IBEQF: cbraf(i, EQ); break;
+	case IBNEF: cbraf(i, NE); break;
+	case IBLTF: cbraf(i, MI); break;
+	case IBLEF: cbraf(i, LS); break;
+	case IBGTF: cbraf(i, GT); break;
+	case IBGEF: cbraf(i, GE); break;
 
 	case ISELF:
 		punt(i, DSTOP, optab[i->op]);

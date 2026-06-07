@@ -351,11 +351,37 @@ The aarch64 LP64 JIT is functional. `emu -c1` runs the Emuinit bootstrap, **sh**
 
 **Native:** moves (W/B/L/F), LEA, CVT(BW/WB/WL/LW), arithmetic (ADD/SUB/AND/OR/XOR for
 W/B/L), shifts, MUL, LEN*, IIND*, MOVM/HEADM, **conditional branches + IJMP**
-(`cbra`/`cbrab`/`cbral` + `bradis`, backward branches carry `schedcheck`), and **IMCALL**
-(`commcall`+`macmcal`).
+(`cbra`/`cbrab`/`cbral` + `bradis`, backward branches carry `schedcheck`), **IMCALL**
+(`commcall`+`macmcal`), and **floating point** (see below).
 **Punted (correct, just not inlined):** ICALL, IRET, IFRAME/IMFRAME, IGOTO/ICASE/ICASEC
 (table dst slots relocated first by `comgoto`/`comcase`/`comcasel`/`comcasec`), allocation,
-list/string/pointer ops, FP, div/mod, sends.
+list/string/pointer ops, div/mod, sends, single-precision CVT (ICVTRF/ICVTFR/ICVTWS/ICVTSW).
+
+### Native floating point (scalar double) — DONE
+The whole double-precision FP path is native (no longer SOFTFP-punted): `IADDF`/`ISUBF`/
+`IMULF`/`IDIVF` (`arithf` + `faddd`/`fsubd`/`fmuld`/`fdivd`), `INEGF`, the int/big↔real
+conversions `ICVTWF`/`ICVTLF` (`scvtfwd`/`scvtfxd`) and `ICVTFW`/`ICVTFL` (`cvtfi`), and all
+six compares `IBEQF`..`IBGEF` (`cbraf` + `fcmpd`). `IMOVF` was already native (8-byte integer
+move). Design notes that matter if you extend it:
+- **Reals are 8-byte doubles in frame/MP memory.** A new `Ldf/Stf` width in `emitmem()` does
+  `ldr/str d` (scaled imm12 → `ldur/stur` → register-offset, mirroring the integer ladder);
+  `fopx`/`fopwld`/`fopwst`/`fmid` are the FP analogues of `opx`/`opwld`/`opwst`/`mid`.
+- **FP register file is free.** Generated code uses only `d0–d2` (`DF0–DF2`); since no FP
+  value is ever live across a `ccall`/punt or reschedule, **FPsave/FPrestore are unnecessary**
+  for the partial JIT — the doc's earlier 256-byte-save concern does not arise.
+- **`ICVTFW`/`ICVTFL` must NOT be a bare `fcvtzs`.** The interpreter rounds half *away from
+  zero* (`f<0 ? f-0.5 : f+0.5` then truncate), not round-to-nearest-even. `cvtfi` replicates
+  it: `fmov #±0.5` + `fcmp #0.0` + `fcsel MI` to pick the sign-matched bias, `fadd`, then
+  `fcvtzs` (truncate toward zero). Overflow/NaN→int stays UB-divergent (both ends undefined).
+- **FP compare condition codes are unordered-aware.** After `fcmp`, ordered `<`/`<=`/`>`/`>=`
+  map to `MI`/`LS`/`GT`/`GE` (false on NaN), `==`→`EQ`, `!=`→`NE` — *not* the integer `LT`/`LE`.
+- **Every encoder was validated bit-exact against `aarch64-linux-gnu-objdump`** before use
+  (the abandoned `comp-aarch64.c.jit-wip` had single-precision bases and mislaid register
+  fields — deleted). Re-validate the same way for any new FP op.
+
+Test/bench harness: `tests/jitperf/` (`fp.b` + `run.sh`) runs the same `.dis` under `-c0` and
+`-c1`, diffs stdout for bit-exact equivalence and reports the hot-loop speedup (~3.3× on the
+Leibniz+compare loop). Full suite stays 178/178 under both interpreter and `-c1`.
 
 ### Known limitation: `$Loader` reflection vs JIT
 `loader->ifetch`/`newmod` cannot introspect a **JIT-compiled** module: `compile()` replaces
