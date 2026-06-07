@@ -7,6 +7,7 @@ This document orients AI agents working on the Inferno OS codebase. Read this fi
 - **AGENTS_KERNEL.md** — Kernel internals, 9P protocol, device drivers, process management
 - **AGENTS_GRAPHICS.md** — Draw, Tk, prefab, wm windows (incl. software-rendered frames)
 - **AGENTS_3D.md** — raylib-in-Limbo: Raymath, the `$Raster3` C kernel, OBJ loader
+- **ref/AGENTS_DLM.md** — Dynamically Loaded Modules (libdynld/dynld): what runtime-loadable native C modules are, why they're stubbed on hosted emu *by design*, no 64-bit backend, and why DLM ≠ loading Linux drivers
 
 ---
 
@@ -17,7 +18,7 @@ Inferno is a distributed operating system originally from Bell Labs. It runs in 
 - **Hosted (emu)**: a user-space process on Linux, macOS, Windows, FreeBSD, Plan 9, etc. The emulator provides the Dis VM, scheduler, namespace, and device interface on top of the host OS.
 - **Native (os/)**: a bare-metal kernel for ARM, x86, PowerPC, MIPS, SPARC. Same API surface as hosted mode — applications see no difference.
 
-All programs are written in **Limbo**, compiled to **Dis** bytecode, and run on the **Dis virtual machine**. The VM is the only execution environment; there is no FFI in the traditional sense (C modules are linked directly into the emulator binary).
+All programs are written in **Limbo**, compiled to **Dis** bytecode, and run on the **Dis virtual machine**. The VM is the only execution environment; there is no FFI in the traditional sense (C modules are linked directly into the emulator binary). The dormant alternative — loading native C modules at *runtime* — is the DLM facility, deliberately stubbed on hosted emu; see [`ref/AGENTS_DLM.md`](ref/AGENTS_DLM.md) before assuming it's a live feature or a path to loading Linux drivers.
 
 The kernel API is entirely file-based, mediated by the **9P protocol**. Every resource — processes, network connections, windows, audio — is a file in a unified namespace. Processes can export file servers that other processes (including remote ones) can mount into their namespace.
 
