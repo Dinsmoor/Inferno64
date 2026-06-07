@@ -102,7 +102,7 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run
 
 # Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
 # fresh tree or git worktree has no mk binary yet (it is build output, not
@@ -136,6 +136,30 @@ all: _emu _dis
 #   make bleedingedge   -g -O3 -march=native, no instrumentation (host-tuned)
 debug release bleedingedge:
 	@$(MAKE) PROFILE=$@ all
+
+# The easy "just try it" path: build (quietly, only if needed) and open the
+# Inferno graphical desktop.  Builds the bleedingedge profile for the snappiest
+# local experience; re-running just relaunches the existing binary.  Override the
+# window size with `make run RUNGEOM=1920x1080`.
+RUNGEOM ?= 1280x800
+run:
+	@if [ -z "$$DISPLAY" ]; then \
+		echo "make run needs an X display (\$$DISPLAY is empty)." >&2; \
+		echo "Run it from a graphical desktop session, or start a headless shell with:" >&2; \
+		echo "    ./$(OBJDIR)/bin/emu -r\"$(ROOT)\" /dis/sh.dis" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(ROOT)/$(OBJDIR)/bin/emu" ]; then \
+		echo "Building Inferno (bleedingedge; ~1 min, first run only) ..."; \
+		if ! $(MAKE) PROFILE=bleedingedge all >/tmp/inferno-build.log 2>&1; then \
+			echo "build failed -- last 20 lines of /tmp/inferno-build.log:" >&2; \
+			tail -20 /tmp/inferno-build.log >&2; \
+			exit 1; \
+		fi; \
+		echo "Build complete."; \
+	fi
+	@echo "Starting the Inferno desktop ($(RUNGEOM)) ..."
+	@$(ROOT)/$(OBJDIR)/bin/emu -r"$(ROOT)" -g$(RUNGEOM) wm/wm
 
 # Half builds are GATED.  `make emu` (C side only) and `make dis` (Dis tree
 # only) each leave the two halves out of sync -- a stale .dis against a freshly

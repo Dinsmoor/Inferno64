@@ -78,69 +78,80 @@ Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
 Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
 
-## Building
+## Try it out
 
-From a clean checkout or a fresh `git worktree`, the only command you need is:
+Clone it and run one command:
 
 ```sh
-make all                 # Linux/aarch64 host (the default)
+make run
+```
+
+That builds Inferno (quietly, the snappy `-O3 -march=native` build) and opens
+the graphical desktop. The first run compiles for ~a minute; after that `make
+run` just relaunches. You need an X display (a normal Linux desktop session);
+resize the window with `make run RUNGEOM=1920x1080`.
+
+That's all you need to poke around. The rest of this section is for building and
+hacking on it.
+
+## Building & hacking
+
+From a clean checkout or a fresh `git worktree`:
+
+```sh
+make all                 # full build, Linux/aarch64 (the default)
 make OBJTYPE=amd64 all    # x86-64 host instead
 ```
 
-`make all` is the only coherent build: it builds the C side first (host
-libraries, the `limbo` compiler, the `emu` binary), then compiles the whole
-Limbo tree under `appl/` to `.dis`. It needs no pre-existing toolchain — it
-bootstraps `mk` with the host `gcc` automatically. A full nuke+rebuild is cheap
-(~1 min) and is the safe default; the half-builds `make emu` / `make dis` are
-gated behind `FORCE=1` because a stale `.dis` against a freshly built ABI is a
-real, debugged crash class.
+| command | what it does |
+|---|---|
+| `make run` | build (if needed) **and launch** the graphical desktop — the easy path above; uses the `bleedingedge` profile |
+| `make` / `make all` | full coherent build in the `debug` profile: C side (host libs → the `limbo` compiler → `emu`), then the Dis tree (`appl/*.b` → `dis/`) compiled with that freshly built `limbo` |
+| `make debug` | `make all` in the **debug** profile — `-Og`, the DISPTRCHECK GC checker, `EMUCRASH` crash-dump auto-on. The find-the-bug build (this is the default). |
+| `make release` | `make all` at `-O2`, portable `-march` baseline, no instrumentation |
+| `make bleedingedge` | `make all` at `-O3 -march=native`, no instrumentation (host-tuned) |
+| `make check` | **pre-push gate**: builds every required config (incl. the headless `emu-g` and a release link-check) and runs the test suites, printing a PASS/FAIL/SKIP/TODO matrix; nonzero exit if a required cell fails, so a headless-only break can't reach master unnoticed |
+| `make clean` / `make nuke` | remove object files / objects + library archives + installed `.dis` |
+| `make emu` / `make dis` | C-side-only / Dis-tree-only **half** builds — gated behind `FORCE=1`, since on their own they leave the two halves out of sync |
 
-**Build profiles** (optimization + arch + instrumentation bundles):
+The default `make all` builds the **debug** profile: it's intentionally
+instrumented and slower while the LP64 port matures (the GC pointer checker turns
+silent corruption into a clean cored fault). Develop on `debug` and benchmark
+*relative* numbers there; build `release`/`bleedingedge` for a fast or
+distributable binary and absolute figures.
 
-```sh
-make debug          # default: -Og + DISPTRCHECK GC checker + EMUCRASH-on (find-the-bug)
-make release        # -O2, portable -march baseline, no instrumentation
-make bleedingedge   # -O3 -march=native, no instrumentation (host-tuned)
-```
+**Why `make`, and not `mk` directly?** The system is built by Plan 9 `mk` (every
+component directory has an `mkfile`), and `mk install` / `mk clean` / `mk nuke`
+still work fine *inside a single directory*. But driving a whole-system build by
+hand is a foot-gun, so the top-level GNU `Makefile` wraps `mk` and is the only
+coherent entry point. It exists because:
 
-`make` / `make all` builds the `debug` profile. During this fresh aarch64
-port, debug is the right default — it carries the "Valgrind for Dis pointers"
-GC checker and defaults the `EMUCRASH` crash-dump on — so benchmark *relative*
-numbers on debug and use `release`/`bleedingedge` for absolute figures.
+- **a fresh tree has no `mk`** — it's build output, not checked in. `make`
+  bootstraps `mk` from the host `gcc` automatically (see `make bootstrap`); no
+  pre-existing toolchain required.
+- **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
+  or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
+  previously-debugged crash class. `make` **nukes objects between components** so
+  nothing stale survives (a full rebuild is cheap, ~1 min).
+- **both halves must be built in the right order** — the C side produces the
+  `limbo` compiler that then compiles the Dis tree; `make` sequences this and
+  **regenerates the per-ABI module headers**, so a 32↔64-bit switch can't link
+  wrong-width stubs.
 
-**Before pushing**, run the gate:
+### Running emu directly
 
-```sh
-make check          # per-platform build + test matrix; nonzero exit if a required cell fails
-```
-
-`make check` builds every required configuration (incl. the headless `emu-g`
-and a release link-check) and runs the test suites, printing a
-`PASS/FAIL/SKIP/TODO` matrix — so a config that breaks only the headless build
-can't reach master unnoticed.
-
-See [`INSTALL`](INSTALL) for prerequisites, the amd64 notes, and the full details.
-
-## Running
-
-Launch the hosted emulator straight out of the build tree. `-r"$PWD"` makes the
-repo root the Inferno root, and the final argument is the first Dis program to
-run:
-
-```sh
-# graphical desktop (needs an X display; pick a window size)
-./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
-
-# just a shell, no GUI
-./Linux/aarch64/bin/emu -r"$PWD" /dis/sh.dis
-```
-
-To run Dis through the **AArch64 JIT** (native code compiler) instead of the
-interpreter, add `-c1`:
+`make run` is just a wrapper; you can launch the emulator straight out of the
+build tree. `-r"$PWD"` makes the repo root the Inferno root, and the final
+argument is the first Dis program to run:
 
 ```sh
-./Linux/aarch64/bin/emu -c1 -r"$PWD" -g1280x800 wm/wm
+./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm   # graphical desktop (needs X)
+./Linux/aarch64/bin/emu -r"$PWD" /dis/sh.dis         # just a shell, no GUI
+./Linux/aarch64/bin/emu -c1 -r"$PWD" -g1280x800 wm/wm  # via the AArch64 JIT (-c1)
 ```
+
+See [`INSTALL`](INSTALL) and [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md) for
+prerequisites, amd64 notes, and the full mechanics.
 
 `-c` takes a numeric level (`-c1`…`-c9`); any non-zero value turns the compiler
 on, `-c0` (the default) is the pure interpreter. `emu -v` prints `compile` vs
