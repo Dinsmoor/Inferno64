@@ -1,82 +1,22 @@
 # Inferno64 — Inferno with a 64-bit (LP64) Dis ABI
 
-**IMPORTANT:** THIS PORT IS NOT PROVED TO BE BUG FREE. This will boot into
-the emu on aarch64 and you can do *most* desktop GUI work, but certain things
-may still be broken. Feel free to try it, and if you do run into a crash or
-emu or wm freezes, then report it in a reproducable way and I'll see if I can
-fix it.
-
-Most of the remaining LP64 related bugs have to do with heap corruption, which
-are pretty hard to narrow down. To best catch them:
-
-<details>
-<summary><strong>How to set up an emu session that reliably captures a core dump + logs</strong></summary>
-
-The goal of the setup below is that the *very first* time something faults you
-get a clean core dump + log, instead of having to reproduce an intermittent
-crash after the fact.
-
-**1. Tell the host kernel where to drop cores (once per boot):**
-
-```sh
-sudo mkdir -p /tmp/inferno-cores
-echo '/tmp/inferno-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
-```
-
-(`%e` program, `%p` pid, `%t` timestamp. The directory must exist and be
-writable. To make it survive reboots put `kernel.core_pattern=...` in
-`/etc/sysctl.d/`.)
-
-**2. Raise the core-size limit in the shell you launch emu from:**
-
-```sh
-ulimit -c unlimited
-```
-
-**3. Leave ASLR on.** Several of these bugs only surface at high addresses, so
-do **not** run emu under `setarch -R` (ASLR-off). Run emu normally so the host
-randomizes the address space — that is what provokes the fault.
-
-**4. Launch emu with the crash/observability env vars:**
-
-```sh
-ulimit -c unlimited
-env EMUCRASH=1 EMUWATCHDOG=60 \
-    ./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
-```
-
-  - `EMUCRASH=1` — a wild/illegal Dis fault aborts the process immediately
-    (dumping a core) instead of being swallowed into a Dis exception that can
-    silently wedge the VM. **This is the important one** — without it an
-    intermittent heap-corruption fault often just leaves a zombie/hung emu and
-    the evidence is gone.
-  - `EMUWATCHDOG=60` — if the VM hangs for 60s (e.g. a deadlock rather than a
-    hard fault) the watchdog prints a dump of every Dis thread so you can see
-    who is stuck and where.
-  - You can also `kill -USR2 <emu-pid>` at any time to force the same Dis
-    thread dump from a live (or apparently-hung) emu.
-
-**5. When you get a core, hand it straight to gdb:**
-
-```sh
-gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>
-(gdb) bt              # host C backtrace at the fault
-(gdb) info registers  # the faulting address is usually a smashed pointer
-```
-
-The fault message emu prints on the way down names the Dis module, the builtin
-(e.g. `Charon[$Sys]`), and a `pc=`; map that `pc` back to a Limbo source line
-with the module's `.sbl` file (`limbo -g` output) to find the exact line that
-faulted. See `ref/AGENTS_DEBUGGING.md` for the full workflow.
-
-</details>
-
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
 **64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream
 Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
 Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
+
+**IMPORTANT:** THIS PORT IS NOT PROVED TO BE BUG FREE. This will boot into
+the emu on aarch64 and you can do *most* desktop GUI work, but certain things
+may still be broken. Feel free to try it, and if you do run into a crash or
+emu or wm freezes, then report it in a reproducible way and I'll see if I can
+fix it.
+
+Most of the remaining LP64 related bugs have to do with heap corruption, which
+are pretty hard to narrow down. If you want to help catch them, see
+[Debugging](BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
+how to set up an emu session that reliably captures a core dump + logs.
 
 ## Try it out
 
@@ -93,99 +33,18 @@ near-instant on rebuilds if you have `ccache` installed. You need an X display
 (a normal Linux desktop session); resize the window with `make run
 RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
 
-That's all you need to poke around. The rest of this section is for building and
-hacking on it.
+That's all you need to poke around. To actually build and hack on it — profiles,
+running emu directly, the JIT, debugging — see **[`BUILDING.md`](BUILDING.md)**.
 
-## Building & hacking
+## Documentation
 
-From a clean checkout or a fresh `git worktree`:
-
-```sh
-make all                 # full build, Linux/aarch64 (the default)
-make OBJTYPE=amd64 all    # x86-64 host instead
-```
-
-| command | what it does |
+| if you want to… | see |
 |---|---|
-| `make run` | full coherent build **and launch** the graphical desktop — the easy path above; always rebuilds (never launches a stale binary), `RUNPROFILE=bleedingedge` by default |
-| `make` / `make all` | full coherent build in the `debug` profile: C side (host libs → the `limbo` compiler → `emu`), then the Dis tree (`appl/*.b` → `dis/`) compiled with that freshly built `limbo`. Bare `make` is the same as `make all`. |
-| `make help` | one-screen summary of these targets and the current build settings |
-| `make debug` | `make all` in the **debug** profile — `-Og`, the DISPTRCHECK GC checker, `EMUCRASH` crash-dump auto-on. The find-the-bug build (this is the default). |
-| `make release` | `make all` at `-O2`, portable `-march` baseline, no instrumentation |
-| `make bleedingedge` | `make all` at `-O3 -march=native`, no instrumentation (host-tuned) |
-| `make check` | **pre-push gate**: builds every required config (incl. the headless `emu-g` and a release link-check) and runs the test suites, printing a PASS/FAIL/SKIP/TODO matrix; nonzero exit if a required cell fails, so a headless-only break can't reach master unnoticed |
-| `make clean` / `make nuke` | remove object files / objects + library archives + installed `.dis` |
-| `make emu` / `make dis` | C-side-only / Dis-tree-only **half** builds — gated behind `FORCE=1`, since on their own they leave the two halves out of sync |
-
-The default `make all` builds the **debug** profile: it's intentionally
-instrumented and slower while the LP64 port matures (the GC pointer checker turns
-silent corruption into a clean cored fault). Develop on `debug` and benchmark
-*relative* numbers there; build `release`/`bleedingedge` for a fast or
-distributable binary and absolute figures.
-
-**Why `make`, and not `mk` directly?** The system is built by Plan 9 `mk` (every
-component directory has an `mkfile`), and `mk install` / `mk clean` / `mk nuke`
-still work fine *inside a single directory*. But driving a whole-system build by
-hand is a foot-gun, so the top-level GNU `Makefile` wraps `mk` and is the only
-coherent entry point. It exists because:
-
-- **a fresh tree has no `mk`** — it's build output, not checked in. `make`
-  bootstraps `mk` from the host `gcc` automatically (see `make bootstrap`); no
-  pre-existing toolchain required.
-- **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
-  or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
-  previously-debugged crash class. `make` **nukes objects between components** so
-  nothing stale survives (a full rebuild is cheap, ~1 min — and near-instant with
-  `ccache`, which `make` routes compiles through automatically when it's
-  installed; ccache is content-addressed, so it speeds the full rebuild *without*
-  ever serving a stale object). `make` also warns if an `emu` is running while you
-  rebuild, since overwriting its files underneath it produces crashes that look
-  like real bugs.
-- **both halves must be built in the right order** — the C side produces the
-  `limbo` compiler that then compiles the Dis tree; `make` sequences this and
-  **regenerates the per-ABI module headers**, so a 32↔64-bit switch can't link
-  wrong-width stubs.
-
-### Running emu directly
-
-`make run` is just a wrapper; you can launch the emulator straight out of the
-build tree. `-r"$PWD"` makes the repo root the Inferno root, and the final
-argument is the first Dis program to run:
-
-```sh
-./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm   # graphical desktop (needs X)
-./Linux/aarch64/bin/emu -r"$PWD" /dis/sh.dis         # just a shell, no GUI
-./Linux/aarch64/bin/emu -c1 -r"$PWD" -g1280x800 wm/wm  # via the AArch64 JIT (-c1)
-```
-
-See [`INSTALL`](INSTALL) and [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md) for
-prerequisites, amd64 notes, and the full mechanics.
-
-`-c` takes a numeric level (`-c1`…`-c9`); any non-zero value turns the compiler
-on, `-c0` (the default) is the pure interpreter. `emu -v` prints `compile` vs
-`interp` so you can confirm which is active. Leave the `-B` flag (which disables
-the JIT's array-bounds checks) **off** while chasing the heap bugs.
-
-Note that the JIT compiles every module **eagerly at load time**, so `-c1` makes
-the desktop slower to start (it pre-compiles everything before painting) and only
-pays off for **compute-bound** Limbo — the GUI is IO-bound and the heavy work
-(`$Raster3`, image decode, TLS) is already native C. For interactive use prefer
-the interpreter; reserve `-c1` for batch/benchmark workloads. See
-`ref/AGENTS_JIT.md` for the trade-off and a sketch of async/tiered compilation.
-
-On an x86-64 host the binary lives at `./Linux/amd64/bin/emu` instead. For a
-headless box, run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server)
-and point `DISPLAY` at it before launching `wm/wm`.
-
-**To shut emu down, type `^\` (Ctrl-\\) at the console it was launched from** —
-that is the hard-kill escape hatch (emu reminds you of it in a line it prints on
-startup). `^C` is *not* a host kill: emu runs the terminal in raw mode and passes
-`^C` through to Inferno as a normal byte (so a shell/line-editor inside emu can
-use it to cancel an input line).
-
-When you are chasing one of the heap-corruption bugs, launch emu with the
-crash/observability env vars instead — see the collapsible section at the top of
-this file.
+| build, pick a profile, run emu directly, debug | [`BUILDING.md`](BUILDING.md) |
+| install prerequisites / amd64 notes | [`INSTALL`](INSTALL) |
+| the story of the 64-bit port (and the lessons) | [`LP64_NOTES.md`](LP64_NOTES.md) |
+| the authoritative dual-ABI reference | [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md) |
+| per-subsystem references (Dis, JIT, kernel, graphics, Charon, …) | [`ref/AGENTS_*.md`](ref/) |
 
 ## Are you going to try to push your changes to the upstream repository?
 
@@ -194,7 +53,7 @@ No, I am doing my own thing, but if they want to talk to me then that's fine.
 ## Goals for Inferno64
 
 1. Make Inferno run natively (Dis/hosted emu) on a LP64 ABI
-2. Implement JIT compilers for some major LP64 archetectures
+2. Implement JIT compilers for some major LP64 architectures
 3. Make a proper test suite and harnesses to find memory bugs fast and make debugging easier
 4. Modernize some of the userspace applications to where 'i like them'
   - Charon - modern tls, minimal CSS3 and HTML5 and JS engines.
@@ -212,7 +71,7 @@ I'll stick some screenshots or a video here once I get userspace to where I like
 
 I found it fitting to use the demon machine (claude mostly) to actually do the
 implementation for most of the mechanical work, building out tests, and the like.
-Considering this OS is hell themed, I figure it is fitting thatan evil machine
+Considering this OS is hell themed, I figure it is fitting that an evil machine
 spirit would be forced to work on its own prison, unlike TempleOS, which only
 should be touched by the hands of those with Divine Intellect.
 
@@ -229,13 +88,13 @@ and not get caught up by inferno's kind of crappy mk build tool.
 For the graphical desktop work, I do the inferno development on a DGX Spark on the
 network, and set up emu under a x virtual framebuffer and display, which is hosted
 by a vnc server. The demon machine can use xdotool and interact with the display while
-I can simultaniously view and interact with the desktop over VNC. It makes "hey
+I can simultaneously view and interact with the desktop over VNC. It makes "hey
 charon's navigation buttons aren't working, look" super simple, and makes it easier
 to catch when the demon machine is getting something wrong.
 
 For the debugging and actually catching and dumping cores, we have to run emu with
 some build options and just make sure the demon machine knows about them, and it
-can use a gdb-mcp server (written by this dude: https://github.com/Ipiano/gdb-mcp 
+can use a gdb-mcp server (written by this dude: https://github.com/Ipiano/gdb-mcp)
 to work with gdb efficiently. This has been the main workflow for dealing with LP64
 related bugs when using the desktop normally. It's very hard to track down some
 of these, as there's a few interface layers between Limbo's Dis VM, the C space,
