@@ -4,6 +4,16 @@ Inferno can run Dis bytecode in two modes: interpreted (the default, architectur
 
 This doc does not re-cover the Dis VM scheduler (see AGENTS_EMU.md) or the Dis wire format (see AGENTS_9P.md). It focuses on the compilation pipeline itself.
 
+> **Read this first — two halves.** The aarch64 JIT is **implemented** (the
+> historical "Option B" was chosen). The sections up to "The aarch64 Decision" are
+> the **porting-guide background** (written against the ARM32 backend `comp-arm.c`
+> as the reference, before the aarch64 port existed) — useful for understanding the
+> machinery, but ARM-centric and not the as-built aarch64 reality. The authoritative
+> **as-built reference** is "AArch64 JIT Implementation (LP64)" and everything after
+> it. Where the two disagree (e.g. `cflag` semantics, register assignment), the
+> as-built half wins. Code is cited by **function name** where possible; raw line
+> numbers drift.
+
 ## cflag: Enabling JIT
 
 `cflag` is a global int (`include/interp.h:361`, set in `emu/port/main.c`). It is controlled by the `-c` flag to `emu`:
@@ -13,16 +23,21 @@ emu -c2 /dis/sh          # compile all modules at load time
 emu -c0 /dis/sh          # interpreter only (default)
 ```
 
-| cflag value | Effect |
+| cflag value | Effect (aarch64 backend, `comp-aarch64.c`) |
 |-------------|--------|
-| 0 | Interpreter only |
-| 1 | Compile modules at load time |
-| 2 | Compile + verify against interpreter |
-| >4 | Compile + disassemble generated code (calls `das()`) |
+| 0 | Interpreter only (default) |
+| ≥1 | Compile modules at load time |
+| >3 / >4 | Compile **and** disassemble the generated code (`das()`), for debugging |
+
+`main.c` accepts `-c0`..`-c9` (`atoi`, range-checked). **On the aarch64 backend
+`-c1`, `-c2`, `-c3` produce identical code** — there is no "verify against
+interpreter" or optimisation-level distinction; only `>3`/`>4` change behaviour (they
+turn on `das()` dumps). The older "2 = compile + verify" semantics applied to some
+legacy backends (sparc/mips have `cflag>1`/`cflag>2` branches), not aarch64.
 
 ## When Compilation Happens
 
-**Load-time** (`libinterp/load.c:495–505`): If `cflag > 0`, `readmod()` calls `compile()` immediately after loading a module's bytecode:
+**Load-time** (`libinterp/load.c`, the `if(cflag)` block in the module-load path): if `cflag > 0`, the loader calls `compile()` (now via `lockedcompile()`, see the jitlock invariant below) immediately after loading a module's bytecode:
 
 ```c
 if(cflag) {
@@ -37,7 +52,7 @@ else if(m->rt & MUSTCOMPILE && !dontcompile) {
 }
 ```
 
-**Explicit/lazy** (`libinterp/loader.c:437–442`): Limbo programs can call `Loader->compile()` to JIT a specific module on demand.
+**Explicit/lazy** (`libinterp/loader.c`, `Loader_compile`): Limbo programs can call `Loader->compile()` to JIT a specific module on demand. (`Loader_compilebg` does it off the VM scheduler — see "Background JIT closure warming".)
 
 **Never at first-call.** There is no tiered or on-demand per-function compilation — it's whole-module, all-or-nothing.
 
@@ -47,7 +62,7 @@ Module flags in `include/isa.h`:
 
 ## Interpreter vs JIT Execution
 
-The execution branch in `libinterp/xec.c:1688–1695`:
+The execution branch in `libinterp/xec.c` (the dispatch loop, the `R.M->compiled || PC in [jitlo,jithi)` test):
 
 ```c
 if(R.M->compiled)
@@ -62,7 +77,7 @@ else do {
 
 `R.M->compiled` is set by `compile()` after successful code generation. The two paths are mutually exclusive per module — a module is either fully compiled or fully interpreted.
 
-**Cross-module calls** between compiled and uncompiled modules are handled gracefully: when `R.M->compiled != m->compiled` the scheduler quanta is forced to 1 (line 710 of xec.c), triggering a reschedule that allows the interpreter to pick up the call correctly.
+**Cross-module calls** between compiled and uncompiled modules are handled gracefully: when `R.M->compiled != m->compiled` the scheduler quanta is forced to 1 (`xec.c`, the `compiled != ` tests in `OP(mcall)` and `OP(ret)`), triggering a reschedule that lets the dispatcher pick up the call in the correct mode.
 
 ## The REG Struct
 
@@ -248,6 +263,11 @@ For interpreter-only builds, set `das-aarch64.$O: das-stub.c` in the mkfile (lik
 
 ## The aarch64 Decision
 
+> **Resolved (historical): Option B shipped.** A real from-scratch LP64 JIT exists
+> (`libinterp/comp-aarch64.c`); the suite passes 178/178 under both the interpreter
+> and `-c1`. The two options below are kept as the decision record — the as-built
+> details are in "AArch64 JIT Implementation (LP64)" below.
+
 **Option A: Interpreter only**
 
 - Provide `libinterp/comp-aarch64.c` that is a stub: `compile()` returns 0, all cflag values run the interpreter.
@@ -277,12 +297,12 @@ Option A is sufficient to validate the port end-to-end; Option B can follow.
 | `libinterp/comp-386.c` | x86 JIT backend |
 | `libinterp/das-stub.c` | No-op disassembler for interpreter-only |
 | `libinterp/das-arm.c` | ARM disassembler (debug only) |
-| `libinterp/xec.c:1688` | Interpreter/JIT dispatch |
-| `libinterp/load.c:495` | cflag-triggered compile at module load |
+| `libinterp/xec.c` | interpreter/JIT dispatch (`R.M->compiled \|\| PC in [jitlo,jithi)`) |
+| `libinterp/load.c` | cflag-triggered compile at module load (`if(cflag)` block) |
+| `emu/port/dis.c` | `jitlock`, `lockedcompile`, `releasecompile`, `compile()` |
 | `libinterp/mkfile` | `comp-$OBJTYPE.$O` and `das-$OBJTYPE.$O` selection |
-| `include/interp.h:177` | `Inst` struct (Dis bytecode) |
-| `include/interp.h:211` | `REG` struct (Dis register file) |
-| `include/isa.h:230` | `MUSTCOMPILE` / `DONTCOMPILE` flags |
+| `include/interp.h` | `Inst` (struct, ~l.177) and `REG` (~l.211) |
+| `include/isa.h` | `MUSTCOMPILE` / `DONTCOMPILE` flags (~l.254) |
 | `emu/Linux/asm-aarch64.o` | Pre-compiled: `umult`, `FPsave`, `FPrestore` |
 
 ---
@@ -290,9 +310,10 @@ Option A is sufficient to validate the port end-to-end; Option B can follow.
 # AArch64 JIT Implementation (LP64) — status and internals
 
 `libinterp/comp-aarch64.c` is a real from-scratch LP64 JIT (the first for Inferno).
-It is **off by default** (`cflag==0` runs everything interpreted; suite is 166/166)
+It is **off by default** (`cflag==0` runs everything interpreted; suite is 178/178)
 and activates with `emu -c1`/`-c2`, which is **working**: the full suite is also
-166/166 under `-c1` (sh plus all 8 suites run natively, including limbo self-host).
+**178/178 under `-c1`** (sh plus all 9 suites run natively, including limbo
+self-host; re-verified 2026-06-07).
 The only `-c1` caveat is `$Loader` reflection, which is mutually exclusive with
 compilation by design (see below); it is TAP-skipped, not a codegen bug. This
 section is the durable reference for the implementation.
@@ -330,9 +351,11 @@ section is the durable reference for the implementation.
   `R.s/R.d/R.m` (which `punt` sets up) and honours native PCs via `NEWPC` (load `R.PC`,
   `br`). This let v1 skip the mac routines (MacRET/FRAM/MCAL/...) and `typecom`.
 - **Registers (AAPCS64).** `x0–x3`=RA0–RA3 scratch/C-args, `x4`=RCON, `x5`=RTA, `x16`=
-  branch-through temp, `x19`=RREG(&R), `x20`=RFP, `x21`=RMP (callee-saved survive C
-  calls), `x30`=LR. Generated code only ever touches these, leaving `x22–x28` free for a
-  future macmcal/macret.
+  branch-through temp, `x19`=RREG(&R), `x20`=RFP, `x21`=RMP, `x24`=RLR2 (the
+  callee-saved link save used inside the macros, e.g. macmcal — survives C calls).
+  All of `x19/x20/x21/x24` are AAPCS64 callee-saved and are saved/restored by
+  `comvec`/`schedret`. Generated code touches only these, leaving `x22/x23/x25–x28`
+  free.
 - **Scheduler safety.** Backward branches (IJMP and `cbra` family) emit an inline
   reschedule (decrement `R.IC`, on `<=0` save FP/PC and `ret` to `R.xpc`) so compiled
   loops don't starve the cooperative scheduler.
@@ -341,11 +364,12 @@ section is the durable reference for the implementation.
 
 The aarch64 LP64 JIT is functional. `emu -c1` runs the Emuinit bootstrap, **sh**
 (pipes, globbing, control flow), and the full headless test battery natively.
-- Default `cflag==0`: **166/166** (zero regression — all JIT changes are no-ops on the
+- Default `cflag==0`: **178/178** (zero regression — all JIT changes are no-ops on the
   interpreter path).
-- `emu -c1` (sh + every suite compiled): **8 of 8 suites pass 100%** (166/166: vm, concur,
-  crypto, styxnet, selfhost — i.e. limbo compiling itself —, loader, plumb, except). In
-  `50_loader` the six bytecode-round-trip assertions are **TAP-skipped** under `-c1` because
+- `emu -c1` (sh + every suite compiled): **9 of 9 suites pass 100%** (178/178: vm, concur,
+  crypto, styxnet, selfhost — i.e. limbo compiling itself —, loader, plumb, except,
+  modglobal). In `50_loader` the six bytecode-round-trip assertions are **TAP-skipped**
+  (reported `ok … # SKIP`, so still counted) under `-c1` because
   reflection and compilation are mutually exclusive (see the limitation below); the other six
   (load/tdesc/link/dnew/nil-rejection/GC-teardown) run for real. At `cflag==0` all twelve run.
 
@@ -492,6 +516,10 @@ hot Limbo module without the global boot tax, two targeted hooks already exist:
 
 ## Future direction: async / tiered compilation ("best of both worlds")
 
+> **Partly implemented since commit `42da4e90`** — see "Background JIT closure
+> warming" below. The design analysis here remains the rationale; the section below
+> is what actually shipped (and the two caveats it surfaced).
+
 Goal: interpret immediately for instant responsiveness, compile in the
 background, and let native code take over transparently. The VM is unusually
 ready for this because **two normally-missing pieces already exist**:
@@ -539,3 +567,52 @@ synchronous path for debugging; (Phase 2) add hotspot counters. A "Compiling
 synchronous — once Phase 1 lands the desktop just comes up and quietly gets
 faster, making the progress UI redundant. Phase 1's correctness hinges entirely
 on item 2.
+
+## Background JIT closure warming — `wm/warmup` (commit `42da4e90`)
+
+The async direction above is partly real. Under `-c1` only, **`wm/warmup`** (the
+"Welcome to Hell" splash) background-JIT-compiles the transitive module closure of
+the wm launch menu so heavy apps (Charon, ~108 modules) start fast; it no-ops under
+the interpreter (`if(loader->compiling()==0) return;`). Wired via `lib/wmsetup`
+(`wmrun wm/warmup`), config `/lib/warmup` (else `$home/lib/warmup`, else a built-in
+whole-menu default). Closure discovery (`appl/wm/warmup.b`, `closure()`): DFS each
+`.dis`, scanning its data section for embedded `/dis/.../X.dis` path strings (a
+`load X X->PATH` bakes the path in), dedup.
+
+New `$Loader` builtins (`libinterp/loader.c`, `module/loader.m`):
+- `compilebg(mp: Nilmod, flag): int` — JIT a loaded module **off** the VM scheduler
+  via `releasecompile()` (`emu/port/dis.c`): `release(); qlock(jitlock); compile();
+  qunlock; acquire()`.
+- `nocompile(on): int` — toggle the global `dontcompile` so warmup can `load` a
+  module *interpreted* (deferred), then `compilebg` it later.
+- `compiling(): int` — is the JIT on (returns `cflag`).
+
+**The `jitlock` invariant (durable — applies to all JIT work).** `compile()` is
+**not reentrant**: it uses file-scope scratch (`base`/`code`/`pass`/`mod`/…). With
+synchronous-only compilation that was safe (only the single VM thread compiled).
+Background compilation broke it, so **every** compile now serializes through one
+`QLock` (`jitlock`, `emu/port/dis.c`): `lockedcompile()` wraps the load-time and
+`Loader_compile` paths, `releasecompile()` the background path. Two concurrent
+`compile()`s otherwise clobber the shared globals → JIT phase error (`N != M`,
+negative offset) → garbage native code → wild fault. Deadlock-free: a background
+compile has already released the VM and needs no VM token to finish.
+
+**Two caveats this surfaced:**
+1. **Latent multi-arena JIT bug (not yet hit; left as-is).** `jitcode()`
+   (`comp-aarch64.c`) sets `jitlo`/`jithi` to the **newest** arena each time it mmaps
+   one (when the 64MB arena fills). The dispatch check (`xec.c`,
+   `R.PC >= jitlo && R.PC < jithi`) then stops recognising native code in the
+   *previous* arena → it is interpreted as Dis → wild fault. Harmless today because
+   all of `/dis` compiles to <64MB native, so only one arena is ever allocated. Fix
+   if a warm list ever exceeds 64MB: track min-lo/max-hi across arenas (or a per-arena
+   range list). The comment "first arena: record low bound" at the assignment is
+   misleading — it overwrites on every new arena.
+2. **`compilebg` must not touch `m->origmp`.** For a file-loaded module `m->origmp`
+   is the data **template** `link.c` (`newmp`, gated on `origmp != H`) copies to build
+   each instance's MP. Clobbering it (as the `$Loader`-build flow's
+   `origmp=…;…;origmp=H` dance does) leaves later launches with `MP==H` →
+   `MP+offset` wraps → wild low-address fault.
+
+GUI lesson (see `ref/AGENTS_GRAPHICS.md`): a Tk toplevel must be driven from the proc
+that *owns* it — warmup's main proc owns Tk + animates, while a separate `warmer`
+proc does the compiling and feeds progress over a channel.

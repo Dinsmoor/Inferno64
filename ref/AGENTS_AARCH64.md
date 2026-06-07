@@ -88,16 +88,23 @@ Note: callee-save for `v8`–`v15` only preserves the bottom 64 bits. The upper 
 
 For a VM interpreter written as a C function, the callee-saved registers `x19`–`x28` are the best candidates to pin VM state across the dispatch loop, because they survive calls into helper functions without being pushed/popped each iteration.
 
-The existing `libinterp/comp-aarch64.c` in this codebase uses:
+The existing `libinterp/comp-aarch64.c` in this codebase uses (callee-saved
+registers for the long-lived Dis state, so they survive `bl` into C helpers):
 
 ```
-x9   = RFP   (Dis frame pointer)
-x8   = RMP   (Dis module data pointer)
-x7   = RTA   (temporary for indirect addressing)
-x6   = RCON  (constant builder)
-x5   = RREG  (pointer to the C REG struct)
-x1–x4 = RA0–RA3 (work registers for operand values)
+x0–x3 = RA0–RA3 (work registers / C args+return)
+x4    = RCON  (constant / address builder)
+x5    = RTA   (indirect-addressing temp)
+x16   = branch-through temp
+x19   = RREG  (pointer to the C REG struct; callee-saved)
+x20   = RFP   (Dis frame pointer; callee-saved)
+x21   = RMP   (Dis module data pointer; callee-saved)
+x24   = RLR2  (link save inside macros, e.g. macmcal; callee-saved)
 ```
+
+(An earlier version of this section listed the **ARM32** scheme — `x5`=RREG,
+`x8`=RMP, `x9`=RFP — which is `comp-arm.c`, not the aarch64 backend. The map above
+is the real `comp-aarch64.c`; see `ref/AGENTS_DIS_ARCH.md` / `ref/AGENTS_JIT.md`.)
 
 For an interpreted (non-JIT) loop pinning state in C code, prefer `x19`–`x28` since they are callee-saved:
 
@@ -1049,7 +1056,10 @@ Full table: `include/uapi/asm-generic/unistd.h` in the Linux kernel source.
 
 ## Porting Checklist for the Dis VM
 
-The following items must be addressed for a complete aarch64 port of `emu`:
+**Status: the aarch64 port is complete and working** — `emu` builds, the full test
+suite is 178/178 under both the interpreter and `-c1` (JIT), and the LP64 Dis ABI
+runs the committed XMAGIC8 `.dis` tree. The checklist below is therefore a
+historical record; only the optional LSE item remains open.
 
 - [x] `mkfiles/mkfile-Linux-aarch64` — compiler flags (`-march=armv8-a`, include paths, defines)
 - [x] `emu/Linux/mkfile-aarch64` — `ARCHFILES` listing arch-specific .o files
@@ -1061,13 +1071,13 @@ The following items must be addressed for a complete aarch64 port of `emu`:
 - [x] `lib9/getcallerpc-Linux-aarch64.S` — return address introspection (`mov x0, x30; ret`)
 - [x] `lib9/setfcr-Linux-aarch64.S` — floating-point control register setup (FPCR)
 - [x] `libinterp/comp-aarch64.c` — JIT compiler: Dis→AArch64 native code
-- [ ] Signal handler correctness — `trapmemref` must use `ucontext_t.uc_mcontext.regs` and `.pc`
-- [ ] `uintptr_t` casts — all pointer↔integer conversions use `uintptr_t`, not `int` or `long`
-- [ ] `sizeof(long) == 8` — any code assuming 4-byte `long` must be fixed
-- [ ] Struct layout — verify no hand-coded struct offsets assume 32-bit pointer sizes
-- [ ] Stack alignment — all `sp` writes maintain 16-byte alignment
-- [ ] JIT cache flush — `flush_icache` called after each module compilation
-- [ ] LSE detection (optional) — runtime dispatch to CASAL vs LDAXR/STLXR loop for TAS
+- [x] Signal handler correctness — `trapmemref` (`emu/Linux/os.c`) uses `uc_mcontext.regs`/`.pc`; drives EMUCRASH/fault recovery
+- [x] `uintptr_t` casts — pointer↔integer conversions use `uintptr_t` (commit `34afd3f5`)
+- [x] `sizeof(long) == 8` — handled; the whole LP64 dual-ABI model builds and runs
+- [x] Struct layout — no hand-coded offsets assume 32-bit pointers (dual-ABI verified)
+- [x] Stack alignment — `sp` writes keep 16-byte alignment (JIT runs the full suite)
+- [x] JIT cache flush — `segflush-aarch64.c` (`__builtin___clear_cache`) after each compile
+- [ ] LSE detection (optional, **not done**) — `aarch64-tas.S` still uses the `ldxr`/`stxr` LL/SC loop; LSE `CASAL`/`SWPAL` fast path is unimplemented (works fine without it)
 
 ---
 

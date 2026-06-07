@@ -1,15 +1,20 @@
 # Dis Virtual Machine — Agent Reference
 
-The Dis VM is the execution engine for all Inferno programs. It is a register-based virtual machine with a flat address space per module instance, concurrent threads, and a garbage-collected heap. This document covers the instruction set, object file format, interpreter loop, garbage collector, channel operations, and JIT compilation.
+The Dis VM is the execution engine for all Inferno programs. It is a register-based virtual machine with a flat address space per module instance, concurrent threads, and a garbage-collected heap. This document covers the **portable** VM: the instruction set, object file format, interpreter loop, garbage collector, channel operations, exceptions, and the scheduler.
+
+> **Architecture/ABI-specific material lives in `ref/AGENTS_DIS_ARCH.md`** — pointer
+> widths (dual-ABI), the per-ABI `.dis` magic, compiled/JIT execution and its
+> register map, and the emu memory pools. The JIT codegen reference is
+> `ref/AGENTS_JIT.md`. Keep this doc host-independent.
 
 ---
 
 ## Overview
 
-- **Architecture**: Register-based (not stack-based), 32-bit WORD addressing, 64-bit LONG/REAL
+- **Architecture**: Register-based (not stack-based). A Dis `WORD` is 32-bit on every ABI; `LONG`/`REAL` are 64-bit. **Pointer width is arch-dependent** (8 bytes on the LP64 aarch64 build) — see `AGENTS_DIS_ARCH.md`.
 - **Module granularity**: Each `.dis` file is one module. Modules share bytecode but have separate data segments per instance.
 - **Thread model**: M:N — many Limbo threads (Prog) mapped onto fewer OS threads (Proc) via a cooperative/time-sliced scheduler
-- **GC**: Tri-color incremental mark-sweep, write-barrier-free
+- **GC**: hybrid — **reference-counting** (instant-free for acyclic objects, via `Heap.ref`) plus a **tri-color incremental mark-sweep** tracing pass to collect cycles
 - **Key files**:
   - `include/isa.h` — opcode and addressing mode constants
   - `include/interp.h` — runtime data structures
@@ -199,7 +204,10 @@ OP(iaddw) {
 A `.dis` file has this structure (all integers encoded as variable-length):
 
 ```
-magic               XMAGIC=819248 (unsigned) or SMAGIC=923426 (signed/crypto)
+magic               XMAGIC (unsigned) or SMAGIC (signed/crypto)
+                    NB: the value encodes the pointer ABI — 32-bit XMAGIC/SMAGIC vs
+                    64-bit XMAGIC8/SMAGIC8. This LP64 tree uses XMAGIC8. See
+                    ref/AGENTS_DIS_ARCH.md.
 
 header:
     RT              runtime flags (MUSTCOMPILE, DONTCOMPILE, SHAREMP, HASLDT, HASEXCEPT)
@@ -294,18 +302,21 @@ The GC runs incrementally during idle time (between interpreter quanta) so it ne
 Every GC-managed allocation has a `Heap` header immediately before the object data:
 
 ```c
-struct Heap {
-    uchar color;    // current GC color
-    uchar pad;
-    ushort count;   // allocation count (for pools)
-    ulong ref;      // reference count (for pinning)
+struct Heap {           // include/interp.h
+    int    color;   // current GC color
+    ulong  ref;     // reference count (instant-free + pinning)
     Type  *t;       // type descriptor (holds pointer map)
+    ulong  hprof;   // heap-profiling hook
 };
 
-// Convert between data pointer and Heap header:
-#define D2H(p)  ((Heap*)(p) - 1)
-#define H2D(t,h) ((t*)((Heap*)(h) + 1))
+// Convert between data pointer and Heap header (note: byte arithmetic, the header
+// sits immediately before the object — see the real macros in interp.h):
+#define D2H(x)  ((Heap*)(((uchar*)(x))-sizeof(Heap)))
+#define H2D(t,x) ((t)(((uchar*)(x))+sizeof(Heap)))
 ```
+
+(`ref` is pointer-width — 8 bytes on LP64. The collector is **reference-counted**
+for the common acyclic case, with the tri-color tracing pass below for cycles.)
 
 ### Mark Phase
 
@@ -347,11 +358,13 @@ Root set (`rootset()`):
 ### Channel Structure
 
 ```c
-struct Channel {
-    Array*  buf;        // circular buffer (nil = unbuffered)
+struct Channel {        // include/interp.h
+    Array*  buf;        // circular buffer (nil = unbuffered); MUST be first
     Progq*  send;       // linked list of Progs waiting to send
     Progq*  recv;       // linked list of Progs waiting to receive
+    void*   aux;        // rock for devsrv (file-backed channels)
     void  (*mover)(void); // copies one element of the channel's type
+    union { WORD w; Type* t; } mid;  // element-type info for the mover
     int     front;      // head index in buf
     int     size;       // items currently in buf
 };
@@ -438,13 +451,21 @@ struct Except {
 
 ```c
 OP(iraise) {
-    void* v = T(s);            // get the exception value (string or adt)
-    p->exval = v;
-    error(string2c((String*)v)); // longjmp to nearest error handler
+    void* v = T(s);            // exception value: a string, or an exception adt
+    if(v == H) error(exNilref);
+    p->exval = v;              // full value retained (typed payload survives, see below)
+    // match name = the string itself, or the adt's first field (its name):
+    error(D2H(v)->t == &Tstring ? string2c(v) : string2c(*(String**)v));
 }
 ```
 
-`error()` walks up the handler table from the current PC, looking for a `Handler` whose `[pc1, pc2)` range contains the current PC and whose `etab` has a matching exception string. If found, PC is set to the handler's jump target. If not found, the exception propagates to the parent Prog (via `Progs` group).
+The C `error()` longjmps into the handler search (`handler()`, `emu/port/exception.c`),
+which walks the handler table from the current PC for a `Handler` whose `[pc1, pc2)`
+range contains the PC and whose `etab` has a matching pattern. A **typed** exception
+now keeps its full payload until a typed (`ExcName =>`) arm catches it, degrading to
+its name string only for a string/`"*"` arm — see `ref/AGENTS_LIMBO.md` (exception
+semantics) and `ref/AGENTS_DEBUGGING.md` (the R1 change). If no handler matches, the
+exception propagates to the parent Prog (via the `Progs` group).
 
 ---
 
@@ -453,15 +474,15 @@ OP(iraise) {
 Defined in `include/interp.h`. Every heap-allocated Dis object has an associated `Type*`.
 
 ```c
-struct Type {
+struct Type {            // include/interp.h — field order matters for the GC
     int    ref;
-    int    size;         // size in bytes of the object
-    int    np;           // number of pointer-sized fields
-    uchar  map[...];     // GC pointer bit map (1 bit per pointer slot)
-    void (*mark)(Type*, void*);    // called by GC to mark children
     void (*free)(Heap*, int);      // called by GC to free object
+    void (*mark)(Type*, void*);    // called by GC to mark children
+    int    size;         // size in bytes of the object
+    int    np;           // number of pointer-sized slots covered by map
     void  *destroy;      // destructor (for ADTs with destructors)
     void  *initialize;   // initializer
+    uchar  map[STRUCTALIGN];       // GC pointer bit map (1 bit per pointer slot), last
 };
 ```
 
@@ -527,60 +548,24 @@ Progs are organized into groups (analogous to process groups). When an uncaught 
 
 ---
 
-## JIT Compilation
+## Compiled (JIT) Execution
 
-**Files**: `libinterp/comp-aarch64.c`, `comp-386.c`, `comp-arm.c`, `comp-mips.c`, `comp-power.c`, `comp-sparc.c`
+A module can be compiled to native code (`cflag>0`, or the `MUSTCOMPILE` flag, or an
+explicit `Loader->compile`). Compilation is **whole-module, at load time** — there is
+no tiered or hot-count heuristic. The interpreter and compiled code interoperate
+freely; the dispatch loop picks the path per module, and cross-mode calls resync at
+the call boundary.
 
-When a module is compiled (`MUSTCOMPILE` flag, or heuristically after many executions), `compile(m)` translates each Dis instruction into native machine code.
-
-### AArch64 Register Mapping
-
-```
-R9  = RFP    (Dis frame pointer)
-R8  = RMP    (Dis module data pointer)
-R7  = RTA    (temporary for indirect addressing)
-R6  = RCON   (constant builder)
-R5  = RREG   (pointer to REG struct)
-R1–R4 = RA0–RA3  (work registers)
-```
-
-### Compilation Pattern
-
-Each Dis instruction translates to a short sequence of native instructions. For example, `IADDW src, dst` on AArch64 becomes:
-```asm
-ldr  w1, [RFP, #src_offset]   // load src
-ldr  w2, [RFP, #dst_offset]   // load dst (if 3-address)
-add  w2, w1, w2
-str  w2, [RFP, #dst_offset]   // store result
-```
-
-Time-slice checks (`RESCHED`) are inserted periodically: decrement a counter in REG, branch to the scheduler trampoline when it reaches zero.
-
-### Execution Selection
-
-```c
-if(R.M->compiled)
-    comvec();    // jump into JIT'd native code
-else
-    optab[op](); // interpret via function pointer
-```
-
-The `pctab` field in `Module` maps Dis instruction indices to native code offsets, used for exception handling and profiling.
+The architecture-specific realization — the per-arch backends
+(`libinterp/comp-aarch64.c` is the only one built/tested here), the register map,
+`pctab`, the native-code arena, `segflush`, and the `jitlock` compile invariant — is
+in **`ref/AGENTS_DIS_ARCH.md`**, with the full codegen reference in
+**`ref/AGENTS_JIT.md`**.
 
 ---
 
 ## Memory Pools
 
-**File**: `emu/port/alloc.c`
-
-Three memory pools for different uses:
-
-| Pool      | Variable   | Default max | Purpose |
-|-----------|------------|-------------|---------|
-| `main`    | `mainmem`  | 32 MB       | General C allocations |
-| `heap`    | `heapmem`  | 32 MB       | Limbo GC heap |
-| `image`   | `imagmem`  | 64 MB       | Graphics/draw images |
-
-Pool sizes can be adjusted via emu command-line: `-p main=N`, `-p heap=N`, `-p image=N`.
-
-The pool allocator uses a binary search tree of free blocks (`Bhdr* root`) for O(log n) allocation. Freed blocks are coalesced with neighbors to reduce fragmentation.
+emu carves host memory into three pools (`main` / `heap` / `image`) via
+`emu/port/alloc.c`. Details (sizes, `-p` overrides, the `Bhdr` allocator) are
+host/arch realization — see **`ref/AGENTS_DIS_ARCH.md`**.

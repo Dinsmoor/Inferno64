@@ -665,7 +665,14 @@ raise e;                        # re-raise captured exception value
 ```
 - Most specific string match wins: exact > longer prefix > shorter prefix > `"*"`.
 - `or` combines multiple patterns per arm, but pattern types must be compatible.
-- User-defined exceptions raised beyond their immediate caller become string exceptions named by the exception identifier.
+- A typed (user-defined) exception keeps its full payload as it propagates up the
+  stack until a **typed** handler (`ExcName =>`) catches it — at any depth, not just
+  the immediate caller (R1 change, `emu/port/exception.c`). It only degrades to a
+  string (its exception-identifier name) when caught by a **string/`"*"`** arm,
+  which is where the handler variable is string-typed. So `(a,b) := e;` inside an
+  `ExcName =>` arm now works regardless of how many frames the exception crossed.
+  (Pre-R1, anything beyond the immediate caller was eagerly stringified, losing the
+  payload — older code worked around this by matching the name with string arms.)
 - After the handler runs, control falls through to the statement after the exception construct.
 
 **Common string exception conventions:**

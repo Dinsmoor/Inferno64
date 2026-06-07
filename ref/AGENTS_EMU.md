@@ -45,10 +45,18 @@ emu/
 
 | File | Purpose |
 |------|---------|
-| `os.c` | `libinit`, signal handlers, `osmillisec`, `osmillisleep`, `readkbd` |
+| `os.c` | `libinit`, signal handlers (`trapmemref`, EMUCRASH/watchdog), `osmillisec`, `osmillisleep`, `readkbd` |
 | `devfs.c` | Host filesystem bridge (the `#U` device) |
 | `audio-oss.c` | OSS audio driver |
-| `asm-386.S` | Atomic test-and-set for x86 |
+| `aarch64-tas.S` | Atomic test-and-set (the spinlock primitive) — **this tree's target** |
+| `asm-aarch64.S` | `umult` etc. arithmetic helpers (aarch64) |
+| `segflush-aarch64.c` | I-cache flush after JIT codegen |
+| `asm-386.S` | Atomic test-and-set for x86 (other hosts; not built here) |
+
+> This tree is built and tested only on **Linux/aarch64** (LP64). The portable
+> design below applies to every host port, but the other `emu/<OS>/` and
+> `emu/Linux/asm-*` variants are not exercised here. Arch-specific Dis/JIT detail is
+> in `ref/AGENTS_DIS_ARCH.md`; emu fault-debugging in `ref/AGENTS_EMU_DEBUG.md`.
 
 ---
 
@@ -396,7 +404,7 @@ These functions are declared in `emu/port/fns.h` and implemented per-OS:
 | `oslongjmp(buf, n)` | Signal-safe longjmp (for fault recovery) |
 | `readkbd()` | Block and return one keyboard character |
 
-On Linux (`emu/Linux/os.c`): `osblock`/`osready` use `sem_wait`/`sem_post`; `osmillisleep` uses `nanosleep`; faults (SIGSEGV, SIGBUS) call `oslongjmp` to unwind to the last `waserror`.
+On Linux: `osblock`/`osready` use POSIX `sem_wait`/`sem_post` (`emu/port/kproc-pthreads.c`, one semaphore per Proc); `osmillisleep` uses `nanosleep` (`emu/Linux/os.c`); faults (SIGSEGV, SIGBUS) call `oslongjmp` to unwind to the last `waserror` (unless EMUCRASH is set — see `ref/AGENTS_EMU_DEBUG.md`).
 
 ---
 

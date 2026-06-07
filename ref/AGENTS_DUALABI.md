@@ -27,7 +27,7 @@
 > The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
 > arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
 > audited — see below). `github.com/caerwynj/inferno-lab` is the test battery;
-> the in-repo `tests/lp64/` harness (166 assertions, 8 suites) is the standing
+> the in-repo `tests/lp64/` harness (178 assertions, 9 suites) is the standing
 > regression net.
 
 Status as of this work: the aarch64 host toolchain (`limbo`, `mk`, `iyacc`) and the
@@ -264,7 +264,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   32-bit WORD jump tables can hold native addresses, matching the interpreter's
   `(Inst*)t[0]` reads. The old broken attempt is at `libinterp/comp-aarch64.c.jit-wip`.
 - **Default behaviour is unchanged:** `cflag==0` (the default) never calls `compile()`,
-  so every module runs interpreted exactly as before. The LP64 test suite is **166/166**
+  so every module runs interpreted exactly as before. The LP64 test suite is **178/178**
   with the JIT present. The JIT only activates with `emu -c1` (or `-c2`).
 - **`emu -c1` works:** runs the Emuinit bootstrap, `sh` (pipes/glob/control flow), and the
   full battery natively — **8 of 8 suites pass 100%** under `-c1` (vm, concur, crypto,
@@ -580,7 +580,7 @@ pointer). Defined once (`limbo/types.c` + `limbo.h`; `appl/cmd/limbo/types.b` +
 (`rewrite` Oindex, `arraydefault`, `arraycom`), the `callcom` call-frame temp, the
 borrowed-channel raw move (`com.c`/`ecom.c`), **and the newly found imported-global
 load (below)**. On LP64 `tptr ≡ tbig`, so the change is byte-identical codegen
-there (the 166-assertion suite + acme/charon stay green and *prove* no
+there (the 178-assertion suite + acme/charon stay green and *prove* no
 regression); ILP32 becomes correct. Genuine-`big` sites stay `tbig`
 (`globalBconst`; the alignment-guarded exception/pick-tag header, which is already
 `IBY2PTR`-conditioned).
@@ -783,3 +783,71 @@ Known caveats to check on first real build/run:
 - **`-mabi=ilp32` (32-bit pointers on aarch64):** would keep the 4-byte `.dis`
   layout but needs an aarch64 ILP32 libc that stock Ubuntu does not ship.
 - **Compile emu as 32-bit ARM:** not aarch64; out of scope.
+
+---
+
+## Catching LP64 width bugs statically and semantically
+
+The defining bug class of this port is the **64→32 truncation**: a 64-bit value
+(usually a pointer) silently narrowed to 32 bits, which later faults as a wild
+pointer far from its cause, or wedges a loop/scheduler. Four layers catch a
+truncation *before* it corrupts anything — at compile, link/load, and (debug) run
+time. (For *runtime* catching of a truncation that already slipped through and
+faulted/hung, see the fault/hang hooks in `ref/AGENTS_EMU_DEBUG.md`; for the
+sanitizer/Valgrind audit of the C, same doc.)
+
+### `make lint` — clang 64→32 narrowing lint
+
+clang's `-Wshorten-64-to-32` is exactly this bug class as a warning, and gcc has
+no equivalent. `tests/lint/run.sh` (via `make lint`) asks `mk -n -a` for the real
+per-file compile flags of every host C file (libs + emu) and replays each through
+clang in `-fsyntax-only` mode with only that warning on, diffing against
+`tests/lint/baseline.txt` so a **new** narrowing fails the run while the ~246
+pre-existing (mostly benign) ones stay quiet. gcc remains the production compiler.
+`make lint-all` lists every site; `make lint-update` re-baselines after triage.
+See `tests/lint/README.md`.
+
+**Triage note (real bug vs benign):** a left-shift/overflow finding is a real LP64
+bug only when the value **sign-extends into a wider (64-bit) field used at full
+width** (e.g. `(uchar)<<24` → negative int → `0xFFFFFFFF…` in a `ulong`). If the
+result is stored into a 32-bit field, masked, or truncated, it is benign
+2's-complement UB (correct result). The graphics pixel pipelines, crypto/bignum
+byte-assembly, the string hash, `operand()`, and `memmove(x,nil,0)` are all benign
+(verified: correct render + crypto vectors); the real ones found this way were the
+sign-extending `mode`/9P-field/`disw` family.
+
+### `genmove` width assertion (limbo compiler)
+
+The move/cons opcode the code generator picks from a type's kind has a fixed width
+(`IMOVW`=4, `IMOVL`=8, `IMOVP`=`IBY2PTR`, …); it must equal the type's size or the
+emitted code moves the wrong number of bytes — the truncation class. `genmove`
+(both `limbo/gen.c` and `appl/cmd/limbo/gen.b`) asserts `movewidth(op) == mt->size`,
+a compile-time guard against type/optab/size drift. (`tptr = IBY2PTR==IBY2LG ? tbig
+: tint` is what keeps pointer temps in step across both ABIs.)
+
+### GC pointer-map vs layout (libinterp)
+
+`markheap` traces the pointer at every set bit of a type's map, at byte offset
+`slot*IBY2PTR`. `verifytype()` (`heap.c`) asserts every set bit lies wholly within
+the object's size; the `.dis` loader (`load.c`) runs it on each type descriptor — a
+module that parses but whose maps are inconsistent for this ABI is rejected up
+front, naming the module. `verifyctype()` runs at init for the C-registered draw
+types, additionally requiring a generated ADT map to stay within the Limbo ADT
+prefix it describes (the C-only tail pointers are deliberately untraced) — a
+mismatch panics at boot.
+
+### `make emu-disptrcheck` — "Valgrind for Dis pointers"
+
+A `-DDISPTRCHECK` build validates every map-marked pointer slot against the live
+heap as the GC walks it: a real reference is `H`, or points just past a `Heap`
+header inside a heap arena (`ptrinpool`), with a sane GC colour. A 64→32 truncated
+pointer fails all three and is reported (type, object, byte offset, value) at the
+first GC after it is installed, instead of crashing layers away when chased; the
+slot is then skipped. Debug only (slow); `make emu` reverts to production. This is
+the dynamic analog of `verifytype`/`verifyctype`.
+
+> **Layering of all the LP64 defences.** `make lint` + the `genmove` assert catch
+> width bugs at **build time**; `verifytype`/`verifyctype` at **load/init**;
+> `DISPTRCHECK` at **run time** as the GC walks; and the runtime fault/hang hooks
+> (`EMUCRASH`/USR2/`EMUWATCHDOG`, in `ref/AGENTS_EMU_DEBUG.md`) when one still gets
+> through and faults or hangs.
