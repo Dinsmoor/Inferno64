@@ -71,7 +71,7 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf
 
 # Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
 # fresh tree or git worktree has no mk binary yet (it is build output, not
@@ -192,6 +192,15 @@ lint-all:
 
 lint-update:
 	@$(LINT_RUN) --update
+
+# JIT-vs-interpreter throughput benchmark: a pure-Limbo STFT spectrogram run
+# under emu -c0 (interp), -c1 (JIT), and -c1 -B (JIT, no bounds checks), for
+# both a float and a fixed-point kernel. Prints a speedup table and asserts the
+# interp/JIT outputs are byte-identical. Needs a built tree (make all).
+#   make test_jitperf            run the default battery
+#   make test_jitperf ARGS=...   pass extra flags to the runner
+test_jitperf:
+	@sh $(ROOT)/tests/jitperf/runbench.sh $(ARGS)
 
 # Debug build of the "Valgrind for Dis pointers" checker (#5): rebuild
 # libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates

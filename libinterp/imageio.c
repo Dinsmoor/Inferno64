@@ -16,6 +16,7 @@
  * world and the Inferno (lib9.h) world never share a translation unit.
  */
 extern uchar*	stbwrap_decode(const uchar *data, int len, int *w, int *h, const char **err);
+extern uchar*	stbwrap_encode_png(const uchar *rgba, int w, int h, int *outlen, const char **err);
 extern void	stbwrap_free(void *p);
 
 void
@@ -68,4 +69,52 @@ Imageio_decode(void *fp)
 	f->ret->t0 = w;
 	f->ret->t1 = h;
 	f->ret->t2 = a;
+}
+
+void
+Imageio_encode(void *fp)
+{
+	F_Imageio_encode *f = fp;
+	uchar *png;
+	const char *err;
+	int w, h, need, outlen;
+	Heap *hp;
+	Array *a;
+
+	/* default return: (nil, nil) */
+	f->ret->t0 = H;
+	f->ret->t1 = H;
+
+	w = f->w;
+	h = f->h;
+	if(f->rgba == H){
+		f->ret->t1 = c2string("no pixel data", 13);
+		return;
+	}
+	need = w * h * 4;
+	if(w <= 0 || h <= 0 || f->rgba->len < need){
+		f->ret->t1 = c2string("bad image dimensions", 20);
+		return;
+	}
+
+	err = nil;
+	png = stbwrap_encode_png(f->rgba->data, w, h, &outlen, &err);
+	if(png == nil){
+		if(err == nil)
+			err = "png encode failed";
+		f->ret->t1 = c2string((char*)err, strlen((char*)err));
+		return;
+	}
+
+	hp = heaparray(&Tbyte, outlen);
+	if(hp == H){
+		stbwrap_free(png);
+		f->ret->t1 = c2string(exNomem, strlen(exNomem));
+		return;
+	}
+	a = H2D(Array*, hp);
+	memmove(a->data, png, outlen);
+	stbwrap_free(png);
+
+	f->ret->t0 = a;
 }

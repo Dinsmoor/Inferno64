@@ -30,6 +30,49 @@ Output: the interpreter's value dump, an `EQUIVALENCE: PASS/FAIL` verdict
 
   Typical result: equivalence PASS, ~3.3× faster under `-c1`.
 
+## STFT spectrogram — DSP throughput (`stft.b` + `runbench.sh`)
+
+A larger, "real work a user does" benchmark: a Short-Time Fourier Transform
+spectrogram in **pure Limbo** — read a WAV → frame + Hann-window → radix-2
+Cooley-Tukey FFT per frame → magnitudes → Inferno-colormap PNG (parameters
+mirror the `rspektrum` analyzer: FFT 1024, 75% overlap, Hann, dB magnitude).
+The PNG is written through the native `$Imageio->encode` (added alongside this).
+
+Run it (needs `make all` first — for the FP-JIT and the `$Imageio->encode`):
+
+```sh
+make test_jitperf          # or: tests/jitperf/runbench.sh
+```
+
+It runs the **same** `stft.dis` under `-c0`, `-c1`, and `-c1 -B`, for two
+kernels, and prints a `min_ms / med_ms / speedup / wall_ms` table:
+
+- **`float`** — `real` (IEEE-double) butterflies. With FP now nativized this is
+  the kernel that should show the JIT win on FP-heavy DSP.
+- **`fixed`** — Q15 fixed-point (32-bit `int` mul + arithmetic shifts), the
+  natively-compiled integer path. Kept as a contrast / regression baseline.
+
+Methodology (keeps the comparison honest):
+- Timed region is **pure Limbo** — windowing + FFT + magnitude only. `sin`/`cos`
+  build the window/twiddle tables *outside* timing; only `sqrt` (per bin,
+  identical count across configs) is a native call inside it.
+- WAV decode, dB/colormap, and PNG encode are **outside** the timed loop.
+- Report **min + median** over `-iter` runs (cold first run drops out);
+  `EMUPOOLCHECK=0` so the GC audit can't skew timings. `wall_ms` (whole-process,
+  incl. load + JIT compile) is reported separately as the launch-latency cost.
+- **Correctness gate:** the rendered PNGs must be **byte-identical** across
+  `-c0`/`-c1`/`-c1 -B` per kernel (a `DIFFERS!` flags a JIT miscompile) — same
+  bit-for-bit premise as the `fp.b` equivalence check, on a full workload.
+- Deterministic input: a linear-chirp WAV synthesized in-tree (clean diagonal
+  in the spectrogram = visually self-verifying); no binary asset.
+
+Knobs (env): `N`, `HOP`, `ITER`, `SR`, `DUR`, `KERNELS`, `CONFIGS`. Results land
+in `_build/results.json`; spectrograms in `_build/spec_*.png`.
+
+This is also a measurement bed for the next JIT levers: compiled-module caching
+(amortize `wall_ms`), multithreaded/async background compilation, and
+interpret-then-hot-swap (kill the launch-latency hit).
+
 ## Adding a case
 
 Drop a `<name>.b` here that prints deterministic results to stdout and (if you

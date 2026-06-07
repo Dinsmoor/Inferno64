@@ -8,6 +8,8 @@
 # layout of a Draw ABGR32 image, so the bytes can be written straight into one
 # with writepixels and no reordering -- which is what the Imageload library
 # (/dis/lib/imageload.dis) does to hand you a ready ref Draw->Image.
+#
+# encode() is the inverse: 8-bit RGBA bytes (same layout) -> an in-memory PNG.
 
 Imageio: module
 {
@@ -16,4 +18,9 @@ Imageio: module
 	# Decode image data to 8-bit RGBA.  On success returns (w, h, rgba, nil)
 	# where rgba has w*h*4 bytes (R,G,B,A order); on failure (0, 0, nil, err).
 	decode:	fn(data: array of byte): (int, int, array of byte, string);
+
+	# Encode 8-bit RGBA pixels (w*h*4 bytes, R,G,B,A order, top-to-bottom --
+	# the layout decode() produces) to an in-memory PNG.  On success returns
+	# (png, nil); on failure (nil, err).
+	encode:	fn(w, h: int, rgba: array of byte): (array of byte, string);
 };
