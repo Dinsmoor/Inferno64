@@ -8,16 +8,25 @@ OS=		o
 AR=		ar
 ARFLAGS=	ruvs
 
+# Build-profile knobs -- single-token OLEVEL/MTUNE/DBGFLAGS selected by the top
+# Makefile's `make debug|release|bleedingedge` (see the detailed note in
+# mkfile-Linux-aarch64; single-token is required for mk's sub-mk forwarding).
+# The defaults below ARE the debug profile.  -m64 (LP64) is always present;
+# -march=$MTUNE defaults to the generic x86-64 baseline, native for bleedingedge.
+OLEVEL=		-Og
+MTUNE=		x86-64
+DBGFLAGS=	-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS
 AS=		gcc -c -m64
 ASFLAGS=
-
 CC=		gcc -c -m64
-CFLAGS=		-O\
+CFLAGS=		-g $OLEVEL\
 		-fno-strict-aliasing\
 		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
 		-I$ROOT/Linux/amd64/include\
 		-I$ROOT/include\
-		-DLINUX_AMD64
+		-DLINUX_AMD64\
+		-march=$MTUNE\
+		$DBGFLAGS
 
 ANSICPP=
 LD=		gcc -m64

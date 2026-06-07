@@ -328,7 +328,9 @@ trapUSR2(int signo)
 /*
  * Wire up the observability features from the environment.  Called from
  * libinit before any Dis runs.
- *   EMUCRASH       wild-address faults dump then drop a core; hang -> abort
+ *   EMUCRASH       wild-address faults dump then drop a core; hang -> abort.
+ *                  Off by default in release builds; ON by default in debug
+ *                  builds (-DEMU_DEBUG_DEFAULTS), where EMUCRASH=0 opts out.
  *   EMUWATCHDOG=N  hang threshold in seconds (default 60; 0 disables)
  */
 static void
@@ -339,7 +341,15 @@ faultmoninit(void)
 
 	faultnullfd = open("/dev/null", O_WRONLY);
 
-	faultcrash = getenv("EMUCRASH") != nil;
+	e = getenv("EMUCRASH");
+	faultcrash = e != nil;
+#ifdef EMU_DEBUG_DEFAULTS
+	/* debug build: crash-dump + core on by default; EMUCRASH=0 opts out. */
+	if(e == nil)
+		faultcrash = 1;
+	else if(strcmp(e, "0") == 0)
+		faultcrash = 0;
+#endif
 
 	faultmonsec = 60;
 	e = getenv("EMUWATCHDOG");

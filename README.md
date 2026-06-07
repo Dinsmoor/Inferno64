@@ -95,6 +95,30 @@ bootstraps `mk` with the host `gcc` automatically. A full nuke+rebuild is cheap
 gated behind `FORCE=1` because a stale `.dis` against a freshly built ABI is a
 real, debugged crash class.
 
+**Build profiles** (optimization + arch + instrumentation bundles):
+
+```sh
+make debug          # default: -Og + DISPTRCHECK GC checker + EMUCRASH-on (find-the-bug)
+make release        # -O2, portable -march baseline, no instrumentation
+make bleedingedge   # -O3 -march=native, no instrumentation (host-tuned)
+```
+
+`make` / `make all` builds the `debug` profile. During this fresh aarch64
+port, debug is the right default — it carries the "Valgrind for Dis pointers"
+GC checker and defaults the `EMUCRASH` crash-dump on — so benchmark *relative*
+numbers on debug and use `release`/`bleedingedge` for absolute figures.
+
+**Before pushing**, run the gate:
+
+```sh
+make check          # per-platform build + test matrix; nonzero exit if a required cell fails
+```
+
+`make check` builds every required configuration (incl. the headless `emu-g`
+and a release link-check) and runs the test suites, printing a
+`PASS/FAIL/SKIP/TODO` matrix — so a config that breaks only the headless build
+can't reach master unnoticed.
+
 See [`INSTALL`](INSTALL) for prerequisites, the amd64 notes, and the full details.
 
 ## Running

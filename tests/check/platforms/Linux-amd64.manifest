@@ -1,0 +1,25 @@
+# Pre-push capability matrix for Linux/amd64 -- the secondary LP64 target.
+#
+# Same matrix as Linux-aarch64; the TRUST differs.  The amd64 Dis JIT
+# (comp-amd64.c) is present but UNVERIFIED under LP64, so JIT run-mode cells are
+# `skip` (visible, never silently green) until vetted.  The interpreter and the
+# pure-VM suites are the portable reference path and are expected to pass, so
+# they stay `require` -- running the gate here is how amd64 stops being untested.
+#
+# See tests/check/platforms/Linux-aarch64.manifest for the column / CELL grammar.
+
+# ---- build matrix ----
+build  emu                require
+build  emu-g              require    headless build the lp64/web suites run under
+build  emu/release        require    release link-check: DISPTRCHECK off must still build
+build  emu-wrt            todo       wince/wrt config unmaintained
+
+# ---- test matrix ----
+test   cunit              require
+test   lp64/emu-g/interp  require    interpreter is the portable reference path
+test   lp64/emu-g/jit     skip       comp-amd64.c unverified under LP64
+test   web/emu-g/interp   require
+test   jitperf            skip       needs a trusted JIT; revisit with lp64/.../jit
+
+# ---- docs ----
+doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage

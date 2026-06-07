@@ -8,16 +8,41 @@ OS=		o
 AR=		ar
 ARFLAGS=	ruvs
 
+# Build-profile knobs.  Factored out so the top-level Makefile can select a
+# profile (`make debug` | `make release` | `make bleedingedge`) by overriding
+# them on the mk command line (a command-line assignment wins over the mkfile's).
+# The defaults below ARE the debug profile.
+#
+# IMPORTANT: an *override* value must be a SINGLE token with no space and no '='.
+# mk forwards command-line assignments into recursive sub-mk via $MKFLAGS without
+# re-quoting, so a multi-word value ("-g -O2") splits and an embedded '='
+# ("-march=native") hits a syntax error down in a subdir build.  Hence the opt
+# level (OLEVEL) and the -march target (MTUNE, the '=' lives in CFLAGS not the
+# value) are split into single-token knobs; DBGFLAGS is only ever overridden to
+# empty.  CC/AS/LD keep a literal -march so tools that sed the mkfile textually
+# (tests/cunit/run.sh, the emu-disptrcheck target) still parse a real compiler.
+#
+#   OLEVEL    optimization level.  -Og (debug) / -O2 (release) / -O3 (bleeding).
+#   MTUNE     -march target (added to CFLAGS as -march=$MTUNE).  armv8-a = the
+#             portable ARMv8 baseline; bleedingedge overrides to native.
+#   DBGFLAGS  debug-only instrumentation; release/bleedingedge pass `DBGFLAGS=`:
+#               -DDISPTRCHECK        the "Valgrind for Dis pointers" GC checker
+#                                    (validates every GC-reachable Dis pointer each pass)
+#               -DEMU_DEBUG_DEFAULTS faultcrash (EMUCRASH dump+core) on by default;
+#                                    EMUCRASH=0 still opts out.  See emu/Linux/os.c.
+OLEVEL=		-Og
+MTUNE=		armv8-a
+DBGFLAGS=	-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS
 AS=		gcc -c -march=armv8-a
 ASFLAGS=
-
 CC=		gcc -c -march=armv8-a
-CFLAGS=		-g -O\
+CFLAGS=		-g $OLEVEL\
 		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
 		-I$ROOT/Linux/aarch64/include\
 		-I$ROOT/include\
 		-DLINUX_AARCH64\
-		-DDISPTRCHECK
+		-march=$MTUNE\
+		$DBGFLAGS
 
 ANSICPP=
 LD=		gcc -march=armv8-a

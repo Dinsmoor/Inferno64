@@ -1,0 +1,36 @@
+# Pre-push capability matrix for Linux/aarch64 -- the primary LP64 dev target.
+# Consumed by tests/check/run.sh (via `make check`).
+#
+# Columns:  CHECK  CELL  STATUS  [NOTE...]
+#   CHECK : build | test | doc
+#   STATUS: require -> must pass; a FAIL fails the gate (nonzero exit)
+#           skip    -> not applicable on this platform; printed with reason, never run
+#           todo    -> wanted but not yet wired/trusted; printed, never gates
+#
+# CELL grammar:
+#   build  <conf>[/release]              conf = emu | emu-g | emu-wrt
+#                                        /release = link with DISPTRCHECK off
+#   test   cunit                         dual-ABI C library unit tests
+#   test   {lp64,web}/<conf>/<runmode>   runmode = interp | jit | jitB
+#   test   jitperf                       self-contained c0/c1/c1B bench + bit-equiv
+#   doc    <name>
+#
+# The matrix is identical across platforms; what differs per platform is the
+# STATUS (the *trust*).  Keeping skip/todo cells listed (not deleted) is the
+# point: untested surface stays visible instead of silently rotting.
+
+# ---- build matrix ----
+build  emu                require
+build  emu-g              require    headless build the lp64/web suites run under
+build  emu/release        require    release link-check: DISPTRCHECK off must still build
+build  emu-wrt            todo       wince/wrt config unmaintained
+
+# ---- test matrix ----
+test   cunit              require
+test   lp64/emu-g/interp  require
+test   lp64/emu-g/jit     require    aarch64 Dis JIT is trusted
+test   web/emu-g/interp   require
+test   jitperf            require    also a JIT bit-identity correctness gate
+
+# ---- docs (scoped, not yet wired) ----
+doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage

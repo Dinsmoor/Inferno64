@@ -15,8 +15,14 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT" || exit 2
 
-EMU="$ROOT/Linux/aarch64/bin/emu-g"
-LIMBO="$ROOT/Linux/aarch64/bin/limbo"
+case "$(uname -m)" in aarch64|arm64) ARCH=aarch64;; x86_64|amd64) ARCH=amd64;; *) ARCH=$(uname -m);; esac
+# EMU / EMUFLAGS are overridable so the make-check matrix driver can point this
+# suite at a different binary (emu vs emu-g) and run-mode (-c0 interp / -c1 JIT /
+# -c1 -B).  Defaults reproduce the historical behaviour: this arch's emu-g, no
+# run-mode flag (emu defaults to the interpreter).
+EMU="${EMU:-$ROOT/Linux/$ARCH/bin/emu-g}"
+EMUFLAGS="${EMUFLAGS:-}"
+LIMBO="${LIMBO:-$ROOT/Linux/$ARCH/bin/limbo}"
 BUILD="$ROOT/tests/lp64/_build"        # inferno path: /tests/lp64/_build
 TIMEOUT=${TIMEOUT:-60}
 
@@ -64,8 +70,10 @@ for src in "$ROOT"/tests/lp64/suites/*.b; do
 		continue
 	fi
 
-	# Run under emu-g; emu root is the repo root so /tests/... maps here.
-	log=$(timeout "$TIMEOUT" "$EMU" -r"$ROOT" /dis/sh.dis -c "/tests/lp64/_build/$base.dis" 2>&1)
+	# Run under emu; emu root is the repo root so /tests/... maps here.
+	# $EMUFLAGS (run-mode) is intentionally unquoted so "-c1 -B" word-splits.
+	# shellcheck disable=SC2086
+	log=$(timeout "$TIMEOUT" "$EMU" $EMUFLAGS -r"$ROOT" /dis/sh.dis -c "/tests/lp64/_build/$base.dis" 2>&1)
 	rc=$?
 
 	nok=$(printf '%s\n' "$log" | grep -c '^ok ')

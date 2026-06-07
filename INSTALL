@@ -18,6 +18,27 @@ two halves MUST match (a stale .dis against a freshly built ABI is a
 real, debugged crash class), so the half builds `make emu` / `make dis`
 are gated behind FORCE=1 and should be avoided.
 
+Build profiles (optimization + arch + instrumentation):
+
+        make debug          # default: -Og, DISPTRCHECK GC checker, EMUCRASH-on
+        make release        # -O2, portable -march baseline, no instrumentation
+        make bleedingedge   # -O3 -march=native, no instrumentation
+
+`make all` builds the debug profile.  Keep debug for day-to-day work (it
+carries the Dis-pointer GC checker and defaults the EMUCRASH crash-dump
+on); benchmark relative numbers on it and use release/bleedingedge for
+absolute figures.
+
+Before pushing, run the gate:
+
+        make check          # per-platform build + test matrix (PASS/FAIL/SKIP/TODO)
+
+`make check` builds every required config (including the headless emu-g
+and a release link-check) and runs the test suites, exiting nonzero if a
+required cell fails -- so a config that breaks only the headless build
+can't reach master unnoticed.  See ref/AGENTS_DUALABI.md and
+tests/check/README.md.
+
 Bootstrap (mk):  the whole build is driven by `mk`, but `mk` itself is
 build output and is absent from a fresh tree/worktree.  `make all` now
 bootstraps it automatically: the `$(MK)` rule runs `makemk.sh` (host gcc)

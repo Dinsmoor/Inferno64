@@ -20,8 +20,10 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 case "$(uname -m)" in aarch64|arm64) ARCH=aarch64;; x86_64|amd64) ARCH=amd64;; *) ARCH=$(uname -m);; esac
-EMU="$ROOT/Linux/$ARCH/bin/emu-g"
-LIMBO="$ROOT/Linux/$ARCH/bin/limbo"
+# EMU / EMUFLAGS overridable for the make-check matrix driver (binary + run-mode).
+EMU="${EMU:-$ROOT/Linux/$ARCH/bin/emu-g}"
+EMUFLAGS="${EMUFLAGS:-}"
+LIMBO="${LIMBO:-$ROOT/Linux/$ARCH/bin/limbo}"
 BUILD="$ROOT/tests/web/_build"
 TAPLIB="$ROOT/tests/lp64/_build/lib/testing.dis"   # PATH con baked into testing.m
 TIMEOUT="${TIMEOUT:-60}"
@@ -64,7 +66,8 @@ for src in "$ROOT"/tests/web/suites/*.b; do
 		echo "## $base: COMPILE ERROR"; echo "$cerr"; err=$((err+1)); continue
 	fi
 	echo "## $base"
-	log=$(timeout "$TIMEOUT" "$EMU" -r"$ROOT" /dis/sh.dis -c "/tests/web/_build/$base.dis" 2>&1)
+	# shellcheck disable=SC2086  # $EMUFLAGS run-mode must word-split
+	log=$(timeout "$TIMEOUT" "$EMU" $EMUFLAGS -r"$ROOT" /dis/sh.dis -c "/tests/web/_build/$base.dis" 2>&1)
 	rc=$?
 	echo "$log"
 	# tolerate 137 (benign emu-g SIGKILL on teardown); all TAP completes first

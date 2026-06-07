@@ -117,6 +117,29 @@ make nuke      # remove objects, library archives, and installed .dis
 make OBJTYPE=amd64 all   # build for x86-64 instead of the aarch64 default
 ```
 
+**Build profiles.** `PROFILE` (or the matching convenience target) selects an
+optimization + arch + instrumentation bundle; `make all` builds `debug`:
+
+```sh
+make debug          # default: -Og, -march=armv8-a, DISPTRCHECK + EMU_DEBUG_DEFAULTS
+make release        # -O2, portable -march baseline, no instrumentation
+make bleedingedge   # -O3 -march=native, no instrumentation (host-tuned)
+```
+
+`-DDISPTRCHECK` is the GC pointer checker; `-DEMU_DEBUG_DEFAULTS` makes debug
+builds default the `EMUCRASH` crash-dump on (`EMUCRASH=0` opts out). Keep debug
+for day-to-day work; benchmark *relative* numbers on it. Profile knobs are
+factored into the arch mkfiles as single-token vars (`OLEVEL`, `MTUNE`,
+`DBGFLAGS`) — single-token because mk forwards command-line overrides into
+recursive sub-mk via `$MKFLAGS` without re-quoting.
+
+**Pre-push gate.** `make check` runs the per-platform capability matrix in
+`tests/check/platforms/<SYSTARG>-<OBJTYPE>.manifest` (build CONFs incl. `emu-g`
+and a release link-check; suite × CONF × run-mode test cells; a doc slot) and
+prints a `PASS/FAIL/SKIP/TODO` table, exiting nonzero iff a `require` cell
+fails. This makes the headless `emu-g` build a hard requirement so it can't rot
+silently. Full details in [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md).
+
 `make all` is the safe default and is cheap (~1 min) — run it freely. The cost in
 this tree comes from the *lack* of nuking: a stale `.dis` against a freshly built
 compiler/ABI is the exact incoherence behind the truncated-pointer crashes, so a

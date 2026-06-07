@@ -29,7 +29,38 @@ MK      := $(ROOT)/$(OBJDIR)/bin/mk
 # (wm/wm) runs, so the GUI build is the default.  Use CONF=emu-g for a
 # graphics-less headless build (faster; what the tests/lp64 suite runs under).
 CONF    := emu
-MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE)
+
+# Build profiles.  PROFILE selects an optimization + arch + instrumentation
+# bundle by overriding the arch mkfile's OPTFLAGS / MARCH / DBGFLAGS on the mk
+# command line (an mk command-line assignment wins over the mkfile's).  The
+# mkfile defaults ARE the debug profile, so PROFILE=debug passes no override.
+#
+#   debug  (default)  -g -Og + DISPTRCHECK (GC pointer checker) + EMU_DEBUG_DEFAULTS
+#                     (EMUCRASH dump+core on by default).  The find-the-bug build.
+#   release           -g -O2, portable -march baseline, no instrumentation.
+#   bleedingedge      -g -O3 -march=native, no instrumentation.  Host-tuned.
+#
+# Convenience targets `make debug|release|bleedingedge` (below) just re-invoke
+# with PROFILE set; you can also say e.g. `make all PROFILE=release`.  Report
+# RELATIVE benchmark numbers on debug builds (the checker taxes interp and JIT
+# equally); use release/bleedingedge for absolute numbers.
+PROFILE ?= debug
+# Override values MUST be single tokens (no space, no '=') -- mk forwards
+# command-line assignments into recursive sub-mk via $MKFLAGS without re-quoting,
+# so a multi-word or '='-bearing value gets mangled in a subdir build.  Hence
+# OLEVEL (opt level) and MTUNE (-march target; the '=' is in the mkfile's CFLAGS,
+# not here) rather than a single OPTFLAGS/MARCH string.  See the arch mkfiles.
+ifeq ($(PROFILE),debug)
+PROF_MK :=
+else ifeq ($(PROFILE),release)
+PROF_MK := DBGFLAGS= OLEVEL=-O2
+else ifeq ($(PROFILE),bleedingedge)
+PROF_MK := DBGFLAGS= OLEVEL=-O3 MTUNE=native
+else
+$(error unknown PROFILE '$(PROFILE)'; use debug | release | bleedingedge)
+endif
+BUILDMODE := $(PROFILE)
+MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) $(PROF_MK)
 EMUARGS := $(MKARGS) CONF=$(CONF)
 
 # Parallel compiles: mk runs up to $NPROC jobs concurrently within each
@@ -71,7 +102,7 @@ EMUDIRS := \
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge
 
 # Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
 # fresh tree or git worktree has no mk binary yet (it is build output, not
@@ -97,7 +128,14 @@ TEST_RUN := ROOT=$(ROOT) OBJDIR=$(OBJDIR) sh $(ROOT)/tests/cunit/run.sh
 # This is the ONLY coherent build and should be your default.
 all: _emu _dis
 	@echo
-	@echo "Build complete (emu + Dis tree): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+	@echo "Build complete (emu + Dis tree, $(BUILDMODE)): $(ROOT)/$(OBJDIR)/bin/$(CONF)"
+
+# Build-profile convenience targets: a full `make all` in the named profile.
+#   make debug          -g -Og + DISPTRCHECK + EMUCRASH-on  (default; find-the-bug)
+#   make release        -g -O2, portable baseline, no instrumentation
+#   make bleedingedge   -g -O3 -march=native, no instrumentation (host-tuned)
+debug release bleedingedge:
+	@$(MAKE) PROFILE=$@ all
 
 # Half builds are GATED.  `make emu` (C side only) and `make dis` (Dis tree
 # only) each leave the two halves out of sync -- a stale .dis against a freshly
@@ -201,6 +239,18 @@ lint-update:
 #   make test_jitperf ARGS=...   pass extra flags to the runner
 test_jitperf:
 	@sh $(ROOT)/tests/jitperf/runbench.sh $(ARGS)
+
+# Pre-push gate.  Runs the per-platform capability matrix declared in
+# tests/check/platforms/$(SYSTARG)-$(OBJTYPE).manifest: builds every required
+# CONF (emu, emu-g, and a release link-check), runs every required test suite
+# (cunit, lp64+web under the declared run-modes, jitperf), and prints a
+# PASS/FAIL/SKIP/TODO matrix.  Exits nonzero iff a `require' cell fails.  This is
+# what catches a config that breaks only the headless build, or a release build
+# that rots, before it reaches master.  Builds debug, does a release link-check,
+# and restores the debug tree -- expect a few minutes.
+#   make check       run the gate for the current platform
+check:
+	@ROOT=$(ROOT) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) MAKE='$(MAKE)' bash $(ROOT)/tests/check/run.sh
 
 # Debug build of the "Valgrind for Dis pointers" checker (#5): rebuild
 # libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates

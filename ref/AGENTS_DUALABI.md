@@ -67,9 +67,53 @@ Build with the top-level `Makefile` (wraps `mk`, which has unreliable incrementa
 dependency tracking — the Makefile nukes objects between components):
 
 ```
-make all              # builds Linux/aarch64/bin/emu (full GUI; the default)
+make                  # == make debug all : Linux/aarch64/bin/emu (full GUI; default)
 make all CONF=emu-g   # graphics-less headless build (faster; tests run under this)
+make release          # release build: no instrumentation, -O2, portable -march
+make bleedingedge     # -O3 -march=native, no instrumentation (host-tuned)
+make check            # pre-push gate: the per-platform capability matrix
 ```
+
+**Build profiles (`make debug | release | bleedingedge`, or `PROFILE=`).** A
+profile is an optimization + arch + instrumentation bundle selected by
+overriding three vars the arch mkfiles factor out — `OPTFLAGS`, `MARCH`,
+`DBGFLAGS` — on the mk command line (an mk command-line assignment wins over the
+mkfile's; the mkfile defaults *are* the debug profile, so `PROFILE=debug` passes
+no override). `make <profile>` is a convenience target that runs a full `make
+all` in that profile; `make all PROFILE=<profile>` is equivalent.
+
+| profile | OPTFLAGS | MARCH | DBGFLAGS |
+|---|---|---|---|
+| `debug` (default) | `-g -Og` | `-march=armv8-a` | `-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS` |
+| `release` | `-g -O2` | `-march=armv8-a` | *(empty)* |
+| `bleedingedge` | `-g -O3` | `-march=native` | *(empty)* |
+
+`-DDISPTRCHECK` is the "Valgrind for Dis pointers" GC checker (validates every
+GC-reachable Dis pointer each pass; see AGENTS_DEBUGGING.md). `-DEMU_DEBUG_DEFAULTS`
+makes the **`EMUCRASH` crash-dump+core default ON** in debug builds (so a
+wild-address fault on reproduction auto-dumps without setting the env var;
+`EMUCRASH=0` opts out — see `emu/Linux/os.c`). The 60-second hang watchdog is on
+by default in *all* builds (`EMUWATCHDOG=0` disables). Report **relative**
+benchmark numbers (JIT-vs-interp ratios) on debug builds; use `release`/
+`bleedingedge` for absolute numbers, once routine usage bugs are mostly caught.
+The completion banner prints which profile you built. (mk gotcha: a command-line
+value with an embedded `=`, like `-march=native`, must be backslash-escaped and
+quoted — the Makefile does this for `bleedingedge`.)
+
+**`make check` — the pre-push gate.** Runs the capability matrix declared in
+`tests/check/platforms/$(SYSTARG)-$(OBJTYPE).manifest`: builds every required
+CONF (`emu`, `emu-g`, plus a `PROFILE=release` link-check), runs every required suite
+(`cunit`, `lp64`+`web` under the declared run-modes, `jitperf`), and prints a
+`PASS/FAIL/SKIP/TODO` matrix; nonzero exit iff a `require` cell fails. This is
+what makes the **`emu-g` build a hard master-push requirement** (a config that
+breaks only the headless build, like the `raster3`-in-`emu-g` rot, fails the
+gate instead of silently rotting the test path) and catches a release build that
+won't link. The matrix is declarative and per-platform: cells are `require` /
+`skip` (with reason) / `todo`; `skip`/`todo` are always *printed* so untested
+surface stays visible. Linux-amd64's manifest marks the JIT run-mode cells
+`skip` ("comp-amd64.c unverified under LP64") — the matrix is identical across
+platforms; only the *trust* differs. `make check` builds debug, does the
+`PROFILE=release` link-check, then restores the debug tree, so expect a few minutes.
 
 > **Build hazard — stale generated module headers across an ABI switch.** The C
 > activation-record headers for builtin modules (`limbo -a`/`limbo -t` output:

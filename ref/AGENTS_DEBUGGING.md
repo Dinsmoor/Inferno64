@@ -360,11 +360,19 @@ a truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
 > SIGUSR1 is **not** used for this — it is reserved for unblocking
 > interruptible host I/O (`trapUSR1`). The dump is on USR2.
 
-### `EMUCRASH=1` — fault → backtrace → core (opt-in)
+### `EMUCRASH=1` — fault → backtrace → core (on by default in debug builds)
+
+> **Debug builds default this ON.** `make debug` (the default profile) compiles
+> with `-DEMU_DEBUG_DEFAULTS`, which makes `faultcrash` default to 1 — so a
+> debug `emu` already drops the dump+core on a wild fault without setting the
+> env var (`emu/Linux/os.c:faultmoninit`). `EMUCRASH=0` explicitly opts out.
+> `release`/`bleedingedge` builds strip the define, so there it is off unless
+> you pass `EMUCRASH=1`. Still set `ulimit -c unlimited` to actually get the
+> core. See the build-profile table in `AGENTS_DUALABI.md`.
 
 By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis
 exception (`sysfault`→`disfault`), so corruption surfaces benignly layers
-later. With `EMUCRASH=1`, a *wild-address* fault (non-nil — an ordinary nil
+later. With `EMUCRASH` enabled, a *wild-address* fault (non-nil — an ordinary nil
 deref still becomes the normal Limbo exception) instead prints the one-line
 diagnostic + a full `dumpallprogs` backtrace, then restores the default signal
 disposition and **returns**, so the faulting instruction re-executes and the
