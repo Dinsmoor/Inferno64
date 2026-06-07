@@ -41,7 +41,6 @@ mod
 	crypt
 	ipints
 	loader
-	raster3
 	imageio
 
 port
