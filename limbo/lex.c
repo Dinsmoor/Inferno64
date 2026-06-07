@@ -1280,6 +1280,65 @@ stringpr(char *buf, char *end, Sym *sym)
 	return secpy(buf, end, sb);
 }
 
+/*
+ * C1: print the offending source line and a caret under the token, clang/C3
+ * style.  start.pos/stop.pos are 0-based rune columns within the line (see
+ * lex(): src.start.pos is captured before the token's first rune).  Cold
+ * diagnostic path only -- we reopen the source file rather than buffer it.
+ * If start and stop name different lines (or stop is unset) a single `^' is
+ * drawn; otherwise `^~~~' spans the token.  Silent no-op if the line can't be
+ * recovered, so it can never make a diagnostic worse.
+ */
+static void
+showsrc(Line start, Line stop)
+{
+	Fline fl;
+	Biobuf *b;
+	Rune r;
+	char buf[1024], *s;
+	int i, c, n;
+
+	if(start.line < 0)
+		return;
+	fl = fline(start.line);
+	if(fl.file == nil || fl.file->name == nil || fl.line < 1)
+		return;
+	b = Bopen(fl.file->name, OREAD);
+	if(b == nil)
+		return;
+	for(i = 1; i < fl.line; ){		/* skip to the start of line fl.line */
+		c = Bgetc(b);
+		if(c < 0){
+			Bterm(b);
+			return;
+		}
+		if(c == '\n')
+			i++;
+	}
+	n = 0;
+	while((c = Bgetc(b)) >= 0 && c != '\n')
+		if(n < sizeof(buf)-1)
+			buf[n++] = c;
+	if(n > 0 && buf[n-1] == '\r')
+		n--;
+	buf[n] = '\0';
+	Bterm(b);
+
+	fprint(2, "    %s\n", buf);
+	fprint(2, "    ");
+	/* align under start.pos runes, preserving tabs so columns line up */
+	s = buf;
+	for(i = 0; i < start.pos && *s; i++){
+		s += chartorune(&r, s);
+		fprint(2, "%c", r == '\t' ? '\t' : ' ');
+	}
+	fprint(2, "^");
+	if(stop.line == start.line && stop.pos > start.pos+1)
+		for(i = start.pos+1; i < stop.pos; i++)
+			fprint(2, "~");
+	fprint(2, "\n");
+}
+
 void
 warn(Line line, char *fmt, ...)
 {
@@ -1292,6 +1351,7 @@ warn(Line line, char *fmt, ...)
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
 	fprint(2, "%L: warning: %s\n", line, buf);
+	showsrc(line, line);
 }
 
 void
@@ -1306,6 +1366,7 @@ nwarn(Node *n, char *fmt, ...)
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
 	fprint(2, "%L: warning: %s\n", n->src.start, buf);
+	showsrc(n->src.start, n->src.stop);
 }
 
 void
@@ -1324,6 +1385,7 @@ error(Line line, char *fmt, ...)
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
 	fprint(2, "%L: %s\n", line, buf);
+	showsrc(line, line);
 }
 
 void
@@ -1342,6 +1404,7 @@ nerror(Node *n, char *fmt, ...)
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
 	fprint(2, "%L: %s\n", n->src.start, buf);
+	showsrc(n->src.start, n->src.stop);
 }
 
 void
@@ -1363,6 +1426,7 @@ yyerror(char *fmt, ...)
 		fprint(2, "%L: near ` %s ` : %s\n", curline(), toksp(lasttok), buf);
 	else
 		fprint(2, "%L: %s\n", curline(), buf);
+	showsrc(curline(), curline());
 }
 
 void

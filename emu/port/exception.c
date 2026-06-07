@@ -95,7 +95,7 @@ handler(char *estr)
 {
 	Prog *p;
 	Modlink *m, *mr;
-	int str, ne;
+	int str, ne, matchtyped;
 	ulong pc, newpc;
 	long eoff;
 	uchar *fp, **eadr;
@@ -125,23 +125,28 @@ handler(char *estr)
 				eoff = h->eoff;
 				zt = h->t;
 				for(e = h->etab, ne = h->ne; e->s != nil; e++, ne--){
-					if(ematch(e->s, estr) && (str && ne <= 0 || !str && ne > 0)){
+					/*
+					 * R1: a typed (named-exception) pattern has ne>0 and
+					 * only matches a typed exception value; a string pattern
+					 * (ne<=0) matches anything that matches by name -- a string
+					 * exception, OR a typed one (which then degrades to its
+					 * name string at delivery, see `found:').  This lets a
+					 * typed exception propagate across frames with its payload
+					 * intact until a typed handler catches it, instead of being
+					 * stringified the moment it leaves the raising frame.
+					 */
+					if(ematch(e->s, estr) && (ne <= 0 || !str)){
 						newpc = e->pc;
+						matchtyped = ne > 0;
 						goto found;
 					}
 				}
 				newpc = e->pc;
-				if(newpc != NOPC)
+				if(newpc != NOPC){
+					matchtyped = 0;		/* catch-all `*' arm: string-typed handler var */
 					goto found;
+				}
 			}
-		}
-		if(!str && fp != R.FP){		/* becomes a string exception in immediate caller */
-			v = p->exval;
-			p->exval = *(String**)v;
-			D2H(p->exval)->ref++;
-			destroy(v);
-			str = 1;
-			continue;
 		}
 		f = (Frame*)fp;
 		if(f->mr != nil)
@@ -157,6 +162,19 @@ handler(char *estr)
 	p->exval = H;
 	return 0;
 found:
+	/*
+	 * R1: if a typed exception is being delivered into a string handler
+	 * (a "pat*"/"*" arm, or the catch-all), degrade it to its name string
+	 * now -- the handler variable is string-typed.  A typed handler keeps
+	 * the full payload (exval is stored as-is below).
+	 */
+	if(!str && !matchtyped){
+		v = p->exval;
+		p->exval = *(String**)v;
+		D2H(p->exval)->ref++;
+		destroy(v);
+		str = 1;
+	}
 	{
 		int n;
 		char name[3*KNAMELEN];
