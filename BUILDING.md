@@ -64,10 +64,15 @@ top-level GNU `Makefile` wraps `mk` and is the only coherent entry point:
 - **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
   or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
   previously-debugged crash class. `make` **nukes objects between components** so
-  nothing stale survives. A full rebuild is cheap (~1 min) — and near-instant with
-  [`ccache`](https://ccache.dev/), which `make` routes compiles through
-  automatically when it's installed; ccache is content-addressed, so it speeds the
-  full rebuild *without* ever serving a stale object.
+  nothing stale survives. A full rebuild is cheap (~10s on a fast box). The one
+  exception is the heavy *vendored* libraries (libfreetype, libmbedtls, libstb),
+  which only change on a manual source update: those are skipped when a content
+  signature shows them unchanged (`mkfiles/libcache.sh` — hashes every vendored
+  source file by path, the headers they include, the build flags, the ABI, and the
+  compiler). Any change busts the signature and forces a full rebuild of that lib,
+  so a dependency update can never be served stale. `make all NOCACHE=1` (and
+  `make clean`/`nuke`) bypass the cache entirely. No third-party tools — just make,
+  the compiler, and coreutils.
 - **both halves must be built in the right order** — the C side produces the
   `limbo` compiler that then compiles the Dis tree; `make` sequences this and
   **regenerates the per-ABI module headers**, so a 32↔64-bit switch can't link

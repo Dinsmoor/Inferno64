@@ -23,10 +23,13 @@ real, debugged crash class), so the half builds `make emu` / `make dis`
 are gated behind FORCE=1 and should be avoided.
 
 Every build is a full nuke+rebuild on purpose (mk's incremental tracking is
-not trusted here).  Install `ccache` to make that cheap: `make` routes
-compiles through it automatically when present.  Because ccache is
-content-addressed it only speeds recompiling UNCHANGED files -- it can never
-serve a stale object for changed source, so the rebuild guarantee is intact.
+not trusted here).  The one exception: the heavy *vendored* libraries
+(libfreetype, libmbedtls, libstb) are skipped when a content signature shows
+they are unchanged -- this uses only make + the compiler + coreutils, no extra
+tools.  The signature hashes every vendored source file (by path), the headers
+they include, the build flags, the ABI, and the compiler, so any update to a
+vendored dependency rebuilds it; it can never be served stale.  `make all
+NOCACHE=1` forces a full rebuild of those too.
 
 Build profiles (optimization + arch + instrumentation):
 
@@ -62,10 +65,9 @@ Build output lives under Linux/$OBJTYPE/{bin,lib,include} and dis/ (all
 gitignored).  Each git worktree therefore needs its own one-time
 `make all`; worktrees do not share the parent tree's binaries.
 
-Prerequisites: a host C toolchain (gcc, ar), GNU make, and for the
-default GUI `emu` the X11/FreeType build deps.  For a headless,
-graphics-less build use CONF=emu-g.  Optional: `ccache` (auto-detected,
-makes the always-full rebuild near-instant).
+Prerequisites: a host C toolchain (gcc, ar), GNU make, and the usual
+coreutils (sha256sum, find).  For the default GUI `emu` you also need the
+X11/FreeType build deps; for a headless, graphics-less build use CONF=emu-g.
 
 The original, platform-generic instructions follow.
 

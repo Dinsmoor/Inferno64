@@ -69,25 +69,24 @@ EMUARGS := $(MKARGS) CONF=$(CONF)
 NPROC   ?= $(shell n=$$(nproc 2>/dev/null || echo 1); h=$$((n/2)); [ $$h -ge 1 ] && echo $$h || echo 1)
 
 export NPROC
-
-# ccache: route C/asm compiles through it when its compiler-masquerade dir is
-# installed (it shadows gcc/cc/as on PATH).  ccache is CONTENT-addressed, not
-# timestamp-addressed: a cache hit means byte-identical preprocessed source AND
-# flags, so it can NEVER serve a stale object for changed input -- it only makes
-# the always-full nuke+rebuild cheap, without weakening the rebuild guarantee.
-# No-op when ccache is absent.  (We deliberately do NOT inject ccache via CC=:
-# the arch mkfile's CC= must stay a literal compiler -- it is sed-parsed by
-# tests/cunit/run.sh and the emu-disptrcheck target -- and a spaced CC= override
-# would also be mangled by mk's $MKFLAGS forwarding into sub-mk.  PATH is clean.)
-# NB: the var is CCACHE_MASQ, not CCACHE_DIR -- the latter is ccache's own
-# cache-location env var and must not be clobbered.
-CCACHE_MASQ := $(firstword $(wildcard /usr/lib/ccache /usr/lib64/ccache /usr/libexec/ccache))
-ifeq ($(CCACHE_MASQ),)
 export PATH := $(ROOT)/$(OBJDIR)/bin:$(PATH)
-else
-export PATH := $(CCACHE_MASQ):$(ROOT)/$(OBJDIR)/bin:$(PATH)
-endif
 export ROOT
+
+# Vendored-library cache (no third-party tools -- just make + the compiler +
+# coreutils).  These are large third-party C trees that change only when their
+# source is manually updated, yet they dominate the C build time.  For these,
+# _emu skips the nuke+rebuild when a CONTENT signature of everything that could
+# affect the archive is unchanged (see mkfiles/libcache.sh); any edit/add/remove
+# of a vendored file, a header, a build flag, the ABI, or the compiler busts the
+# signature and forces a full rebuild -- so a dependency update can't be served
+# stale.  Everything else (incl. the toolchain-coupled limbo/libinterp/emu and
+# the whole .dis tree) always rebuilds.  `make all NOCACHE=1` forces a full
+# rebuild of these too; `make nuke`/`clean` drop the stamps.
+CACHED_LIBS := libfreetype libmbedtls libstb
+LIBCACHE    := $(ROOT)/mkfiles/libcache.sh
+ifneq ($(NOCACHE),)
+CACHED_LIBS :=
+endif
 
 # Build order.  Derived (not hand-copied) from the top-level mkfile's EMUDIRS
 # block so `mk` and this wrapper can never disagree about what gets built -- a
@@ -163,8 +162,9 @@ debug release bleedingedge:
 
 # The easy "just try it" path: do a full coherent build (quietly) and open the
 # Inferno graphical desktop.  It ALWAYS rebuilds (a full `make all`, which is
-# cheap with ccache) rather than launching whatever binary happens to be lying
-# around -- so `make run` can never start a stale tree, and it honestly is the
+# cheap -- the vendored libs are content-cached) rather than launching whatever
+# binary happens to be lying around -- so `make run` can never start a stale
+# tree, and it honestly is the
 # RUNPROFILE it claims (the old "only build if the binary is missing" launched a
 # stale, mislabeled binary).  Override profile/size: make run RUNPROFILE=debug
 # RUNGEOM=1920x1080.
@@ -206,13 +206,26 @@ dis: guard-half _dis
 
 _emu: $(MK)
 	@set -e; \
+	cached=" $(CACHED_LIBS) "; \
 	for dir in $(EMUDIRS); do \
 		echo; \
-		echo "=== $$dir ==="; \
 		if [ "$$dir" = "emu" ]; then \
+			echo "=== $$dir ==="; \
 			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) clean); \
 			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) install); \
+		elif [ "$${cached#* $$dir }" != "$$cached" ]; then \
+			stamp=`PROFILE='$(PROFILE)' CONF='$(CONF)' SYSTARG='$(SYSTARG)' OBJTYPE='$(OBJTYPE)' sh $(LIBCACHE) stampfile $$dir`; \
+			sig=`PROFILE='$(PROFILE)' CONF='$(CONF)' SYSTARG='$(SYSTARG)' OBJTYPE='$(OBJTYPE)' sh $(LIBCACHE) sig $$dir`; \
+			if [ -f "$$stamp" ] && [ "`cat "$$stamp"`" = "$$sig" ] && [ -f $(ROOT)/$(OBJDIR)/lib/$$dir.a ]; then \
+				echo "=== $$dir (cached: unchanged, skipping rebuild) ==="; \
+				continue; \
+			fi; \
+			echo "=== $$dir (vendored: cache miss -> full rebuild) ==="; \
+			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke); \
+			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
+			echo "$$sig" > "$$stamp"; \
 		else \
+			echo "=== $$dir ==="; \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke); \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
 		fi; \
@@ -240,6 +253,7 @@ clean:
 	done
 	@echo "--- clean $(APPLDIR) ---"
 	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) clean) || true
+	@rm -f $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
 
 nuke:
 	@set -e; \
@@ -253,6 +267,7 @@ nuke:
 	done
 	@echo "--- nuke $(APPLDIR) ---"
 	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke) || true
+	@rm -f $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
 
 # Run a single section's unit tests, e.g. `make test_lib9_unit`.
 test_%_unit:
@@ -332,10 +347,11 @@ help:
 	@echo "  make clean      remove objects         make nuke   remove objects + .dis"
 	@echo "  make bootstrap  (re)build mk if missing"
 	@echo
-	@echo "Override: OBJTYPE=amd64  CONF=emu-g  NPROC=8  PROFILE=...  (e.g. make OBJTYPE=amd64 all)"
+	@echo "Override: OBJTYPE=amd64  CONF=emu-g  NPROC=8  PROFILE=...  NOCACHE=1"
 	@echo
 	@echo "Every build is a full nuke+rebuild of BOTH halves (C side + .dis tree)"
 	@echo "on purpose: it is the only coherent build (a stale .dis against a freshly"
-	@echo "built ABI is a real, debugged crash class).  ccache, if installed, makes"
-	@echo "the full rebuild cheap without weakening that guarantee.  Half builds"
-	@echo "(make emu / make dis) are gated behind FORCE=1."
+	@echo "built ABI is a real, debugged crash class).  Half builds (make emu / make"
+	@echo "dis) are gated behind FORCE=1.  The heavy vendored libs (freetype, mbedtls,"
+	@echo "stb) are skipped when a content signature shows them unchanged; any edit to"
+	@echo "their source/headers/flags rebuilds them.  NOCACHE=1 forces a full rebuild."

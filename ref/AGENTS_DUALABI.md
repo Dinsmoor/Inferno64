@@ -84,16 +84,25 @@ prints a loud warning if an `emu` is running while you rebuild (overwriting its
 files underneath it crashes it with faults that masquerade as real bugs); it
 does not auto-kill.
 
-**ccache (optional, auto-detected).** When a ccache compiler-masquerade dir
-(`/usr/lib/ccache`, …) exists, the Makefile prepends it to `PATH` so all C/asm
-compiles route through ccache — making the always-full nuke+rebuild near-instant.
-ccache is *content-addressed* (hashes preprocessed source + flags), so a hit
-means byte-identical input and it can never serve a stale object for changed
-source: the full-rebuild guarantee is preserved, only the cost drops. It is wired
-via `PATH`, **not** `CC=`, on purpose — the arch mkfile's `CC=` must stay a
-literal compiler (it is `sed`-parsed by `tests/cunit/run.sh` and the
-`emu-disptrcheck` target, and a spaced `CC=` override is mangled by mk's
-`$MKFLAGS` forwarding into sub-mk).
+**Vendored-library content cache (make + compiler + coreutils only — no ccache,
+no third-party tools).** The heavy vendored C trees — `libfreetype`, `libmbedtls`,
+`libstb` — only change on a manual source update yet dominate the C build time, so
+`_emu` skips their nuke+rebuild when a content signature shows them unchanged
+(`mkfiles/libcache.sh`; `CACHED_LIBS` in the Makefile). The signature is a SHA-256
+of: every source file under the lib dir hashed *by path* (so any edit/add/remove/
+rename of a vendored file busts it — a dependency update can't be served stale) +
+the Inferno headers the wrapper files include (`$ROOT/include`,
+`$ROOT/$SYSTARG/$OBJTYPE/include`) + the arch mkfile (flags) + `PROFILE`/`OBJTYPE`/
+`CONF` + `gcc --version`. Match (and the `.a` exists) → skip; any difference → full
+nuke+rebuild, then the stamp (`$OBJDIR/lib/.sig-<lib>`) is rewritten *after* a
+successful build (an interrupted build can't leave a valid stamp). Everything else
+— the toolchain-coupled `limbo`/`libinterp`/`emu` and the whole `.dis` tree —
+always rebuilds. Content hash, not mtime (mtime is the unreliable signal that made
+`mk` incremental builds untrustworthy). Escape hatches: `make all NOCACHE=1` forces
+all libs; `make clean`/`nuke` delete the stamps. Cold build ~11s, warm (vendored
+skipped) ~6s on a 20-core box. NB: there are two `freetype.c` — the cached vendored
+amalgamation (`libfreetype/`) and the `$Freetype` builtin glue (`libinterp/`); only
+the former is cached, the latter rebuilds with libinterp.
 
 **Build profiles (`make debug | release | bleedingedge`, or `PROFILE=`).** A
 profile is an optimization + arch + instrumentation bundle selected by overriding

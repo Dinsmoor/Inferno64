@@ -28,10 +28,10 @@ make run
 
 That does a full, coherent build (quietly, the snappy `-O3 -march=native`
 profile) and opens the graphical desktop. It **always rebuilds** rather than
-launching a possibly-stale binary — a from-scratch build is ~a minute, and
-near-instant on rebuilds if you have `ccache` installed. You need an X display
-(a normal Linux desktop session); resize the window with `make run
-RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
+launching a possibly-stale binary — a from-scratch build is ~10s on a fast box
+(the heavy vendored libraries are content-cached and skipped when unchanged).
+You need an X display (a normal Linux desktop session); resize the window with
+`make run RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
 
 That's all you need to poke around. To actually build and hack on it — profiles,
 running emu directly, the JIT, debugging — see **[`BUILDING.md`](BUILDING.md)**.

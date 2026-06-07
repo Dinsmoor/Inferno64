@@ -68,4 +68,6 @@ y.debug
 !/[A-Z]*/*/bin/mkext
 # build-profile stamp written by `make all` (Linux/<arch>/.buildmode)
 /[A-Z]*/*/.buildmode
+# vendored-library cache signatures (Linux/<arch>/lib/.sig-lib*)
+/[A-Z]*/*/lib/.sig-*
 raylib-ref/
