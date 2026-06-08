@@ -242,7 +242,14 @@ gqid(f: array of byte, i: int): Sys->Qid
 
 g32(f: array of byte, i: int): int
 {
-	return (((((int f[i+3] << 8) | int f[i+2]) << 8) | int f[i+1]) << 8) | int f[i];
+	# Reassemble the 32-bit wire field, then sign-extend into the (now 64-bit,
+	# ILP64) Limbo int so it matches the value the sender packed via p32() -
+	# e.g. NOFID (~0) packs to 0xFFFFFFFF and must read back as -1, not as
+	# 4294967295.  (<<32 then arithmetic >>32 does the sign extension using
+	# only small shift constants, side-stepping the compiler's 32-bit
+	# constant-fold masking.)
+	v := (((((int f[i+3] << 8) | int f[i+2]) << 8) | int f[i+1]) << 8) | int f[i];
+	return (v << 32) >> 32;
 }
 
 g64(f: array of byte, i: int): big
