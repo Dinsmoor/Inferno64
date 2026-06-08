@@ -1413,14 +1413,12 @@ ecom(Src *src, Node *nto, Node *n)
 			nto = ecom(src, talloc(&tto, nto->ty, nil), nto);
 		op = IINDX;
 		switch(left->ty->tof->size){
-		case IBY2LG:
+		case IBY2LG:	/* ILP64: == IBY2WD == 8; a word indexes like a long */
 			op = IINDL;
 			if(left->ty->tof == treal)
 				op = IINDF;
 			break;
-		case IBY2WD:
-			op = IINDW;
-			break;
+		/* case IBY2WD: dead under ILP64 (IBY2WD==IBY2LG); IINDW never emitted */
 		case 1:
 			op = IINDB;
 			break;

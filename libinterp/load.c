@@ -272,7 +272,16 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 			break;
 		case DEFW:
 			for(i = 0; i < n; i++) {
-				*(WORD*)si = disw(isp);
+				/*
+				 * ILP64: a Dis word (Limbo int) is a 64-bit WORD, but the
+				 * data section still stores it in 4 bytes.  disw() returns
+				 * it zero-extended, so reinterpret the low 32 bits as a
+				 * signed int before widening to WORD; otherwise a negative
+				 * int data item loads as e.g. 0x00000000FFFFFFFE (4294967294)
+				 * instead of -2, which surfaces downstream as wild array
+				 * indices / "array bounds error".
+				 */
+				*(WORD*)si = (int)disw(isp);
 				si += sizeof(WORD);
 			}
 			break;

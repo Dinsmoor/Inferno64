@@ -234,20 +234,18 @@ enum
 	REGRET	= 4,
 	NREG	= 5,
 
-	IBY2WD	= 4,
+	IBY2WD	= 8,		/* ILP64: a Dis word (Limbo int) is now 64-bit */
 	IBY2FT	= 8,
 	IBY2LG	= 8,
 	/*
-	 * IBY2PTR is the size of a Dis pointer/register slot in bytes.  It MUST
-	 * equal the host's sizeof(void*): the interpreter stores native C
-	 * pointers in frame register slots and pointer-typed fields and strides
-	 * its GC pointer-maps by sizeof(WORD*), so any mismatch corrupts memory
-	 * (enforced by a static assert in libinterp/xec.c).  The .dis ABI thus
-	 * follows the build's pointer width automatically: a 32-bit build gets
-	 * IBY2PTR==4 (== IBY2WD) and stamps/accepts XMAGIC; a 64-bit build gets
-	 * 8 and uses XMAGIC8.  See limbo/com.c (stamp) and libinterp/load.c
-	 * (accept).  sizeof() is an integer constant expression, so this is a
-	 * compile-time constant the magic-selection branches fold away.
+	 * ILP64 model: a Dis pointer/register slot, a word (Limbo int), a long
+	 * (big) and a real are all 8 bytes, so pointer == WORD again (Inferno's
+	 * original invariant, slid up to 64 bits).  IBY2PTR must still equal the
+	 * host's sizeof(void*) (the interpreter stores native C pointers in frame
+	 * register slots and strides its GC pointer-maps by it; enforced by a
+	 * static assert in libinterp/xec.c).  On a 64-bit host IBY2PTR==IBY2WD==8
+	 * and the loader/compiler stamp/accept XMAGIC8; the legacy 32-bit (ILP32,
+	 * stock-Inferno) path keeps IBY2PTR==IBY2WD==4 and XMAGIC.
 	 */
 	IBY2PTR	= sizeof(void*),
 

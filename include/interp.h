@@ -1,6 +1,6 @@
 typedef uchar		BYTE;		/* 8  bits */
-typedef int		WORD;		/* 32 bits */
-typedef unsigned int	UWORD;		/* 32 bits */
+typedef long		WORD;		/* 64 bits (ILP64: Limbo int) */
+typedef unsigned long	UWORD;		/* 64 bits */
 typedef vlong		LONG;		/* 64 bits */
 typedef uvlong		ULONG;		/* 64 bits */
 typedef double		REAL;		/* 64 double IEEE754 */
@@ -191,8 +191,8 @@ struct Altc
 
 struct Alt
 {
-	int	nsend;
-	int	nrecv;
+	WORD	nsend;		/* ILP64: the compiler emits the alt header as two */
+	WORD	nrecv;		/* word-sized (tint) counts, so ac[] sits at 2*IBY2WD */
 	Altc	ac[1];
 };
 

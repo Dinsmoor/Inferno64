@@ -134,9 +134,20 @@ xprint(Prog *xp, void *vfp, void *vva, String *s1, char *buf, int n)
 				}
 				else {
 					i = *(WORD*)va;
-					/* always a unicode character */
-					if(c == 'c')
+					if(c == 'c'){
+						/* always a unicode character */
 						f[-1] = 'C';
+					}else{
+						/*
+						 * ILP64: a Limbo int is a 64-bit WORD (== long), so
+						 * promote %d/%o/%x/%X to %l<verb> and let the fmt
+						 * library read a long; otherwise the host %d verb
+						 * reads only the low 32 bits and truncates.
+						 */
+						f[-1] = 'l';
+						*f++ = c;
+						*f = '\0';
+					}
 					b += snprint(b, eb-b, fmt, i);
 					va += IBY2WD;
 				}
