@@ -24,7 +24,7 @@ channels), [AGENTS_LIMBO.md](AGENTS_LIMBO.md) (reserved words).
 |-------|------|-------|---------|
 | stb | vendored C | `libstb/stb/` (all upstream single-headers + LICENSE; commit pinned in `UPSTREAM_COMMIT`) | The codecs. Plain ISO C. |
 | `stbwrap` | C, libstb | `libstb/stbwrap.c` → `libstb.a` | The ONLY translation unit that pulls in stb `*_IMPLEMENTATION`, behind a tiny Inferno-free C API. Must NOT include `lib9.h`. |
-| `$Imageio` | C builtin | `module/imageio.m`, `libinterp/imageio.c` | Limbo face: `decode(data): (w, h, rgba, err)`. Graphics-free (no Draw/Memimage dependency) — returns raw RGBA8 bytes. |
+| `$Imageio` | C builtin | `module/imageio.m`, `libinterp/imageio.c` | Limbo face: `decode(data): (w, h, rgba, err)` and `encode(w, h, rgba): (png, err)`. Graphics-free (no Draw/Memimage dependency) — works in raw RGBA8 bytes. |
 | `Imageload` | pure Limbo | `module/imageload.m`, `appl/lib/imageload.b` | Convenience: `read`/`readfile` → a ready `ref Draw->Image`. |
 
 This mirrors the libmbedtls vendoring exactly (vendored upstream tree, built
@@ -64,6 +64,13 @@ imageload = load Imageload Imageload->PATH;
 
 `$Imageio` can also be used directly (`load Imageio Imageio->PATH; decode(data)`)
 when you want the raw bytes — e.g. Charon decoding into a canvas node image.
+
+**Encoding (RGBA8 → PNG):** `encode(w, h, rgba): (array of byte, string)` is the
+inverse, backed by `stb_image_write` (`stbwrap_encode_png`, memory callback — no
+host file IO). Input is the same `R,G,B,A` top-to-bottom layout `decode` produces,
+so a Draw `ABGR32` image's `readpixels` bytes encode directly. Used by
+`tests/jitperf/stft.b` to write a spectrogram PNG. Only PNG is wired today
+(stb_image_write can also do BMP/TGA/JPG/HDR — see [AGENTS_STB.md](AGENTS_STB.md)).
 
 ## Gotchas (learned the hard way)
 

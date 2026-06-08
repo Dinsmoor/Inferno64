@@ -365,33 +365,63 @@ if(sslfd == nil)
 
 The algorithm string (`"rc4_256 sha1"`, `"des_56_cbc sha1"`, etc.) is negotiated between client and server before pushing SSL.
 
-### TLS modernization design (in progress)
+### Modern TLS — the `#T` device (devtls / mbedTLS)
 
-The stack above is SSL 3.0 / TLS 1.0 only (`ssl3.b` handshake + `devssl` record
-layer: RC4/DES/3DES, RSA key exchange) and `libsec` lacks the modern primitives
-(ECC/X25519, AEAD/GCM, HKDF, SNI). Modern servers reject all of it, so Charon
-can't load real https.
+The `pushssl` stack above is **SSL 3.0 / TLS 1.0 only** (`ssl3.b` handshake +
+`devssl` record layer: RC4/DES/3DES, RSA key exchange); `libsec` lacks the modern
+primitives (ECC/X25519, AEAD/GCM, HKDF, SNI), so modern servers reject all of it.
+For real https, use **`#T` (devtls)** instead.
 
-**Decision: vendor mbedTLS (Apache-2.0) rather than hand-roll modern crypto in
-libsec.** Spike confirmed mbedTLS 3.6.2 builds on aarch64 and does TLS 1.3 +
-cert verification to a live host. Follows the `libfreetype/libfreetype`
-vendoring precedent.
+**devtls is the modern TLS 1.2/1.3 device, backed by vendored mbedTLS 3.6.2**
+(`libmbedtls/`, Apache-2.0 — follows the `libfreetype` vendoring precedent). It is
+compiled into emu (config `dev tls` + `lib mbedtls`) and lives at
+`emu/port/devtls.c`. It is a system-wide namespace capability — sh, `dial`,
+`webgrab`, 9P-over-TLS and Charon all share it — and it layers onto a connection
+exactly the way `devssl` does. Status: **shipped on master**
+(`33ff11f8` vendor, `27165454` device, `67b32e2f` Charon rewire, `b4018e54` dial
+helpers). Tested only on Linux/aarch64.
 
-**Shape: a `devtls` device, not a builtin module** — TLS should be a namespace
-capability for the *whole system* (sh, `dial`, `webgrab`, 9P-over-TLS, Charon),
-exactly the way `devssl` already layers onto a connection. Use it like devssl:
-attach the dialed fd (`ctl ← "fd <n>"`), set `servername`/`alpn`/`verify` via
-ctl, read/write the `data` file as the cleartext stream, read peer cert/version
-from a `status`/`cert` file (for Charon's lock icon).
+Raw device usage (mirrors devssl's "push onto an fd" model):
 
-**Why the device doesn't limit Charon:** protocols *layered on top of* TLS —
-**`wss`**, HTTP/2 framing, etc. — ride above the plaintext `data` fd and need no
-TLS-context threading (wss is just an HTTP `Upgrade` over the clear stream).
-Only TLS-*layer* control/introspection (ALPN, client certs, exported keying,
-cert details) lives at the TLS layer, and the device exposes all of it via
-ctl/status files. If/when richer ergonomics are wanted, add a thin typed Limbo
-`Tls` module *over* the device files — additive, not a redesign. So: device as
-the system-wide substrate, optional Limbo wrapper kept in reserve.
+```
+clone := open("#T/clone", ORDWR)      # read the conversation number from it
+write(ctl, "fd <n>")                  # attach an already-dialed connection fd
+write(ctl, "servername example.com")  # SNI + cert hostname check
+# optional: "verify off" | "cafile <path>" | "alpn h2 http/1.1"
+write(ctl, "handshake")               # or let the first data I/O drive it
+data := open("#T/<conv>/data", ORDWR) # cleartext stream; mbedTLS does the crypto
+read("#T/<conv>/status")              # "version cipher verify=<flags>\n"
+```
+
+Defaults: peer verification is **required** (`verify off` to disable) against
+`/etc/ssl/certs/ca-certificates.crt`. TLS bytes flow over the underlying `Chan`
+through the normal device layer, so blocking is handled by the emu I/O framework
+(no manual `release()`/`acquire()` — mbedTLS crypto is CPU-only). The BIO
+callbacks wrap the underlying I/O in `waserror()`, converting an Inferno `error()`
+longjmp into an mbedTLS error return rather than unwinding through mbedTLS's C
+stack.
+
+**From Limbo, prefer the `Dial` helpers** (`module/dial.m`, `appl/lib/dial.b`)
+which wrap the device:
+
+```limbo
+# Layer TLS onto an already-connected fd:
+(cleartext, ctlfd, err) := dial->pushtls(conn.dfd, "example.com");
+# dial + pushtls in one step:
+(conn, ctlfd, err) := dial->dialtls("tcp!example.com!443", nil, "example.com");
+```
+
+`pushtls` returns the cleartext fd plus the ctl fd (keep it open — closing it
+tears down the TLS conversation and the underlying socket). Charon's https path
+(`appl/charon/http.b`) calls `pushtls` directly; the legacy `SSL3->Context`
+parameters that remain in its header ADT are dead fields on the modern path.
+
+**Why a device, not a builtin module:** protocols *layered on top of* TLS —
+`wss`, HTTP/2 framing — ride above the plaintext `data` fd and need no TLS-context
+threading. Only TLS-*layer* control/introspection (ALPN, verify flags, cert
+details) lives at the device, exposed via ctl/status files. A thin typed Limbo
+`Tls` module over the device files was considered but **not built** — the device
+plus the `Dial` helpers cover current needs.
 
 ## Error Handling
 
@@ -438,7 +468,10 @@ See `appl/cmd/webgrab.b` for a complete working example.
 | `appl/cmd/ndb/cs.b` | Connection server |
 | `appl/lib/auth.b` | pushssl, client/server auth helpers |
 | `module/factotum.m` | Factotum authentication agent interface |
-| `module/ssl3.m` | SSL module interface |
+| `module/ssl3.m` | legacy SSL3/TLS1.0 module interface (devssl) |
+| `emu/port/devtls.c` | modern TLS 1.2/1.3 device (`#T`), mbedTLS-backed |
+| `libmbedtls/` | vendored mbedTLS 3.6.2 (built to `libmbedtls.a`) |
+| `module/dial.m` / `appl/lib/dial.b` | `pushtls`/`dialtls` helpers over `#T` |
 | `appl/cmd/whois.b` | Minimal dial client example |
 | `appl/cmd/webgrab.b` | HTTP client example |
 | `appl/cmd/import.b` | Authenticated remote mount example |

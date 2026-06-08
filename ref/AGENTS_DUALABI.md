@@ -267,8 +267,8 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   so every module runs interpreted exactly as before. The LP64 test suite is **178/178**
   with the JIT present. The JIT only activates with `emu -c1` (or `-c2`).
 - **`emu -c1` works:** runs the Emuinit bootstrap, `sh` (pipes/glob/control flow), and the
-  full battery natively — **8 of 8 suites pass 100%** under `-c1` (vm, concur, crypto,
-  styxnet, selfhost, loader, plumb, except). The only `-c1`-specific caveat is that
+  full battery natively — **9 of 9 suites pass 100%** under `-c1` (vm, concur, crypto,
+  styxnet, selfhost, loader, plumb, except, modglobal). The only `-c1`-specific caveat is that
   `50_loader`'s `$Loader`-reflection round-trip is TAP-skipped: `ifetch`/`newmod` can't
   introspect a JIT-compiled module because `compile()` replaces `m->prog` (Dis) with native
   code and frees the original — `ifetch` rejects compiled modules *by design* in stock

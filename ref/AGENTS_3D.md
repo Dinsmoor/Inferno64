@@ -197,12 +197,18 @@ ABI switch can't leave a stale `raster3mod.h`.
 
 ## Testing
 
-- `appl/cmd/raytest.b` — self-test, **PASS 15/15**: Raymath identities (I·T,
-  invert, cross/dot/length/normalize, rotate preserves length, lookat), a check
-  that `projectmesh` (C) reproduces the Limbo `transformp` path numerically, and
-  `$Raster3` z-buffer behaviour (fills, near-over-far, far-rejected). The raster
-  checks now rasterize into a real Draw image and read it back, so they need a
-  display: run `emu -g320x240 /dis/raytest.dis` (headless they self-skip; the 12
-  Raymath/projectmesh checks still run).
+- `appl/cmd/raytest.b` — self-test, **PASS 24/24**: Raymath identities (I·T,
+  invert, cross/dot/length/normalize, rotate preserves length, lookat), `$Imageio`
+  decode of an embedded 2×2 RGBA PNG, a check that `projectmesh` (C) reproduces the
+  Limbo `transformp` path numerically, `$Raster3` z-buffer behaviour (fills,
+  near-over-far, far-rejected), and a perspective-correct **textured** quad from an
+  `ABGR32` texture. `init` hard-requires `$Raster3` and `$Imageio` (it `raise`s
+  `fail:load` if either is missing), so **it does not run under `emu-g`** — that
+  headless build drops `raster3` from its module list. The raster checks rasterize
+  into a real Draw image and read it back, so they need a display: run
+  `emu -g320x240 /dis/raytest.dis`. With no usable display, `Display.allocate(nil)`
+  returns nil and the raster/texture checks self-skip — the Raymath, `$Imageio`,
+  and `projectmesh` checks still run. Verified `PASS 24/24` on Linux/aarch64
+  against an Xvfb display.
 - `make test_all_unit` (cunit) covers the underlying libs.
 - Visual: `wm/rayteapot` (menu: Games → Teapot (3D)); `wm/raycube`, `wm/raycube3`.

@@ -40,13 +40,19 @@ Channel structure (`include/interp.h:117–130`):
 
 ```c
 struct Channel {
-    Array*  buf;    /* nil for unbuffered; points to circular queue if buffered */
+    Array*  buf;    /* nil for unbuffered; circular queue if buffered. MUST be first */
     Progq*  send;   /* queue of Progs blocked trying to send */
     Progq*  recv;   /* queue of Progs blocked trying to receive */
+    void*   aux;    /* "rock" for devsrv (a channel can back a /srv file) */
+    void  (*mover)(void); /* data mover selected by element type */
+    union { WORD w; Type* t; } mid; /* move descriptor: word, or pointer Type* */
     int     front;  /* head of circular buffer queue */
     int     size;   /* number of items currently in buffer */
 };
 ```
+
+(`aux`/`mover`/`mid` are runtime plumbing — the move function and its type
+descriptor, plus the devsrv back-pointer — not part of the Limbo-visible model.)
 
 For buffered channels, `CANPUT` is true when `size < len(buf)` and `CANGET` is true when `size > 0`. The buffer is a circular array; `front` advances on read, `(front+size) % len` is the write position.
 
@@ -262,7 +268,7 @@ The buffered channel decouples producer from consumer. `BUFSZ > 0` prevents the 
 
 ## Scheduler Details
 
-`vmachine()` (`emu/port/dis.c:1016–1080`) runs in a loop:
+`vmachine()` (`emu/port/dis.c:1126–1195`) runs in a loop:
 
 1. If no Progs are ready, run GC tasks and idle
 2. After 2+ scheduling cycles, call `iyield()` so other host threads waiting for the VM can acquire it (prevents starvation of OS-level work)

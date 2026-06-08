@@ -2,7 +2,8 @@
 
 The whole [stb](https://github.com/nothings/stb) single-header collection is
 vendored at `libstb/stb/` (public domain / MIT; upstream commit pinned in
-`libstb/stb/UPSTREAM_COMMIT`). Today **only image decoding is wired** (see
+`libstb/stb/UPSTREAM_COMMIT`). Today **image decode and PNG encode are wired**
+(stb_image + stb_image_write, both via `$Imageio` — see
 [AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md)); everything else is present as source and
 ready to activate. This doc is the catalogue: what each library does, where it
 would earn its place in an Inferno/Limbo program, and how to wire one.
@@ -27,7 +28,7 @@ subsystem (audio device, editor widget) around it.
 | Header | Does | Where it's useful in Inferno/Limbo | Effort | Notes / overlap |
 |--------|------|------------------------------------|--------|-----------------|
 | **stb_image.h** | Decode PNG/JPEG/BMP/TGA/GIF/PSD/HDR/PIC/PNM → RGBA8 | **WIRED** as `$Imageio`. Textures for `$Raster3`; Charon `<img>`/`<canvas>` bitmaps; wm sprites. | — | Done. RGBA8 == Draw `ABGR32`. Beats `RImagefile`+`imageremap` (CMAP8). |
-| **stb_image_write.h** | Encode PNG/BMP/TGA/JPG/HDR (to memory via callback) | Screenshots of any Draw image; Charon `canvas.toDataURL`/save-image; export `$Raster3` renders; a true-colour replacement for `writegif`. | **M** | Highest-value next step. Add `stbwrap_encode_png(rgba,w,h)` + extend `$Imageio` with `encode`. Use `stbi_write_*_to_func` (no host FS). |
+| **stb_image_write.h** | Encode PNG/BMP/TGA/JPG/HDR (to memory via callback) | Screenshots of any Draw image; Charon `canvas.toDataURL`/save-image; export `$Raster3` renders; a true-colour replacement for `writegif`. | — | **WIRED (PNG)** as `$Imageio.encode` via `stbwrap_encode_png` (`STBI_WRITE_NO_STDIO`, memory callback). BMP/TGA/JPG/HDR still available to expose. |
 | **stb_image_resize2.h** | High-quality image resample (up/down) | Charon `<img width/height>` scaling; texture mip/downscale; thumbnails; DPI scaling of decoded assets. | **S/M** | Operates on the RGBA8 buffers `$Imageio` already produces; add a `resize` call alongside decode. |
 | **stb_truetype.h** | Rasterize TTF/OTF glyphs; metrics; kerning | Real outline/antialiased fonts for Tk and Charon beyond Inferno's bitmap subfonts; arbitrary sizes. | **M/L** | **Overlaps libfreetype** (already vendored + `$Freetype` builtin). Prefer freetype unless you want stb's zero-config simplicity; don't ship two font stacks without a reason. |
 | **stb_rect_pack.h** | 2D rectangle bin-packing | Glyph atlases (pairs with truetype), sprite/texture atlases for `$Raster3`, packing UI assets into one Draw image. | **S** | Pure compute; pairs naturally with whatever rasterizes into the atlas image. |
@@ -48,7 +49,7 @@ subsystem (audio device, editor widget) around it.
 | **stb_tilemap_editor.h** | In-app tilemap editor UI | A tile editor — needs your input + renderer wired in. | L | Niche; large integration. |
 | **stb_voxel_render.h** | Voxel mesh generation | Voxel/blocky worlds — **assumes an OpenGL backend**. | — | Poor fit (no GL); mesh-gen ideas could feed `$Raster3` but it's a big lift. |
 
-**Quick read:** the natural near-term wins are **stb_image_write** (export/screenshots/canvas-save), **stb_image_resize2** (scaling), and **stb_rect_pack (+ truetype)** for glyph/sprite atlases. **stb_vorbis** is the big one if audio is ever in scope. The rest are situational or overlap existing Inferno facilities.
+**Quick read:** with PNG encode now wired, the natural near-term wins are **stb_image_resize2** (scaling) and **stb_rect_pack (+ truetype)** for glyph/sprite atlases; extending `$Imageio.encode` to BMP/TGA/JPG is a small follow-on. **stb_vorbis** is the big one if audio is ever in scope. The rest are situational or overlap existing Inferno facilities.
 
 ---
 

@@ -12,7 +12,7 @@ All messages use little-endian byte order. Every message begins with:
 [2] tag    — client-chosen request ID; NOTAG (0xFFFF) for version
 ```
 
-Message type constants (`include/styx.h:92–121`):
+Message type constants (`include/styx.h:97–124`):
 
 ```c
 Tversion=100, Rversion,
@@ -213,6 +213,7 @@ Fid: adt {
     qtype: int;           # QTDIR or QTFILE
     isopen: int;
     mode:  int;
+    doffset: (int, int);  # (internal) cached directory read offset
     uname: string;
     param: string;        # aname from Attach
     data:  array of byte; # application-defined storage
@@ -222,7 +223,7 @@ Fid: adt {
 };
 ```
 
-**Navigator** (`module/styxservers.m:21–29`) — answers directory queries via a channel:
+**Navigator** (`module/styxservers.m:31–42`) — answers directory queries via a channel:
 
 ```limbo
 Navop: adt {
@@ -361,7 +362,10 @@ sys->bind("/usr/foo", "/bin", Sys->MBEFORE)
 | `Sys->MBEFORE` | Add src before existing entries at dst |
 | `Sys->MAFTER`  | Add src after existing entries at dst |
 | `Sys->MCREATE` | Allow creates to fall through to underlying directory |
-| `Sys->MORDER`  | Preserve union ordering |
+| `Sys->MCACHE`  | Cache remote data locally |
+
+(There is no `Sys->MORDER`: `MORDER` is an internal C bitmask in `include/kern.h`
+— `0x0003`, the field selecting MREPL/MBEFORE/MAFTER — not a Limbo-visible flag.)
 
 Union mounts: multiple `mount`/`bind` calls to the same `dst` stack entries. Lookups search each layer in order. Creates go to the first layer with `MCREATE`.
 
@@ -390,7 +394,7 @@ The `pipe(fds)` + `mount(fds[1], …)` + serve-on-`fds[0]` pattern is universal.
 | `lib9/convD2M.c` | Dir entry packing |
 | `appl/lib/styx.b` | Limbo pack/unpack implementation |
 | `appl/lib/styxservers.b` | Styxserver framework implementation |
-| `appl/cmd/memfs.b` | Simple in-memory filesystem (649 lines) |
+| `appl/cmd/memfs.b` | Simple in-memory filesystem (648 lines) |
 | `appl/cmd/dbfs.b` | Database-backed filesystem |
 | `appl/cmd/9srvfs.b` | /srv export tool |
 | `man/5/0intro` | Protocol specification |

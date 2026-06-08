@@ -33,7 +33,7 @@ There are two distinct "process" concepts in Inferno. Understanding both is esse
 
 ```c
 struct Proc {
-    int     type;           // Unknown, IdleGC, Interp, BusyGC
+    int     type;           // Unknown, IdleGC, Interp, BusyGC, Moribund (values below)
     char    text[KNAMELEN]; // name, for debugging
     long    pid;
     Proc*   next, *prev;    // global proc list
@@ -51,7 +51,8 @@ struct Proc {
     Osenv   defenv;         // default env (for kprocs without a Prog)
 };
 
-enum { Unknown=0, IdleGC, Interp, BusyGC };
+// Real values (emu/port/dat.h) — NOT a 0..n sequence:
+enum { Unknown=0xdeadbabe, IdleGC=0x16, Interp=0x17, BusyGC=0x18, Moribund };
 ```
 
 **Key functions**:
@@ -61,7 +62,7 @@ enum { Unknown=0, IdleGC, Interp, BusyGC };
 - `Wakeup(r)` — wake a Proc sleeping on rendezvous `r`.
 - `swiproc(p, interp)` — deliver a software interrupt to Proc `p`; if `interp=1`, signals the associated Prog.
 
-**Error stack**: Each Proc has a `setjmp` stack of depth `NERR=30`. `error(msg)` calls `longjmp` to the nearest `waserror()` handler. Code that must clean up on error uses:
+**Error stack**: Each Proc has a `setjmp` stack of depth `NERR=32` (`emu/port/dat.h`). `error(msg)` calls `longjmp` to the nearest `waserror()` handler. Code that must clean up on error uses:
 ```c
 if(waserror()) {
     // cleanup
@@ -254,7 +255,9 @@ Each message begins with a 4-byte little-endian length, 1-byte type, and 2-byte 
 
 **Files**: `emu/port/dev.c`, `emu/port/dat.h`
 
-Every kernel resource is a device. Devices register themselves in `devtab[]` (defined per-platform in `emu/Linux/mkfile` via the `mkdevlist` script).
+Every kernel resource is a device. Devices register themselves in `devtab[]`, which
+is generated from the active config file's `dev` section (`emu/Linux/emu` for the
+`make` build; `emu/port/master` + `mkdevlist` for the legacy `mk` build).
 
 ### Dev Vtable
 
@@ -314,7 +317,8 @@ Fills a `Dir` structure for stat/walk responses. The `eve` global holds the syst
 6. `attach()` returns a Chan for the device root (call `devattach(dc, spec)`).
 7. `open()` validates mode and returns the Chan unchanged (or cloned).
 8. `read()`/`write()` implement the actual data transfer.
-9. Add to `emu/port/master` in the `dev` section; rebuild.
+9. Add to the `dev` section of `emu/Linux/emu` (and `emu-g`) — or `emu/port/master`
+   for the `mk` build — then rebuild (`make all`).
 
 ---
 
@@ -564,24 +568,30 @@ int osmillisleep(ulong ms); // sleep for ms milliseconds (nanosleep)
 
 ## Device Inventory
 
-Devices in the emulator are selected by `emu/port/master` and compiled in via `mkdevlist`. Standard devices:
+Which devices are compiled in is chosen by a configuration file listing the
+`dev`/`lib`/`mod` sections. The legacy `mk` build uses `emu/port/master` +
+`mkdevlist`; the current `make all` build uses **`emu/Linux/emu`** (and
+`emu/Linux/emu-g` for the headless variant) — that is the file to edit to add a
+device today. Standard devices:
 
 | `#` char | Name       | File | Description |
 |----------|------------|------|-------------|
 | `c`      | cons       | `devcons.c` | Console, keyboard, random, time, null |
 | `d`      | dup        | `devdup.c` | File descriptor duplication |
 | `e`      | env        | `devenv.c` | Environment variables |
-| `f`      | fs         | `devfs-posix.c` | Host filesystem |
 | `i`      | draw       | `devdraw.c` | Graphics display |
 | `I`      | ip         | `devip.c` | TCP/IP networking |
 | `m`      | pointer    | `devpointer.c` | Mouse/pointer input |
 | `M`      | mnt        | `devmnt.c` | 9P client (mount) |
 | `p`      | prog       | `devprog.c` | Process control (/prog namespace) |
 | `P`      | prof       | `devprof.c` | Profiling |
-| `s`      | srv        | `devsrv.c` | Service registry |
-| `U`      | fs(posix)  | `devfs.c` | (additional FS) |
-| `|`      | pipe       | `devpipe.c` | Pipes |
-| `τ`      | tk         | `devtk.c` | Tk GUI events |
+| `s`      | srv        | `devsrv.c` | Service registry (`/srv`) |
+| `U`      | fs         | `devfs-posix.c` | Host filesystem (`#U`, name "fs") |
+| `\|`     | pipe       | `devpipe.c` | Pipes |
+| `τ`      | tk         | `devtk.c` | Tk GUI events (dc is the wide char `L'τ'`) |
+
+(There is no `#f` device in this tree, and no `emu/port/devfs.c`: the single host
+filesystem device is `#U` = `devfs-posix.c`.)
 
 ### devcons Qids
 

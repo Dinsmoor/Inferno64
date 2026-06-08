@@ -1,6 +1,12 @@
 # Charon — Inferno Web Browser Agent Reference
 
-Charon is Inferno's graphical web browser, written entirely in Limbo. It runs on the Dis VM, so it is fully portable across every Inferno platform (hosted and native). It targets mid-1990s web standards: HTML 3.2 / Netscape Navigator 3 compatibility, HTTP 1.0/1.1, HTTPS (SSL 2/3), FTP, and ECMAScript-262 2nd Edition (≈ JavaScript 1.1).
+Charon is Inferno's graphical web browser, written entirely in Limbo. It runs on the Dis VM, so it is fully portable across every Inferno platform (hosted and native). Its original baseline was mid-1990s web standards (HTML 3.2 / Netscape Navigator 3, HTTP 1.0/1.1, FTP, ECMAScript-262 2nd Edition ≈ JavaScript 1.1); the ongoing modernisation has since added **modern HTTPS (TLS 1.2/1.3 via mbedTLS — see below)**, gzip/deflate + chunked transfer, UTF-8 default, RFC 6265 cookies, localStorage, HTML5 semantic tags, and a `<canvas>` 2D **and** 3D context. See the Modernisation Plan at the end for per-feature status.
+
+> **Doc currency note (2026-06):** this reference was first written 2026-06-02 and
+> some sections still describe the pre-modernisation state. Where a Modernisation
+> Plan item is marked ✅, treat that as the current behaviour. Notably HTTPS no
+> longer uses the SSL 2/3 `ssl3` path — it uses the `#T` devtls/mbedTLS device via
+> `Dial->pushtls` (see [AGENTS_NETWORK.md](AGENTS_NETWORK.md) §"Modern TLS").
 
 ---
 
@@ -28,7 +34,7 @@ appl/lib/ecmascript/— ECMAscript engine (separate from charon/)
 | `layout.b` | `Layout` | HTML layout engine: `Frame`, `Line`, `Loc`, `Control` widgets, scrollbars, drawing |
 | `build.b` | `Build` | HTML tree builder: `Item` pick ADT, `Docinfo`, `Form`, `Table`, `Anchor`, parser state |
 | `lex.b` | `Lex` | HTML tokeniser: produces `Token`/`TokenSource` from a `ByteSource` |
-| `http.b` | `Transport` (HTTP) | HTTP/1.0, HTTP/1.1, HTTPS; SSL 2/3 via `ssl3.dis`; pipelining; proxy |
+| `http.b` | `Transport` (HTTP) | HTTP/1.0, HTTP/1.1, HTTPS via `Dial->pushtls` (`#T` devtls/mbedTLS, TLS 1.2/1.3); pipelining; proxy. (Legacy `SSL3->Context` fields remain in the header ADT but the live path no longer uses `ssl3.dis`.) |
 | `ftp.b` | `Transport` (FTP) | FTP plain-text retrieval |
 | `file.b` | `Transport` (FILE) | Local file access with MIME sniffing |
 | `gzipfilter.b` | `Gzipfilter` | HTTP `Content-Encoding: gzip`/`deflate` decoder; wraps the inflate `Filter` (`/dis/lib/inflate.dis`) |
@@ -38,6 +44,8 @@ appl/lib/ecmascript/— ECMAscript engine (separate from charon/)
 | `event.b` | `Events` | `Event` pick ADT (Ekey, Emouse, Ego, Esubmit, …); `ScriptEvent` for JS |
 | `jscript.b` | `Script` | ECMAscript bridge: loads `ecmascript.dis`, routes `ScriptEvent` |
 | `cookiesrv.b` | `Cookiesrv` | Cookie server: persistent storage, per-session `Client` handle |
+| `dom.b` | `Dom` | **(new)** retained element-node tree (`Node` ADT); near-pure data structure, builds/unit-tests headless. Backs render-from-DOM and the JS DOM API |
+| `domjs.b` | `Domjs` | **(new)** JavaScript DOM binding — `document`/element host objects (`querySelector`, etc.) and the `<canvas>` context, over the `Dom` tree |
 | `url.b` | `Url` | RFC 1808 URL parser/resolver (`Parsedurl`, `mkabs`) |
 | `ctype.b` | `Ctype` | Character classification table (whitespace, alpha, etc.) |
 | `date.b` | `Date` | HTTP date parsing (for cookies, Last-Modified) |
@@ -227,6 +235,14 @@ Layout->layout(f, bs, linkclick)  # line-breaking, float placement, table layout
 Frame.cim                         # pixels on screen
 ```
 
+> **Update (render-from-DOM, Phase 2; commits `c7fcd5a7`, `cd9f24b1`):** Charon now
+> also builds a **retained DOM tree** (`dom.b`, the `Node` ADT) and can render
+> directly from it without re-serialising to HTML, keeping JS event handlers live
+> across re-renders. The JS DOM API (`domjs.b`) operates on this tree. The
+> item-list/layout path above still does the actual line-breaking and drawing; the
+> DOM tree sits in front of it as the mutable document model. This part of the doc
+> predates that work and describes the original token→item flow.
+
 ### Lex (`lex.b`)
 
 Tokenises raw bytes into `Token` values with `tag` (one of ~90 `T*` consts) and an attribute list (`list of Attr` where each `Attr` has `attid` and `value`). The tokeniser handles charset conversion via a pluggable `Btos` function obtained from `convcs.dis`. It is incremental: `gettoks` returns an array of new tokens each time more `ByteSource` data arrives.
@@ -262,7 +278,12 @@ Each transport implements the `Transport` interface (`transport.m`): `connect`, 
 ### HTTP transport (`http.b`)
 
 - HTTP/1.0 default; HTTP/1.1 available via `config.httpminor = 1`.
-- SSL: loads `ssl3.dis`, negotiates SSL2 or SSL3 (or both, using the SSLv23 probe). Inferno `ssl3` supports a broad set of cipher suites including RC4-128, DES, 3DES, and FORTEZZA.
+- HTTPS (modern, current): `connect()` layers TLS onto the dialed fd with
+  `DI->pushtls(nc.conn.dfd, nc.host)` — the `#T` devtls device backed by vendored
+  mbedTLS (TLS 1.2/1.3, SNI, modern AEAD suites, cert verification). The ctl fd is
+  kept in `nc.tlsctl` and closing it tears down the conversation. The old
+  `ssl3.dis` SSL2/3 path is no longer used (the `nc.sslx`/`SSL3->Context` fields
+  are vestigial). See AGENTS_NETWORK.md §"Modern TLS" and Modernisation Plan P0.1.
 - Proxy: if `config.httpproxy` is set and the host is not in `config.noproxydoms`, the `CONNECT` method is used for HTTPS tunnelling.
 - Pipelining: `nc.pipeline` is true when multiple requests are queued on one connection; the header reader advances `nc.gocur`.
 - Redirections: handled inside `CU->hdraction`; up to `Maxredir = 10` hops before giving up.
@@ -532,7 +553,10 @@ Set `config.dbgfile` to redirect debug output to a file instead of stdout.
 - **Save-as** is only offered when `config.offersave = 1`, and even then only for unsupported MIME types; in-progress streaming state is not preserved across the dialog.
 - No general disk cache; only the in-memory image cache persists across page loads within a session.
 - Only HTTP Basic authentication is supported; no Digest, no NTLM.
-- SSL certificate verification (X.509 chain) is done by `ssl3.dis`; certificate rejection is not surfaced as a user-visible error in all cases.
+- TLS certificate-chain verification is now done by mbedTLS inside the `#T` devtls
+  device (against the system CA bundle); a verify failure surfaces as a connection
+  error. (The old note that `ssl3.dis` did X.509 verification no longer applies —
+  HTTPS uses `Dial->pushtls`.)
 
 ---
 
@@ -557,7 +581,12 @@ What follows is a prioritised plan to make Charon usable on the contemporary web
 
 A note on what Inferno already provides that is relevant here:
 
-- `emu/port/devtls.c` (`man/3/tls`) — the `#a` kernel device implements the TLS 1.0/SSL 3.0 **record layer** (`0x0300`/`0x0301`). The handshake is done in userspace (`appl/lib/crypt/ssl3.b`). Upgrading to TLS 1.2/1.3 means upgrading the handshake; the kernel device needs only a minor version-number change.
+- `emu/port/devtls.c` — **the modern TLS device, `#T`** (this replaced the old
+  plan of upgrading the SSL3 record layer). It is backed by vendored mbedTLS 3.6.2
+  and does the *entire* TLS 1.2/1.3 handshake + record layer in C, exposed as a
+  push-onto-an-fd device. (The legacy SSL 3.0 record layer with the userspace
+  `appl/lib/crypt/ssl3.b` handshake still exists as `devssl`/`ssl3.dis` but Charon
+  no longer uses it.) See AGENTS_NETWORK.md.
 - `appl/lib/inflate.b`, `appl/lib/deflate.b`, `appl/cmd/gzip.b` — zlib inflate/deflate and gzip exist and are used by other parts of Inferno. The `Filter` module (`module/filter.m`, `DEFLATEPATH`/`INFLATEPATH`) provides a channel-based streaming interface ideal for wrapping a `ByteSource`.
 - `appl/lib/ecmascript/` — the existing ECMAscript-262 2nd ed engine. Extending vs. replacing is a genuine choice.
 
@@ -565,11 +594,22 @@ A note on what Inferno already provides that is relevant here:
 
 ### P0 — Without these, 95%+ of the web is inaccessible
 
-#### P0.1 · TLS 1.2 (with SNI and modern cipher suites)
+#### P0.1 · TLS 1.2/1.3 (with SNI and modern cipher suites) — ✅ DONE (via mbedTLS / `#T` devtls)
 
-**Why it is blocking.** Essentially every HTTPS server in 2024 requires TLS 1.2 at minimum; SSL 2/3 and TLS 1.0 connections are rejected outright (RFC 8996). Without this, HTTPS is completely non-functional.
+**Why it was blocking.** Essentially every HTTPS server requires TLS 1.2 at minimum; SSL 2/3 and TLS 1.0 are rejected outright (RFC 8996). Until this landed, HTTPS was non-functional.
 
-**What needs to change.**
+**What was actually done — and how it differs from the plan below.** Rather than
+hand-roll ECDHE/AES-GCM and a `tls12.b` handshake in Limbo (the original plan,
+retained below for context), the project **vendored mbedTLS 3.6.2** (`libmbedtls/`)
+and added the **`#T` devtls device** (`emu/port/devtls.c`) that does the whole TLS
+1.2/1.3 handshake + record layer in C, with SNI, modern AEAD suites, ALPN, and
+certificate-chain verification against `/etc/ssl/certs/ca-certificates.crt`. Charon
+reaches it via `Dial->pushtls`/`dialtls` (`appl/lib/dial.b`); `http.b:connect`
+pushes TLS onto the dialed fd. This is system-wide (sh, dial, webgrab, Charon all
+share it), not Charon-specific. See AGENTS_NETWORK.md §"Modern TLS". Commits:
+`33ff11f8` (vendor), `27165454` (device), `67b32e2f` (Charon), `b4018e54` (dial).
+
+**Original (superseded) in-Limbo plan, kept for context:**
 
 1. **Handshake upgrade (`appl/lib/crypt/ssl3.b` → new `tls12.b`).** TLS 1.2 (RFC 5246) changes the PRF (to HMAC-SHA-256/SHA-384), adds the `signature_algorithms` extension, and changes the `Finished` MAC. The existing code structure in `ssl3.b` is the right starting point; most of the record-layer plumbing carries over.
 
@@ -920,9 +960,20 @@ HTTP/3 runs over QUIC (RFC 9000/9114) — a UDP-based transport that bakes in TL
 
 ---
 
-#### P3.5 · Canvas 2D API
+#### P3.5 · Canvas 2D API — ✅ DONE (2D context; a 3D context also exists)
 
-`<canvas>` enables charts, games, and many interactive UIs. The 2D API exposes an immediate-mode drawing surface. Inferno's `Draw` module provides most of the primitives needed:
+**What was done.** A `<canvas>` element plus a `CanvasRenderingContext2D` host
+object are implemented (commits `898a81a0`, `314244a4`): `fillRect`/`strokeRect`/
+`clearRect`, `fillText`, `drawImage`, and a real vector path layer
+(`beginPath`/`moveTo`/`lineTo`/`arc`/`fill`/`stroke`, `lineWidth`) rasterised into
+a per-canvas offscreen `Draw->Image` that is composited into the page. A
+**canvas-damage fast-repaint path** (`f70b02b0`) supports timer-driven animation.
+Beyond the 2D API, a **3D `<canvas>` context** over `$Raster3`/`Raymath` was added
+(`15cdb299`); its design is documented in
+[CHARON_CANVAS3D.md](CHARON_CANVAS3D.md). The original sketch below (needing a new
+path renderer) is retained for context but is now implemented.
+
+The 2D API exposes an immediate-mode drawing surface; Inferno's `Draw` module provides most of the primitives needed:
 
 - `fillRect`, `strokeRect`, `clearRect` → `Draw->Image.draw`
 - `fillText`, `strokeText` → `Draw->Image.text`
@@ -952,7 +1003,7 @@ AVIF decoding requires:
 
 | Priority | Item | Prerequisite | Effort |
 |----------|------|-------------|--------|
-| **P0.1** | TLS 1.2 + SNI + ECDHE + AES-GCM | — | Large |
+| **P0.1** ✅ | TLS 1.2/1.3 + SNI + AEAD (via vendored mbedTLS / `#T` devtls) | — | Large |
 | **P0.2** ✅ | gzip/deflate Content-Encoding | — | Small |
 | **P0.3** ✅ | UTF-8 default charset | — | Trivial |
 | **P0.4** ✅ | chunked Transfer-Encoding (not in original plan) | — | Small–Med |
@@ -971,7 +1022,7 @@ AVIF decoding requires:
 | **P3.2** | Promises + async/await | P1.3 | Medium |
 | **P3.3** | Fetch API | P1.4, P3.2 | Small |
 | **P3.4** | HTTP/3 / QUIC | P0.1, P2.1 | Very Large |
-| **P3.5** | Canvas 2D | P1.3 | Medium–Large |
+| **P3.5** ✅ | Canvas 2D (+ a 3D context) | P1.3 | Medium–Large |
 | **P3.6** | AVIF images | P2.2 | Very Large |
 
 **Recommended execution order** for maximum impact per unit effort:
@@ -979,7 +1030,8 @@ AVIF decoding requires:
 1. ✅ P0.3 (UTF-8 default) — done (charon-modernization, 72e82422).
 2. ✅ P0.2 (gzip Content-Encoding) — done (charon-modernization, 72e82422).
 2a. ✅ P0.4 (chunked Transfer-Encoding) — done (charon-modernization, 1717dbfb); prerequisite for gzip to work on real HTTP/1.1 servers.
-3. P0.1 (TLS 1.2) — the biggest single unlocker; do as early as possible.
+3. ✅ P0.1 (TLS 1.2/1.3) — done via vendored mbedTLS + the `#T` devtls device
+   (`33ff11f8`/`27165454`/`67b32e2f`/`b4018e54`); the biggest single unlocker.
 4. P2.4 (`<video>` placeholder) — `<img srcset>` now loads (335e6292); drawable `<video>`/`<audio>` placeholder + plumb hand-off still TODO.
 5. 🟡 P2.5 (cookies RFC 6265) — Max-Age/HttpOnly/prefixes done, SameSite parsed (72e82422, d5a0f2fe); SameSite enforcement remains.
 6. ✅ P2.6 (localStorage) — method API + persistence done (b7167f72).

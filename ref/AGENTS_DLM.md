@@ -83,16 +83,23 @@ is small. The hard parts are below.
 
 ## Why it can't just be switched on (the LP64 wall)
 
-The entire on-disk ABI is **ILP32 to the bone**:
+The entire on-disk ABI is **ILP32 to the bone** — note this is about the
+*serialized* format and the reader, **not** the in-memory struct widths (in this
+LP64 build `ulong` is 64-bit, so e.g. `Dynsym.addr` is actually a 64-bit field):
 
-- `include/dynld.h`: `struct Dynsym { ulong sig; ulong addr; char *name; }` —
-  `addr` is **32-bit**. An aarch64 builtin's address is 64-bit and won't fit.
-- `libdynld/dynld.c`: `lgetbe()` extracts **exactly 4 big-endian bytes**; it
-  reads `sizeof(Exec)` where `Exec` fields are `long` (8 bytes on LP64), so
-  offsets are wrong before relocation even starts.
-- `dynreloc(uchar *b, ulong p, ...)` writes through `ulong*` and adds `(ulong)b`
-  — cannot store a 64-bit base or symbol address. Reloc addends in the stream
-  are ≤4-byte deltas.
+- `libdynld/dynld.c`: `lgetbe()` is the wire reader, and it is hardwired to 4
+  bytes — its union is `{ ulong l; uchar c[4]; }` and it returns `get4(u.c)`. On
+  LP64 the union's `ulong` is 8 bytes but only the low 4 are read, so every header
+  field it parses is **truncated to 32 bits**. It also reads `sizeof(Exec)` where
+  `Exec`'s fields are `long` (now 8 bytes), so the header offsets are wrong before
+  relocation even starts. A 64-bit symbol address therefore cannot survive the
+  load even though `Dynsym.addr` could hold it in memory.
+- `include/dynld.h`: `struct Dynsym { ulong sig; ulong addr; char *name; }`. The
+  field is wide enough on LP64, but it is filled from the 32-bit-truncating
+  `lgetbe` path above, and the format has no room for a 64-bit `addr`.
+- `dynreloc(uchar *b, ulong p, ...)` does its fixups by writing through `ulong*`
+  and adding `(ulong)b`; the reloc addends in the stream are ≤4-byte deltas, so
+  the *encoding* — not the C arithmetic — caps relocations at 32 bits.
 
 `R_MAGIC` (arm64) and `S_MAGIC` (amd64) *are* defined (`utils/include/a.out.h`,
 both with `HDR_MAGIC` header-expansion), but there is **no expanded 64-bit `Exec`

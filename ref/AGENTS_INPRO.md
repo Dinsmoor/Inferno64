@@ -17,8 +17,14 @@ pointer here.
 - [ ] **Charon form controls** — full-width dark-themed search input (CSS-themed
       `<input>`); part of the ongoing Charon modern-web / CSS-rendering work
       (`AGENTS_CHARON.md`, memory `charon-css-engine`, `charon-modernization`).
-- [ ] **Charon HTTPS via mbedTLS** — vendor mbedTLS, add the emu `$Tls`/devtls glue,
-      rewire `charon/http.b` (decision + passing spike in memory `charon-tls-mbedtls`).
+
+## Recently landed (move detail into the subsystem doc, then drop)
+
+- [x] **Modern TLS via mbedTLS** — DONE on master: vendored mbedTLS 3.6.2
+      (`libmbedtls/`), the `#T` devtls device (`emu/port/devtls.c`, TLS 1.2/1.3),
+      `dial->pushtls`/`dialtls`, and Charon's https path rewired off SSL3. Detail:
+      `AGENTS_NETWORK.md` §"Modern TLS". Was the old "Charon HTTPS via mbedTLS"
+      active item.
 
 ## Parked / deferred
 

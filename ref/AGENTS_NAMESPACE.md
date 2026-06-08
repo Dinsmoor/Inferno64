@@ -111,7 +111,7 @@ Device names follow the convention `#C` where C is a single character identifyin
 | `#m`  | /dev  | Mouse/pointer (`/dev/mouse`, `/dev/cursor`) |
 | `^`  | /chan, /dev | Snarf/clipboard buffer |
 | `#I`  | /net  | Network stack (TCP, UDP, IP, ARP…) |
-| `#s`  | (bind manually) | Shared memory segments |
+| `#s`  | /srv | Server registry — post an fd here (`/srv/name`) for other procs to mount (`emu/port/devsrv.c`) |
 
 ## /env: Environment Variables as Files
 
@@ -143,7 +143,7 @@ The Limbo `os` module provides a higher-level `env->get/set` interface built on 
 | `nsgrp` | namespace group ID |
 | `pgrp` | process group ID |
 | `stack` | call stack frames |
-| `exception` | last unhandled exception (pc, module, string) |
+| `exception` | last **caught** exception as `pc module string`; **empty for a proc broken by an _unhandled_ exception** (`p->exstr` is only set on a catch — see AGENTS_DEBUGGING.md) |
 | `fd` | open file descriptors |
 | `heap` | memory inspector |
 | `dbgctl` | debugger control |
@@ -269,7 +269,7 @@ cat /prog/SELF_PID/ns   # same, via /prog directly
 | `emu/port/devip.c` | /net network stack |
 | `emu/port/devsnarf.c` | /chan and snarf device |
 | `module/sys.m:97–110` | bind/mount/pctl Limbo interface and flag constants |
-| `include/kern.h:401–407` | Mount flag constants (C) |
+| `include/kern.h:402–406` | Mount flag constants (C) |
 | `appl/lib/newns.b` | Namespace file parser/executor |
 | `appl/cmd/ns.b` | `ns` tool: print current namespace |
 | `man/6/namespace` | Namespace file format specification |
