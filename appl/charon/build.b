@@ -2457,7 +2457,7 @@ cssenter(ps: ref Pstate, tok: ref LX->Token, tag: int)
 	(r, g, b, cfound) := props.color("color");
 	if(cfound)
 		fr.ovfg = rgb(r, g, b);
-	(br, bgc, bb, bgfound) := props.color("background-color");
+	(br, bgc, bb, bgfound) := props.bgcolor();
 	if(bgfound)
 		fr.ovbg = rgb(br, bgc, bb);
 	# build this element's own box if it declares any box decoration of its own
@@ -2522,9 +2522,7 @@ ffstyle(field: ref Formfield, props: ref Props): int
 	BASE: con 16;	# reference px for em/ex/% resolution
 	set := 0;
 
-	(br, bg, bb, bgf) := props.color("background-color");
-	if(!bgf)
-		(br, bg, bb, bgf) = props.color("background");
+	(br, bg, bb, bgf) := props.bgcolor();
 	if(bgf) {
 		field.cssbg = rgb(br, bg, bb);
 		set = 1;

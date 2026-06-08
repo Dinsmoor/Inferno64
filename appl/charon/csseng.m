@@ -58,6 +58,9 @@ Csseng: module
 		nthlengthpx: fn(p: self ref Props, name: string, n, basepx: int): (int, int);
 		# first colour anywhere in a declaration's value list (border: 1px solid red)
 		anycolor: fn(p: self ref Props, name: string): (int, int, int, int);
+		# an element's background colour from the `background-color` longhand OR the
+		# `background` shorthand (gradient/image-only -> found=0); does not inherit
+		bgcolor: fn(p: self ref Props): (int, int, int, int);
 		# parse grid-template-columns into (mincolpx, count, found):
 		#   repeat(auto-fill|auto-fit, minmax(MIN, ...))  -> (MINpx, 0, 1)   (auto-fill)
 		#   repeat(N, ...)                                -> (0,     N, 1)

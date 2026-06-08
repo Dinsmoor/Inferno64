@@ -641,8 +641,75 @@ Props.color(p: self ref Props, name: string): (int, int, int, int)
 		return (r, g, b, 1);
 	Ident =>
 		return namedcolor(tolower(x.name));
+	Function =>
+		fname := tolower(x.name);
+		if(fname == "hsl" || fname == "hsla")
+			return hslcolor(x.args);
 	}
 	return (0, 0, 0, 0);
+}
+
+# hsl()/hsla() colour resolution.  The CSS parser special-cases only rgb()
+# (-> Value.RGB); every other colour function, hsl()/hsla() included, arrives
+# as a generic Value.Function, so the cascade never resolved it.  Modern sheets
+# lean on hsl() heavily, so convert it to an RGB triple here.  Alpha (hsla's 4th
+# arg) is dropped — Charon paints opaque.  found=0 if the args are malformed.
+hslcolor(args: list of ref CSS->Value): (int, int, int, int)
+{
+	if(args == nil || tl args == nil || tl tl args == nil)
+		return (0, 0, 0, 0);
+	(r, g, b) := hsl2rgb(hslnum(hd args), hslnum(hd tl args), hslnum(hd tl tl args));
+	return (r, g, b, 1);
+}
+
+# the integer part of a numeric/percentage/<angle> value (hue is degrees,
+# saturation/lightness are percentages given without the %)
+hslnum(v: ref CSS->Value): int
+{
+	pick x := v {
+	Number =>	return int x.value;
+	Percentage =>	return int x.value;
+	Unit =>		return int x.value;	# e.g. hsl(280deg, ...)
+	}
+	return 0;
+}
+
+# hue in degrees, saturation & lightness in 0..100 -> (r,g,b) each 0..255
+hsl2rgb(hdeg, s100, l100: int): (int, int, int)
+{
+	h := real(((hdeg % 360) + 360) % 360);
+	s := real s100 / 100.0;
+	l := real l100 / 100.0;
+	c := (1.0 - absr(2.0 * l - 1.0)) * s;
+	hp := h / 60.0;
+	m2 := hp - 2.0 * real (int (hp / 2.0));	# hp mod 2, hp>=0
+	x := c * (1.0 - absr(m2 - 1.0));
+	r1 := g1 := b1 := 0.0;
+	if(hp < 1.0)      { r1 = c;   g1 = x;   b1 = 0.0; }
+	else if(hp < 2.0) { r1 = x;   g1 = c;   b1 = 0.0; }
+	else if(hp < 3.0) { r1 = 0.0; g1 = c;   b1 = x;   }
+	else if(hp < 4.0) { r1 = 0.0; g1 = x;   b1 = c;   }
+	else if(hp < 5.0) { r1 = x;   g1 = 0.0; b1 = c;   }
+	else              { r1 = c;   g1 = 0.0; b1 = x;   }
+	m := l - c / 2.0;
+	return (clamp255(r1 + m), clamp255(g1 + m), clamp255(b1 + m));
+}
+
+absr(v: real): real
+{
+	if(v < 0.0)
+		return -v;
+	return v;
+}
+
+clamp255(v: real): int
+{
+	n := int (v * 255.0);	# Limbo int(real) already rounds to nearest
+	if(n < 0)
+		n = 0;
+	if(n > 255)
+		n = 255;
+	return n;
 }
 
 Props.unit(p: self ref Props, name: string): (int, string, int)
@@ -700,9 +767,32 @@ Props.anycolor(p: self ref Props, name: string): (int, int, int, int)
 			(r, g, b, ok) := namedcolor(tolower(x.name));
 			if(ok)
 				return (r, g, b, 1);
+		Function =>
+			fname := tolower(x.name);
+			if(fname == "hsl" || fname == "hsla"){
+				(r, g, b, ok) := hslcolor(x.args);
+				if(ok)
+					return (r, g, b, 1);
+			}
 		}
 	}
 	return (0, 0, 0, 0);
+}
+
+# Resolve an element's background colour from EITHER the `background-color`
+# longhand or the `background` shorthand (`background: #0e1116`, or
+# `background: var(--bg)` once flattened).  Modern stylesheets overwhelmingly
+# set the page/card/button fill through the shorthand, so reading only the
+# longhand leaves the whole theme unpainted.  A gradient- or image-only
+# background (`background: linear-gradient(...)`) yields found=0 — there is no
+# single solid colour to paint, which is the right (graceful) fallback.
+# Like the CSS `background` shorthand, this does NOT inherit.
+Props.bgcolor(p: self ref Props): (int, int, int, int)
+{
+	(r, g, b, found) := p.color("background-color");
+	if(found)
+		return (r, g, b, found);
+	return p.anycolor("background");
 }
 
 Props.gridtrack(p: self ref Props, basepx: int): (int, int, int)

@@ -66,7 +66,16 @@ init(nil: ref Draw->Context, nil: list of string)
 		".bnamed  { border-color: navy; }\n" +
 		".gauto   { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }\n" +
 		".grep    { grid-template-columns: repeat(3, 1fr); }\n" +
-		".gexp    { grid-template-columns: 100px 200px 1fr; }\n";
+		".gexp    { grid-template-columns: 100px 200px 1fr; }\n" +
+		".bgc     { background-color: #112233; }\n" +
+		".bgsh    { background: #0e1116; }\n" +			# shorthand colour
+		".bgnamed { background: navy; }\n" +			# shorthand named colour
+		".bggrad  { background: linear-gradient(90deg, red, blue); }\n" +  # no solid colour
+		".bgboth  { background: #ffffff; background-color: #010203; }\n" +  # longhand wins
+		".hred    { color: hsl(0, 100%, 50%); }\n" +		# -> red
+		".hgrn    { color: hsl(120, 100%, 50%); }\n" +		# -> green
+		".hblu    { color: hsl(240, 100%, 50%); }\n" +		# -> blue
+		".hbga    { background: hsla(40, 100%, 60%, 0.8); }\n";  # shorthand hsla, alpha dropped
 	(ass, aerr) := css->parse(author);
 	t->ok(aerr == nil || aerr == "", "author sheet parsed");
 	eng.addsheet(ass, Csseng->AUTHOR);
@@ -126,6 +135,47 @@ init(nil: ref Draw->Context, nil: list of string)
 	gn := eng.compute(Elem.mk("div", "", "wem", nil), nil);
 	(nil, nil, gnf) := gn.gridtrack(BASE);
 	t->ok(gnf == 0, "no grid-template-columns -> not found");
+
+	# --- background colour: longhand AND the `background` shorthand -------
+	# Modern sheets paint the page/card/button fill through the shorthand, so
+	# bgcolor() must read both (a gradient/image-only background has no solid
+	# colour to paint).  This is the fix that lights up the dark theme.
+	bgc := eng.compute(Elem.mk("div", "", "bgc", nil), nil);
+	(c0r, c0g, c0b, c0f) := bgc.bgcolor();
+	t->ok(c0f && c0r == 16r11 && c0g == 16r22 && c0b == 16r33, "background-color longhand -> #112233");
+
+	bgs := eng.compute(Elem.mk("div", "", "bgsh", nil), nil);
+	(s0r, s0g, s0b, s0f) := bgs.bgcolor();
+	t->ok(s0f && s0r == 16r0e && s0g == 16r11 && s0b == 16r16, "background shorthand -> #0e1116");
+
+	bgn := eng.compute(Elem.mk("div", "", "bgnamed", nil), nil);
+	(n0r, n0g, n0b, n0f) := bgn.bgcolor();
+	t->ok(n0f && n0r == 0 && n0g == 0 && n0b == 128, "background: navy -> #000080");
+
+	bgg := eng.compute(Elem.mk("div", "", "bggrad", nil), nil);
+	(nil, nil, nil, g0f) := bgg.bgcolor();
+	t->ok(g0f == 0, "background: linear-gradient(...) -> no solid colour");
+
+	bgb := eng.compute(Elem.mk("div", "", "bgboth", nil), nil);
+	(b0r, b0g, b0b, b0f) := bgb.bgcolor();
+	t->ok(b0f && b0r == 1 && b0g == 2 && b0b == 3, "background-color longhand beats background shorthand");
+
+	# --- hsl()/hsla() colour resolution ---------------------------------
+	hr := eng.compute(Elem.mk("div", "", "hred", nil), nil);
+	(hrr, hrg, hrb, hrf) := hr.color("color");
+	t->ok(hrf && hrr == 255 && hrg == 0 && hrb == 0, "hsl(0,100%,50%) -> red");
+
+	hg := eng.compute(Elem.mk("div", "", "hgrn", nil), nil);
+	(hgr, hgg, hgb, hgf) := hg.color("color");
+	t->ok(hgf && hgr == 0 && hgg == 255 && hgb == 0, "hsl(120,100%,50%) -> green");
+
+	hb := eng.compute(Elem.mk("div", "", "hblu", nil), nil);
+	(hbr, hbg, hbb, hbf) := hb.color("color");
+	t->ok(hbf && hbr == 0 && hbg == 0 && hbb == 255, "hsl(240,100%,50%) -> blue");
+
+	ha := eng.compute(Elem.mk("div", "", "hbga", nil), nil);
+	(har, hag, hab, haf) := ha.bgcolor();
+	t->ok(haf && har == 255 && hag == 187 && hab == 51, "hsla via background shorthand -> #ffbb33 (alpha dropped)");
 
 	t->summary();
 }
