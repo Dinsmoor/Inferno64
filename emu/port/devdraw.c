@@ -1337,7 +1337,7 @@ drawmesg(Client *client, void *av, int n)
 			repl = a[14];
 			drawrectangle(&r, a+15);
 			drawrectangle(&clipr, a+31);
-			value = BGLONG(a+47);
+			value = (u32int)BGLONG(a+47);	/* color is unsigned 32-bit; don't sign-extend into the 64-bit ulong (would break the ==DNofill no-fill check) */
 			if(drawlookup(client, dstid, 0))
 				error(Eimageexists);
 			if(scrnid){

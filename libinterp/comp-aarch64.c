@@ -10,10 +10,12 @@
  * shifts, compares and conversions use the 64-bit (X-register) encoders.
  * See AGENTS_JIT.md and AGENTS_AARCH64.md.
  *
- * STATUS: passes the full headless tests/lp64 battery under -c1 (178/178).
- * KNOWN BUG: wm/Tk under -c1 corrupts a TkTop.ctxt (crashes in lockctxt) — a
- * heap-corrupting store somewhere in the Tk/draw startup path not covered by
- * the headless suite; the GUI is interpreter-only (-c0) until that is fixed.
+ * STATUS: passes the full headless tests/lp64 battery under -c1 (178/178),
+ * behaviourally identical to the interpreter.  The JIT is validated.
+ * NOTE: wm/Tk does not yet come up under ILP64, but that is NOT a JIT problem —
+ * the GUI hits the same crashes under the interpreter (-c0); they are
+ * pre-existing ILP64 struct-layout/width bugs in the Tk/devdraw/memdraw stack,
+ * fixed incrementally outside this file.
  *
  * comp-arm.c is the structural reference.  Two things differ fundamentally on
  * A64: (1) the LP64 width split above, and (2) the PC is not a general

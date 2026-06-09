@@ -26,6 +26,20 @@ lockctxt(TkCtxt *ctxt)
 	libqlock(ctxt->lock);
 }
 
+/* TkTop.screenr is stored as a Draw_Rect (8-byte coords, matching limbo's
+ * Toplevel.screenr); narrow it to a C Rectangle for the libtk geometry code. */
+Rectangle
+tktoprect(TkTop *t)
+{
+	Rectangle r;
+
+	r.min.x = t->screenr.min.x;
+	r.min.y = t->screenr.min.y;
+	r.max.x = t->screenr.max.x;
+	r.max.y = t->screenr.max.y;
+	return r;
+}
+
 static void
 unlockctxt(TkCtxt *ctxt)
 {
@@ -136,7 +150,11 @@ Tk_toplevel(void *a)
 		return;
 	}
 	t->ctxt = ctxt;
-	t->screenr = disp->image->r;
+	/* screenr is a Draw_Rect (8-byte coords); copy from the C Rectangle field-wise */
+	t->screenr.min.x = disp->image->r.min.x;
+	t->screenr.min.y = disp->image->r.min.y;
+	t->screenr.max.x = disp->image->r.max.x;
+	t->screenr.max.y = disp->image->r.max.y;
 
 	tkw->next = t->windows;
 	t->windows = tk;

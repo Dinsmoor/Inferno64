@@ -557,13 +557,33 @@ struct TkCtxt
 	void*	extn;
 };
 
+/*
+ * Layout-compatible mirror of the limbo Draw->Rect (== Draw_Rect in the
+ * generated runt.h): two points whose coordinates are Limbo ints (WORD).
+ * libtk widget sources include tk.h without runt.h, so Draw_Rect cannot be
+ * named here; vlong matches WORD (both 8 bytes under LP64/ILP64).  This must
+ * stay the same size as Draw_Rect or limbo's TkTop.screenr write overruns the
+ * C-private fields that follow.
+ */
+typedef struct TkDrawRect TkDrawRect;
+struct TkDrawRect
+{
+	struct { vlong x, y; } min, max;
+};
+
+/* TkTop.screenr is a Draw_Rect (8-byte coords); convert it to a C Rectangle */
+extern Rectangle tktoprect(TkTop*);
+
 struct TkTop
 {
 	void*	dd;	/* really Draw_Display */
 	void*	wreq;	/* really chan of string */
 	void*	di;		/* really Draw_Image* */
 	void*	wmctxt;	/* really Draw_Wmcontext */
-	Rectangle	screenr;	/* XXX sleazy equiv to Draw_Rect, but what else? */
+	TkDrawRect	screenr;	/* must match limbo Toplevel.screenr (Draw->Rect): under
+				 * ILP64 a Draw_Rect (8-byte coords) is 32 bytes, not the
+				 * 16 of a C Rectangle - using the latter let limbo's
+				 * screenr write spill into ctxt/display below. */
 
 	/* Private from here on */
 	TkCtxt*		ctxt;

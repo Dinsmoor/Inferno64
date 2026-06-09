@@ -989,11 +989,13 @@ tkmpost(Tk *tk, int x, int y, int cascade, int bh, int adjust)
 	char *e;
 	TkWin *w;
 	TkTop *t;
+	Rectangle drbuf;
 	Rectangle *dr;
 
 	t = tk->env->top;
 	if(adjust){
-		dr = &t->screenr;
+		drbuf = tktoprect(t);
+		dr = &drbuf;
 		if(x+tk->act.width > dr->max.x)
 			x = dr->max.x - tk->act.width;
 		if(x < 0)
@@ -1604,7 +1606,7 @@ autoscroll(Tk *tk, void *v, int cancelled)
 print("not autoscrolling, act: %P, req: %P\n", tkw->act, tkw->req);
 		return;
 }
-	dr = tk->env->top->screenr;
+	dr = tktoprect(tk->env->top);
 	delta.x = TKF2I(tkw->delta.x * tkw->speed);
 	delta.y = TKF2I(tkw->delta.y * tkw->speed);
 	r = rectaddpt(tkrect(tk, 1), Pt(tk->borderwidth + tkw->act.x, tk->borderwidth + tkw->act.y));
@@ -1650,7 +1652,7 @@ startautoscroll(Tk *tk, TkMouse *m)
 	Point d;
 	TkWin *tkw;
 	tkw = TKobj(TkWin, tk);
-	dr = tk->env->top->screenr;
+	dr = tktoprect(tk->env->top);
 	r = rectaddpt(tkrect(tk, 1), Pt(tk->borderwidth + tkw->act.x, tk->borderwidth + tkw->act.y));
 	d = Pt(0, 0);
 	if(m->x <= 0 && r.min.x < dr.min.x)
