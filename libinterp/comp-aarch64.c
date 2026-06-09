@@ -1,13 +1,19 @@
 /*
- * Dis JIT compiler back-end for AArch64 (A64) — LP64.
+ * Dis JIT compiler back-end for AArch64 (A64) — ILP64.
  *
- * This is the first LP64 Dis JIT for Inferno.  The existing 32-bit back-ends
- * (comp-{arm,386,mips,power,sparc}.c) all conflate Dis word == Dis pointer ==
- * native register width (4 bytes); that assumption breaks under LP64, where a
- * Dis word is 4 bytes (IBY2WD) but a Dis pointer is 8 bytes (IBY2PTR).  The
- * code below is careful to use 4-byte loads/stores (Ldw/Stw, W registers) for
- * int/word fields and 8-byte (Ldp/Stp, X registers) for pointer/big/real
- * fields.  See AGENTS_JIT.md and AGENTS_AARCH64.md.
+ * Originally written as the LP64 dual-ABI back-end (Dis word 4 bytes, Dis
+ * pointer 8); ported to ILP64, where a Dis word (Limbo int) == pointer == big
+ * == real == 8 bytes.  The Ldw/Stw pseudo-ops therefore now emit 8-byte
+ * X-register loads/stores (a Dis word is 64-bit); the only things still 4 bytes
+ * are native C int struct fields (REG.IC, Modlink.compiled, Type.size,
+ * String.len), addressed via the dedicated Ldi/Sti pseudo-ops.  Int arithmetic,
+ * shifts, compares and conversions use the 64-bit (X-register) encoders.
+ * See AGENTS_JIT.md and AGENTS_AARCH64.md.
+ *
+ * STATUS: passes the full headless tests/lp64 battery under -c1 (178/178).
+ * KNOWN BUG: wm/Tk under -c1 corrupts a TkTop.ctxt (crashes in lockctxt) — a
+ * heap-corrupting store somewhere in the Tk/draw startup path not covered by
+ * the headless suite; the GUI is interpreter-only (-c0) until that is fixed.
  *
  * comp-arm.c is the structural reference.  Two things differ fundamentally on
  * A64: (1) the LP64 width split above, and (2) the PC is not a general
@@ -138,10 +144,12 @@ enum
 
 	/* mem() pseudo-ops */
 	Lea = 1,		/* compute address rm+disp */
-	Ldw, Stw,		/* 4-byte word/int */
+	Ldw, Stw,		/* 8-byte word/int (ILP64: a Dis word is 64-bit) */
 	Ldp, Stp,		/* 8-byte pointer/big/real */
 	Ldb, Stb,		/* 1-byte */
 	Ldf, Stf,		/* 8-byte double, in/out of an FP (d) register */
+	Ldi, Sti,		/* 4-byte native C int (REG.IC, Modlink.compiled,
+				 * Type.size, String.len) - still 32-bit under ILP64 */
 
 	/* punt operand flags */
 	SRCOP	= (1<<0),
@@ -243,6 +251,9 @@ static u32 mulx(int rd,int rn,int rm){ return 0x9B007C00u|((rm&31)<<16)|((rn&31)
 static u32 lslvw(int rd,int rn,int rm){ return 0x1AC02000u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
 static u32 lsrvw(int rd,int rn,int rm){ return 0x1AC02400u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
 static u32 asrvw(int rd,int rn,int rm){ return 0x1AC02800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 lslvx(int rd,int rn,int rm){ return 0x9AC02000u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 lsrvx(int rd,int rn,int rm){ return 0x9AC02400u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
+static u32 asrvx(int rd,int rn,int rm){ return 0x9AC02800u|((rm&31)<<16)|((rn&31)<<5)|(rd&31); }
 static u32 sxtw(int rd,int rn){ return 0x93407C00u|((rn&31)<<5)|(rd&31); }
 
 static u32 ldrx(int rt,int rn,u32 off){ return 0xF9400000u|(((off>>3)&0xFFF)<<10)|((rn&31)<<5)|(rt&31); }
@@ -358,15 +369,25 @@ emitmem(int inst, long disp, int rm, int r)
 		if(disp < 0 && -disp < 4096) { gen(subix(r, rm, -disp)); return; }
 		con(disp, RCON); gen(addx(r, rm, RCON));
 		return;
-	case Ldw: case Stw:
-		if(disp >= 0 && (disp&3)==0 && (disp>>2) < 4096) {
-			gen(inst==Ldw ? ldrw(r,rm,disp) : strw(r,rm,disp)); return;
+	case Ldw: case Stw:		/* ILP64: a Dis word is 8 bytes -> X-register */
+		if(disp >= 0 && (disp&7)==0 && (disp>>3) < 4096) {
+			gen(inst==Ldw ? ldrx(r,rm,disp) : strx(r,rm,disp)); return;
 		}
 		if(disp >= -256 && disp < 256) {
-			gen(inst==Ldw ? ldurw(r,rm,disp) : sturw(r,rm,disp)); return;
+			gen(inst==Ldw ? ldurx(r,rm,disp) : sturx(r,rm,disp)); return;
 		}
 		con(disp, RCON);
-		gen(inst==Ldw ? ldrw_r(r,rm,RCON) : strw_r(r,rm,RCON));
+		gen(inst==Ldw ? ldrx_r(r,rm,RCON) : strx_r(r,rm,RCON));
+		return;
+	case Ldi: case Sti:		/* native C int: 4 bytes */
+		if(disp >= 0 && (disp&3)==0 && (disp>>2) < 4096) {
+			gen(inst==Ldi ? ldrw(r,rm,disp) : strw(r,rm,disp)); return;
+		}
+		if(disp >= -256 && disp < 256) {
+			gen(inst==Ldi ? ldurw(r,rm,disp) : sturw(r,rm,disp)); return;
+		}
+		con(disp, RCON);
+		gen(inst==Ldi ? ldrw_r(r,rm,RCON) : strw_r(r,rm,RCON));
 		return;
 	case Ldp: case Stp:
 		if(disp >= 0 && (disp&7)==0 && (disp>>3) < 4096) {
@@ -597,9 +618,9 @@ schedcheck(Inst *i)
 {
 	if(!RESCHED || i->d.ins > i)		/* only backward branches */
 		return;
-	mem(Ldw, O(REG, IC), RREG, RA0);
+	mem(Ldi, O(REG, IC), RREG, RA0);	/* REG.IC is a C int (4 bytes) */
 	gen(subsiw(RA0, RA0, 1));		/* --IC, set flags */
-	mem(Stw, O(REG, IC), RREG, RA0);
+	mem(Sti, O(REG, IC), RREG, RA0);
 	callmac(LE, MacRELQ);			/* if IC<=0, reschedule (resumes past here) */
 }
 
@@ -696,9 +717,9 @@ static void
 cbra(Inst *i, int cc)
 {
 	schedcheck(i);
-	opwld(i, Ldw, RA0);		/* s */
-	mid(i, Ldw, RA1);		/* m */
-	gen(cmpw(RA0, RA1));		/* s - m */
+	opwld(i, Ldw, RA0);		/* s (8 bytes) */
+	mid(i, Ldw, RA1);		/* m (8 bytes) */
+	gen(cmpx(RA0, RA1));		/* s - m (64-bit) */
 	bradis(cc, i->d.ins - mod->prog);
 }
 
@@ -792,10 +813,11 @@ comcasel(Inst *i)
 }
 
 /*
- * String case (ICASEC).  LP64 table layout (see xec.c OP(casec)):
+ * String case (ICASEC).  ILP64 table layout (see xec.c OP(casec)):
  *   [count : IBY2PTR slot][entry: String* low; String* high; WORD dst]*[wild dst]
  * Each entry is sizeof(struct{String*,String*,WORD}) = 3*IBY2PTR = 24 bytes
- * (6 WORDs), with the dst WORD at byte offset 2*IBY2PTR.  Compiled modules need
+ * (3 WORDs under ILP64), with the dst WORD at byte offset 2*IBY2PTR (word 2).
+ * Compiled modules need
  * the dst slots relocated from Dis PC to native code address (read back via
  * R.PC = (Inst*)*dest), so this must run like comcase/comcasel — without it the
  * interpreter's casec jumps to raw Dis offsets and the program wanders off (the
@@ -818,11 +840,11 @@ comcasec(Inst *i)
 		return;
 	n = -n-1;
 	*cnt = n;					/* restore count */
-	t = (WORD*)(mod->origmp + i->d.ind + IBY2PTR);	/* entries, 6 WORDs each */
-	e = t + n*6;
+	t = (WORD*)(mod->origmp + i->d.ind + IBY2PTR);	/* entries: {String* l, h; WORD dst} */
+	e = t + n*3;					/* ILP64: 3 WORDs/entry (24 bytes) */
 	while(t < e) {
-		t[4] = (WORD)RELPC(patch[t[4]]);	/* dst at byte 2*IBY2PTR */
-		t += 6;
+		t[2] = (WORD)RELPC(patch[t[2]]);	/* dst at word 2 (byte 2*IBY2PTR==16) */
+		t += 3;
 	}
 	t[0] = (WORD)RELPC(patch[t[0]]);		/* wild dest */
 }
@@ -898,7 +920,7 @@ macmcal(void)
 	mem(Ldp, O(Modlink, MP), RA3, RMP);
 	mem(Stp, O(REG, MP), RREG, RMP);		/* R.MP = ml->MP */
 	mem(Stp, O(REG, FP), RREG, RFP);		/* R.FP = f */
-	mem(Ldw, O(Modlink, compiled), RA3, RA1);
+	mem(Ldi, O(Modlink, compiled), RA3, RA1);	/* C int (4 bytes) */
 	gen(cmpiw(RA1, 0));
 	cp = code;
 	gen(bcond(EQ, 0));				/* !compiled -> interp */
@@ -1081,13 +1103,13 @@ indarr(Inst *i, int shift, int dynsize)
 	opwld(i, Ldp, RA0);			/* array pointer A(s) */
 	gen(cmnix(RA0));
 	trapif(EQ, bounds);			/* a == H -> exBounds */
-	mem(Ldw, O(Array, len), RA0, RA2);	/* len (int) */
-	opwst(i, Ldw, RA1);			/* index W(d) */
-	gen(subsw(ZR, RA1, RA2));		/* cmp index,len (unsigned) */
+	mem(Ldw, O(Array, len), RA0, RA2);	/* Array.len is WORD (8 bytes) */
+	opwst(i, Ldw, RA1);			/* index W(d) (8 bytes) */
+	gen(cmpx(RA1, RA2));			/* cmp index,len (64-bit unsigned) */
 	trapif(HS, bounds);			/* index >= len -> exBounds */
 	if(dynsize) {
 		mem(Ldp, O(Array, t), RA0, RA3);
-		mem(Ldw, O(Type, size), RA3, RA3);
+		mem(Ldi, O(Type, size), RA3, RA3);	/* Type.size is a C int (4 bytes) */
 		gen(mulx(RA1, RA1, RA3));	/* index * size (64-bit) */
 		mem(Ldp, O(Array, data), RA0, RA0);
 		gen(addx(RA0, RA0, RA1));
@@ -1140,19 +1162,20 @@ comp(Inst *i)
 	case ICVTWB:
 		opwld(i, Ldw, RA0); opwst(i, Stb, RA0); break;
 	case ICVTWL:
-		opwld(i, Ldw, RA0); gen(sxtw(RA0, RA0)); opwst(i, Stp, RA0); break;
+		/* ILP64: int and big are both 64-bit, so this is a plain 8-byte move */
+		opwld(i, Ldw, RA0); opwst(i, Stp, RA0); break;
 	case ICVTLW:
 		opwld(i, Ldp, RA0); opwst(i, Stw, RA0); break;
 
-	/* ---- word arithmetic ---- */
-	case IADDW: arithw(i, addw); break;
-	case ISUBW: arithw(i, subw); break;
-	case IANDW: arithw(i, andw); break;
-	case IORW:  arithw(i, orrw); break;
-	case IXORW: arithw(i, eorw); break;
-	case IMULW: arithw(i, mulw); break;
-	case ISHLW: shiftw(i, lslvw); break;
-	case ISHRW: shiftw(i, asrvw); break;	/* W signed -> arithmetic */
+	/* ---- word (int) arithmetic: 64-bit native under ILP64 ---- */
+	case IADDW: arithw(i, addx); break;
+	case ISUBW: arithw(i, subx); break;
+	case IANDW: arithw(i, andx); break;
+	case IORW:  arithw(i, orrx); break;
+	case IXORW: arithw(i, eorx); break;
+	case IMULW: arithw(i, mulx); break;
+	case ISHLW: shiftw(i, lslvx); break;
+	case ISHRW: shiftw(i, asrvx); break;	/* W signed -> arithmetic */
 
 	/* ---- byte arithmetic ---- */
 	case IADDB: arithb(i, addw); break;
@@ -1184,7 +1207,7 @@ comp(Inst *i)
 		opwld(i, Ldp, RA1);
 		con(0, RA0);
 		gen(cmnix(RA1));
-		memc(NE, Ldw, O(String, len), RA1, RA0);
+		memc(NE, Ldi, O(String, len), RA1, RA0);	/* String.len is a C int (4 bytes) */
 		gen(cmpiw(RA0, 0));
 		cp = code; gen(bcond(GE, 0));
 		gen(subw(RA0, ZR, RA0));		/* abs: negate if <0 */
@@ -1208,7 +1231,7 @@ comp(Inst *i)
 	}
 
 	/* ---- array indexing ---- */
-	case IINDW: indarr(i, 2, 0); break;
+	case IINDW: indarr(i, 3, 0); break;	/* ILP64: int element is 8 bytes (1<<3) */
 	case IINDL:
 	case IINDF: indarr(i, 3, 0); break;
 	case IINDB: indarr(i, 0, 0); break;
@@ -1349,9 +1372,9 @@ comp(Inst *i)
 		gen(fnegd(DF0, DF0));
 		fopwst(i, DF0);
 		break;
-	case ICVTWF:				/* F(d) = (real) W(s)  (int32 -> double) */
+	case ICVTWF:				/* F(d) = (real) W(s)  (ILP64 int is 64-bit) */
 		opwld(i, Ldw, RA0);
-		gen(scvtfwd(DF0, RA0));
+		gen(scvtfxd(DF0, RA0));
 		fopwst(i, DF0);
 		break;
 	case ICVTLF:				/* F(d) = (real) V(s)  (int64 -> double) */
@@ -1359,8 +1382,8 @@ comp(Inst *i)
 		gen(scvtfxd(DF0, RA0));
 		fopwst(i, DF0);
 		break;
-	case ICVTFW:				/* W(d) = round(F(s))  (double -> int32) */
-		cvtfi(i, fcvtzsdw, Stw);
+	case ICVTFW:				/* W(d) = round(F(s))  (ILP64 int is 64-bit) */
+		cvtfi(i, fcvtzsdx, Stw);
 		break;
 	case ICVTFL:				/* V(d) = round(F(s))  (double -> int64) */
 		cvtfi(i, fcvtzsdx, Stp);
