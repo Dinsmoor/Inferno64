@@ -20,8 +20,11 @@ edgerect(Prefab_Environ *e, Draw_Point p, Draw_Rect *rin)
 	r.max.y = p.y + 1 + Dy(*rin) + 1;
 	/* outer box computed; now make sure it's all visible */
 	s = lookupscreen(e->screen);
-	if(s != nil)
-		fitrect((Rectangle*)&r, s->display->image->r);
+	if(s != nil){
+		Rectangle cr = IRECT(r);
+		fitrect(&cr, s->display->image->r);
+		r = DRECT(cr);
+	}
 
 	rin->min.x = r.min.x+1;
 	rin->min.y = r.min.y+1;

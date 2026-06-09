@@ -221,13 +221,13 @@ Tk_rect(void *fp)
 
 	t = (TkTop*)f->t;
 	if(t == H || D2H(t)->t != fakeTkTop){
-		*(Rectangle*)f->ret = ZR;
+		*f->ret = DRECT(ZR);
 		return;
 	}
 	lockctxt(t->ctxt);
 	tk = tklook(t, string2c(f->name), 0);
 	if(tk == nil){
-		*(Rectangle*)f->ret = ZR;
+		*f->ret = DRECT(ZR);
 		unlockctxt(t->ctxt);
 		return;
 	}
@@ -260,7 +260,7 @@ Tk_rect(void *fp)
 		r.max.x = r.min.x + w;
 		r.max.y = r.min.y + h;
 	}
-	*(Rectangle*)f->ret = r;
+	*f->ret = DRECT(r);
 }
 
 int

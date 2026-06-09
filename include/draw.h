@@ -540,12 +540,20 @@ extern	Font*	font_open(Display*, char*);
 extern	void	font_close(Font*);
 
 /*
- * Macros to convert between C and Limbo types
+ * Macros to convert between C and Limbo types.
+ *
+ * Under LP64 (Limbo int == 32 bits) a Draw_Point/Draw_Rect was bit-identical
+ * to a C Point/Rectangle, so these could be a free reinterpret cast.  Under
+ * ILP64 (Limbo int == WORD == 64 bits) a Draw_Point is 16 bytes and a
+ * Draw_Rect 32 bytes, while C Point/Rectangle stay 8/16 bytes (C int), so the
+ * conversion must be field-wise.  All call sites use these as rvalues only.
  */
-#define	IRECT(r)	(*(Rectangle*)&(r))
-#define	DRECT(r)	(*(Draw_Rect*)&(r))
-#define	IPOINT(p)	(*(Point*)&(p))
-#define	DPOINT(p)	(*(Draw_Point*)&(p))
+#define	IPOINT(p)	((Point){ (int)(p).x, (int)(p).y })
+#define	DPOINT(p)	((Draw_Point){ (WORD)(p).x, (WORD)(p).y })
+#define	IRECT(r)	((Rectangle){ { (int)(r).min.x, (int)(r).min.y }, \
+				      { (int)(r).max.x, (int)(r).max.y } })
+#define	DRECT(r)	((Draw_Rect){ { (WORD)(r).min.x, (WORD)(r).min.y }, \
+				      { (WORD)(r).max.x, (WORD)(r).max.y } })
 
 #define P2P(p1, p2)	(p1).x = (p2).x, (p1).y = (p2).y
 #define R2R(r1, r2)	(r1).min.x = (r2).min.x, (r1).min.y = (r2).min.y,\
