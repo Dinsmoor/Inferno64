@@ -14,8 +14,10 @@ set -u
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""')
 
-# Only react to commands that invoke make (word-boundary, so cmake/makefile miss).
-printf '%s' "$cmd" | grep -Eqw 'make' || exit 0
+# Only react when make is in COMMAND POSITION -- at the start or after a shell
+# separator (;, &, |, (, `), optionally behind nohup/time/env VAR=... . This
+# avoids firing when "make" merely appears in prose (e.g. a commit message arg).
+printf '%s' "$cmd" | grep -Eq '(^|[;&|(`])[[:space:]]*(nohup[[:space:]]+|time[[:space:]]+|env[[:space:]]+([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*)?make([[:space:]]|$)' || exit 0
 
 # Any emu processes around (zombie or live) that could hold the binary?
 procs=$(ps -eo pid,stat,comm 2>/dev/null | awk '$3 ~ /^emu/ {print $1" ("$2")"}')
