@@ -80,6 +80,21 @@ Face_loadglyph(void *fp)
 		return;
 	}
 	g = H2D(Freetype_Glyph*, h);
+	/*
+	 * Validate glyph dimensions before sizing/copying (font-validation
+	 * hardening, in the spirit of the 9front draw bounds checks). FreeType can
+	 * be asked for absurd sizes -- e.g. a runaway CSS font-size -- and
+	 * width*height can overflow a 32-bit int, undersizing the array while the
+	 * per-row copy below still writes width*height bytes: a heap overrun.
+	 * width must also not exceed the source pitch (bpr), or the copy over-reads
+	 * the source bitmap. Reject implausible glyphs instead of corrupting the heap.
+	 */
+	if(ftg.width < 0 || ftg.height < 0 || ftg.width > ftg.bpr
+	|| (vlong)ftg.width*ftg.height > (64*1024*1024)){
+		destroy(g);
+		kwerrstr("freetype: implausible glyph dimensions");
+		return;
+	}
 	n = ftg.width*ftg.height;
 	h = heaparray(&Tbyte, n);
 	if (h == H) {
