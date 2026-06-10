@@ -1,5 +1,7 @@
 # libstb: the vendored stb suite (what's there, and where it's useful)
 
+> *So you want to vendor or use a stb single-header library?* This is the reference.
+
 The whole [stb](https://github.com/nothings/stb) single-header collection is
 vendored at `libstb/stb/` (public domain / MIT; upstream commit pinned in
 `libstb/stb/UPSTREAM_COMMIT`). Today **image decode and PNG encode are wired**

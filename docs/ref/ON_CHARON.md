@@ -1,5 +1,7 @@
 # Charon — Inferno Web Browser Agent Reference
 
+> *So you want to hack on Charon, the web browser?* This is the reference.
+
 Charon is Inferno's graphical web browser, written entirely in Limbo. It runs on the Dis VM, so it is fully portable across every Inferno platform (hosted and native). Its original baseline was mid-1990s web standards (HTML 3.2 / Netscape Navigator 3, HTTP 1.0/1.1, FTP, ECMAScript-262 2nd Edition ≈ JavaScript 1.1); the ongoing modernisation has since added **modern HTTPS (TLS 1.2/1.3 via mbedTLS — see below)**, gzip/deflate + chunked transfer, UTF-8 default, RFC 6265 cookies, localStorage, HTML5 semantic tags, and a `<canvas>` 2D **and** 3D context. See the Modernisation Plan at the end for per-feature status.
 
 > **Doc currency note (2026-06):** this reference was first written 2026-06-02 and

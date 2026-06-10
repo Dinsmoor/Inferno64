@@ -1,5 +1,7 @@
 # Graphics in Inferno OS: Draw, Tk, and Prefab
 
+> *So you want to draw with Draw, Tk, or Prefab?* This is the reference.
+
 > **LP64-port note (2026-06): the GUI works.** `CONF=emu` is now the default
 > build and `wm/wm` runs under X11 (verified headless via Xvfb + screenshot:
 > desktop, taskbar, FreeType-rendered menus, mouse input). Two things made it

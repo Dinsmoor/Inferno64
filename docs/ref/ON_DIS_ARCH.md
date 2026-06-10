@@ -1,5 +1,7 @@
 # Dis VM — Architecture & ABI Realization
 
+> *So you want to know how Dis is realised on a real arch/ABI?* This is the reference.
+
 **Audience / scope.** `ON_DIS.md` describes the **portable** Dis VM and
 instruction set — true on any host. *This* doc covers how that model is realized on
 a concrete **architecture and pointer-ABI**: the dual-ABI field widths, the per-ABI

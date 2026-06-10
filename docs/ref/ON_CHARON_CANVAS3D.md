@@ -1,5 +1,7 @@
 # Charon `<canvas>` 3D Context — Wiring Design
 
+> *So you want to add a 3D <canvas> context to Charon (design)?* This is the reference.
+
 Status: **design / not yet implemented.** Depends on the `raylib-limbo` branch
 (`$Raster3` + `Raymath`) landing on master. This document is the implementation
 plan for adding a 3D rendering context to Charon's `<canvas>`, alongside the

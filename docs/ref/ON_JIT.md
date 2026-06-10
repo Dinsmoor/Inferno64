@@ -1,5 +1,7 @@
 # Dis JIT / Native Code Compilation
 
+> *So you want to write or extend the native-code JIT?* This is the reference.
+
 Inferno can run Dis bytecode in two modes: interpreted (the default, architecture-independent) or JIT-compiled to native machine code. The JIT is controlled by `cflag` and implemented per-architecture in `libinterp/comp-OBJTYPE.c`. For a new architecture like aarch64, the first decision is whether to implement a JIT or run interpreter-only.
 
 This doc does not re-cover the Dis VM scheduler (see ON_EMU.md) or the Dis wire format (see ON_9P.md). It focuses on the compilation pipeline itself.

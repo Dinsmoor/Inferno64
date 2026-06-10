@@ -1,5 +1,7 @@
 # Dis Virtual Machine — Agent Reference
 
+> *So you want to understand the Dis VM?* This is the reference.
+
 The Dis VM is the execution engine for all Inferno programs. It is a register-based virtual machine with a flat address space per module instance, concurrent threads, and a garbage-collected heap. This document covers the **portable** VM: the instruction set, object file format, interpreter loop, garbage collector, channel operations, exceptions, and the scheduler.
 
 > **Architecture/ABI-specific material lives in `ON_DIS_ARCH.md`** — pointer

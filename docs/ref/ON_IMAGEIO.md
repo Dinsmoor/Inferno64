@@ -1,5 +1,7 @@
 # Image decoding: $Imageio, Imageload, and vendored stb
 
+> *So you want to decode an image into a Draw image?* This is the reference.
+
 Native decoding of common image formats (PNG, JPEG, BMP, TGA, GIF, PSD, HDR,
 PIC, PNM) into Draw images, backed by the vendored **stb** single-header
 libraries. Use this when you need a real raster image *inside* Inferno (a

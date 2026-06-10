@@ -1,5 +1,7 @@
 # Network Programming in Inferno OS
 
+> *So you want to do network I/O or TLS?* This is the reference.
+
 All network I/O in Inferno goes through the `/net` filesystem. The `Dial` module is a thin wrapper that opens the right files and writes the right commands so you usually don't have to touch `/net` directly.
 
 ## The Dial Module

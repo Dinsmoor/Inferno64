@@ -1,5 +1,7 @@
 # AArch64 Architecture Reference — VM Porting Guide
 
+> *So you want to port the VM and its JIT to AArch64?* This is the reference.
+
 This document covers the AArch64 (ARM64, ARMv8-A) architecture at the depth needed to port a virtual machine interpreter and JIT compiler — specifically the Dis VM. It covers the register file, calling convention, instruction set, memory model, atomics, cache coherency for JIT, signal integration, and assembly syntax. It does not cover the native Inferno kernel (bare-metal); this is the hosted-emulator (emu) perspective.
 
 **Authoritative sources** (consult for anything not covered here):

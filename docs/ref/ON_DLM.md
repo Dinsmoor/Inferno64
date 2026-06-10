@@ -1,5 +1,7 @@
 # DLM (Dynamically Loaded Modules) — libdynld, dynld, and why it's stubbed
 
+> *So you want to load native C modules at runtime (read this first — you mostly can't, here's why)?* This is the reference.
+
 This document exists because the DLM machinery in this tree is one of the
 places where **the code organization actively misleads you about the intent.**
 The files are present, partly compiled, named like a live feature, and wired

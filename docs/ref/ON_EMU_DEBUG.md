@@ -1,5 +1,7 @@
 # Debugging the Inferno Emulator (C internals — faults, hangs, sanitizers, cores)
 
+> *So you want to debug the emu itself (a C-level crash, hang, or heap bug)?* This is the reference.
+
 **Audience / when to read this:** the bug is in the **C emulator itself** — emu
 crashed with a host SIGSEGV/SIGBUS/SIGILL, hung, corrupted its heap, or you're
 hunting an LP64 64→32 truncation in the VM/libraries. Ask yourself first: *is the

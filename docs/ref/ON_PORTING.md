@@ -1,5 +1,7 @@
 # Porting emu to Linux/aarch64
 
+> *So you want to port emu to a new host system?* This is the reference.
+
 This doc is the file-by-file map of the Linux/aarch64 emu port. It assumes
 familiarity with the kernel architecture (ON_EMU.md), the build system
 (`INSTALL` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI

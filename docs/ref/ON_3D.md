@@ -1,5 +1,7 @@
 # 3D / raylib-in-Limbo: Raymath, $Raster3, Objloader
 
+> *So you want to draw 3D (or 2D) graphics from Limbo?* This is the reference.
+
 A software 2D/3D graphics stack layered on Inferno's native Draw, ported from
 raylib's feature set. **It is a Limbo port over Draw, not an FFI binding.**
 Design rationale: native desktop integration (composites into `wm/wm`), no
