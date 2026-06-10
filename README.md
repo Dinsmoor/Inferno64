@@ -27,6 +27,12 @@ but it is not proved clean. If you want to help catch what's left, see
 [Debugging](BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
 how to set up an emu session that reliably captures a core dump + logs.
 
+For the nasty class where the crash lands nowhere near the cause, there's a
+built-in electric-fence mode (`LIMBRULFENCEMEMSIZE`) that quarantines one heap
+size-class so a stray or use-after-free write faults *at the culprit* — it's what
+finally pinned a years-old free-tree corruption to a use-after-free in proc-group
+teardown.
+
 ## Try it out
 
 Clone it and run one command:
