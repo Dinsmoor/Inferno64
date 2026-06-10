@@ -38,13 +38,16 @@ running emu directly, the JIT, debugging — see **[`docs/ON_BUILDING.md`](docs/
 
 ## Documentation
 
+The documentation lives under [`docs/`](docs/), organised as a
+"**so you want to…**" index — start there:
+**[`docs/README.md`](docs/README.md)**.
+
 | if you want to… | see |
 |---|---|
+| the full "so you want to…" doc index | [`docs/README.md`](docs/README.md) |
 | build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
 | install prerequisites / amd64 notes | [`INSTALL`](INSTALL) |
-| the authoritative dual-ABI reference | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
 | why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`docs/ABI_MODEL.md`](docs/ABI_MODEL.md) |
-| per-subsystem references — "so you want to…" (Dis, JIT, kernel, graphics, Charon, …) | [`docs/ref/ON_*.md`](docs/ref/) |
 
 ## What is the deal with LP64/ILP64
 
