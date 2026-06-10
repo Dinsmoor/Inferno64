@@ -147,7 +147,8 @@ gdb emu/Linux/o.emu /tmp/inferno-cores/core.emu.*    # frame 0 = the culprit
   recycled free block's `parent`). Lazy detection had chased it for sessions;
   fencing the 128-byte class faulted on the first bounce, in `killgrp`, with the
   writer's stack. Fixed in `emu/port/dis.c` (`delgrp` defers freeing a `Pkilled`
-  group). See [[charon-close-heap-corruption]].
+  group); guarded by `tests/web/regress_killgrp_uaf.sh` (fences that class +
+  bounces charon — CLEAN means the UAF hasn't returned).
 
 ### Graceful failure isolation — what already survives, what aborts
 
