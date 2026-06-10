@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><title>probe css3</title>
+<style>
+body { background:#1e2228; color:#ddd; margin:1.5em; }
+.grid { display:grid; grid-template-columns: 1fr 2fr 1fr; gap:8px; margin:1em 0; }
+.grid > div { background:#334; padding:.6em; }
+.flex { display:flex; gap:6px; }
+.flex > div { background:#343; padding:.6em; flex:1; }
+.grad { background:linear-gradient(90deg,#aa0000,#00aa00); padding:1em; }
+.hsl { color:hsl(200,60%,65%); background:hsla(10,50%,30%,.5); padding:.5em; }
+.pos { position:relative; left:10px; }
+@media (min-width:100px){ .mq { color:hsl(120,70%,55%); } }
+</style></head><body>
+<h1>CSS3 features</h1>
+<div class="grid"><div>g1</div><div>g2</div><div>g3</div><div>g4</div><div>g5</div><div>g6</div></div>
+<div class="flex"><div>f1</div><div>f2</div><div>f3</div></div>
+<div class="grad">linear gradient box</div>
+<div class="hsl">hsl + hsla colors</div>
+<div class="pos mq">relative position + media query</div>
+</body></html>
