@@ -1,16 +1,16 @@
 # Dis VM — Architecture & ABI Realization
 
-**Audience / scope.** `ref/AGENTS_DIS.md` describes the **portable** Dis VM and
+**Audience / scope.** `ON_DIS.md` describes the **portable** Dis VM and
 instruction set — true on any host. *This* doc covers how that model is realized on
 a concrete **architecture and pointer-ABI**: the dual-ABI field widths, the per-ABI
 `.dis` magic, compiled (JIT) execution and its register map, and the emu memory
-pools. The deep JIT codegen reference is `ref/AGENTS_JIT.md`; the durable width
-rules are `ref/AGENTS_DUALABI.md` — this doc is the bridge.
+pools. The deep JIT codegen reference is `ON_JIT.md`; the durable width
+rules are `ON_THE_DUAL_ABI.md` — this doc is the bridge.
 
 > **Only Linux/aarch64 (LP64) is built and tested in this tree.** Everything below
 > reflects that target. The other `comp-*.c` / `das-*.c` backends (arm/386/mips/
 > power/sparc) are upstream legacy and are **not** built or exercised here; the
-> Linux/amd64 LP64 glue exists but is **UNBUILT/UNTESTED** (see `AGENTS_DUALABI.md`).
+> Linux/amd64 LP64 glue exists but is **UNBUILT/UNTESTED** (see `ON_THE_DUAL_ABI.md`).
 
 ---
 
@@ -35,7 +35,7 @@ The invariant that keeps Dis bytecode portable: **a Dis `WORD` is always 32-bit*
 All width logic in the C is symbolic (`IBY2PTR` vs `IBY2WD`), and a static assert in
 `xec.c` (`sizeof(void*)==IBY2PTR`) guards it. The class of bug this creates — a
 64-bit value truncated to 32 — and the layered defences against it are documented in
-`ref/AGENTS_DUALABI.md` and `ref/AGENTS_EMU_DEBUG.md`.
+`ON_THE_DUAL_ABI.md` and `ON_EMU_DEBUG.md`.
 
 ---
 
@@ -66,7 +66,7 @@ native code at load time via the arch backend `libinterp/comp-aarch64.c`. There 
 **no** tiered / hot-count heuristic — it is whole-module, at load (plus explicit
 `Loader->compile`/`compilebg`). Full detail — two-pass codegen, the encoder layer,
 FP, the `jitlock` compile-serialization invariant, and the background-warming
-subsystem — is in **`ref/AGENTS_JIT.md`**. The VM-level realization:
+subsystem — is in **`ON_JIT.md`**. The VM-level realization:
 
 **Execution selection** (`libinterp/xec.c`, the dispatch loop):
 
@@ -82,7 +82,7 @@ else
 used for exception tables and profiling.
 
 **AArch64 register map** (`comp-aarch64.c` — the *real* map; an older copy of this
-table in `AGENTS_DIS.md` mistakenly listed the ARM32 numbers):
+table in `ON_DIS.md` mistakenly listed the ARM32 numbers):
 
 ```
 x0–x3 = RA0–RA3   (scratch / C args+return)
@@ -104,7 +104,7 @@ x30   = LR
 `0x20000000`, hard cap `0x80000000`); `segflush` `mprotect`s it RWX as a backstop.
 Low addresses are **required** because IGOTO/ICASE jump tables store native code
 addresses in 32-bit `WORD` slots that the interpreter reads back as `R.PC`. See
-`AGENTS_JIT.md` for the latent multi-arena caveat.
+`ON_JIT.md` for the latent multi-arena caveat.
 
 ---
 
@@ -122,12 +122,12 @@ addresses in 32-bit `WORD` slots that the interpreter reads back as `R.PC`. See
 Override at launch: `-p main=N`, `-p heap=N`, `-p image=N`. The allocator uses a
 balanced tree of free blocks (`Bhdr`) and coalesces neighbours on free. The
 `Bhdr.size` field is a 32-bit `int` (a pre-existing ~2GB-per-pool design limit, not
-an LP64 regression — see `AGENTS_DUALABI.md`). Heap corruption here trips
-`poolcheck`, which `abort()`s (see `AGENTS_EMU_DEBUG.md`).
+an LP64 regression — see `ON_THE_DUAL_ABI.md`). Heap corruption here trips
+`poolcheck`, which `abort()`s (see `ON_EMU_DEBUG.md`).
 
 ---
 
-**Cross-references:** `ref/AGENTS_DIS.md` (the portable VM & instruction set) ·
-`ref/AGENTS_JIT.md` (JIT codegen, the as-built aarch64 reference) ·
-`ref/AGENTS_DUALABI.md` (the durable dual-ABI width rules + the LP64 bug class) ·
-`ref/AGENTS_EMU.md` (emulator architecture) · `ref/AGENTS_AARCH64.md` (the arch port).
+**Cross-references:** `ON_DIS.md` (the portable VM & instruction set) ·
+`ON_JIT.md` (JIT codegen, the as-built aarch64 reference) ·
+`ON_THE_DUAL_ABI.md` (the durable dual-ABI width rules + the LP64 bug class) ·
+`ON_EMU.md` (emulator architecture) · `ON_AARCH64_PORT.md` (the arch port).

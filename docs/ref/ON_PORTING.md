@@ -1,10 +1,10 @@
 # Porting emu to Linux/aarch64
 
 This doc is the file-by-file map of the Linux/aarch64 emu port. It assumes
-familiarity with the kernel architecture (AGENTS_EMU.md), the build system
-(`INSTALL` and the root `Makefile`), the JIT (AGENTS_JIT.md), and the LP64/dual-ABI
-work (AGENTS_DUALABI.md). For the architecture-level VM reference (register map,
-calling convention, type-map widths) see AGENTS_AARCH64.md.
+familiarity with the kernel architecture (ON_EMU.md), the build system
+(`INSTALL` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI
+work (ON_THE_DUAL_ABI.md). For the architecture-level VM reference (register map,
+calling convention, type-map widths) see ON_AARCH64_PORT.md.
 
 > **Status: the port is complete and is the primary development target.** Every
 > file below now exists in the tree; emu builds and runs (`make all`), the JIT
@@ -12,7 +12,7 @@ calling convention, type-map widths) see AGENTS_AARCH64.md.
 > documents the port **as built** — what each file is and the decisions baked into
 > it — not a to-do list. It doubles as the recipe if the port ever has to be
 > reconstructed for another arch. **Only Linux/aarch64 has actually been built and
-> tested here**; the amd64 glue is in-tree but unbuilt (AGENTS_DUALABI.md).
+> tested here**; the amd64 glue is in-tree but unbuilt (ON_THE_DUAL_ABI.md).
 
 ## What the port consists of
 
@@ -262,15 +262,15 @@ register (`mov x0, x30; ret`). Not empty.
 
 ### JIT / Interpreter Backend (libinterp)
 
-See AGENTS_JIT.md for the full architecture. The original bring-up shipped an
+See ON_JIT.md for the full architecture. The original bring-up shipped an
 interpreter-only `compile()` stub (`return 0;`) so `cflag>0` degraded gracefully —
 **that stub is gone.** Both files are now real:
 
 **`libinterp/comp-aarch64.c`** — the working AArch64 JIT (~1500 lines): real
 `compile()` plus the per-opcode native code generators. Off by default; enable
-with `emu -c1`. Some opcodes are still punted to the interpreter (AGENTS_JIT.md).
-The register map (x19=RREG, x20=RFP, x21=RMP, x24=RLR2, …) lives in AGENTS_JIT.md
-/ AGENTS_AARCH64.md — keep those in sync if you touch the generators.
+with `emu -c1`. Some opcodes are still punted to the interpreter (ON_JIT.md).
+The register map (x19=RREG, x20=RFP, x21=RMP, x24=RLR2, …) lives in ON_JIT.md
+/ ON_AARCH64_PORT.md — keep those in sync if you touch the generators.
 
 **`libinterp/das-aarch64.c`** — the AArch64 instruction disassembler (~880 lines,
 modelled on `das-arm.c`), used to print generated native code when debugging the
@@ -303,7 +303,7 @@ JIT. Not a stub.
   ```
   Leaving this as `nofence` on aarch64 is exactly the bug that was fixed — do not
   "optimize" it back. 32-bit ARM has the same latent weakness. See memory
-  `aarch64-unlock-release-barrier` and AGENTS_DUALABI.md.
+  `aarch64-unlock-release-barrier` and ON_THE_DUAL_ABI.md.
 
 - **`libinit()`** calls `kprocinit()` (portable), sets up signal handlers (portable), reads `/etc/passwd` for user info (portable). No arch-specific work.
 

@@ -1,4 +1,6 @@
- The two-layer error model (what exists today)
+# Limbo error handling — the two-layer model and why it's awkward
+
+## The two-layer error model (what exists today)
 
   Inferno has two error systems bridged awkwardly:
 
@@ -12,15 +14,15 @@
   What actually "sucks," concretely
 
   1. Stringly-typed. A user-defined exception(int, string) degrades to a bare string (its identifier) the moment it crosses the immediate caller
-  (AGENTS_LIMBO.md:668). So you cannot carry a typed payload — error code, offending value, wrapped cause — up the stack. Everyone sprints into a string and
+  (ON_LIMBO.md:668). So you cannot carry a typed payload — error code, offending value, wrapped cause — up the stack. Everyone sprints into a string and
   re-parses with glob patterns ("fail:*"). The error text becomes the API contract (e.g. sh.b literally pattern-matches %r text to detect a wrong-width
   .dis).
-  2. Two competing idioms. The dominant library style is tuple returns (T, string) (AGENTS_LIMBO.md:829), threaded by hand at every call site — no
+  2. Two competing idioms. The dominant library style is tuple returns (T, string) (ON_LIMBO.md:829), threaded by hand at every call site — no
   propagation operator. Exceptions are the other style. Mixing them is constant friction and dropped errors.
   3. %r is a clobberable thread-global. Last-system-error, errno-style: any intervening syscall overwrites it before you read it.
   4. No backtrace / cause chain — even though the VM knows module+PC and has the .sbl line mapping. Userspace can't get a stack trace at raise time. That's
   a glaring miss for a VM.
-  5. Spawned-proc errors vanish. spawn returns no handle (AGENTS_LIMBO.md:897); a proc's terminal exception is unobservable unless you pre-wire a channel.
+  5. Spawned-proc errors vanish. spawn returns no handle (ON_LIMBO.md:897); a proc's terminal exception is unobservable unless you pre-wire a channel.
   For a concurrency-first language this is the biggest gap.
   6. No finally/scoped cleanup, no resumption, flat namespace. Cleanup must be duplicated in normal + handler paths; matching is glob-on-string.
 

@@ -104,7 +104,7 @@ x24   = RLR2  (link save inside macros, e.g. macmcal; callee-saved)
 
 (An earlier version of this section listed the **ARM32** scheme — `x5`=RREG,
 `x8`=RMP, `x9`=RFP — which is `comp-arm.c`, not the aarch64 backend. The map above
-is the real `comp-aarch64.c`; see `ref/AGENTS_DIS_ARCH.md` / `ref/AGENTS_JIT.md`.)
+is the real `comp-aarch64.c`; see `ON_DIS_ARCH.md` / `ON_JIT.md`.)
 
 For an interpreted (non-JIT) loop pinning state in C code, prefer `x19`–`x28` since they are callee-saved:
 

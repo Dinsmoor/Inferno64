@@ -2,16 +2,16 @@
 
 The Dis VM is the execution engine for all Inferno programs. It is a register-based virtual machine with a flat address space per module instance, concurrent threads, and a garbage-collected heap. This document covers the **portable** VM: the instruction set, object file format, interpreter loop, garbage collector, channel operations, exceptions, and the scheduler.
 
-> **Architecture/ABI-specific material lives in `ref/AGENTS_DIS_ARCH.md`** — pointer
+> **Architecture/ABI-specific material lives in `ON_DIS_ARCH.md`** — pointer
 > widths (dual-ABI), the per-ABI `.dis` magic, compiled/JIT execution and its
 > register map, and the emu memory pools. The JIT codegen reference is
-> `ref/AGENTS_JIT.md`. Keep this doc host-independent.
+> `ON_JIT.md`. Keep this doc host-independent.
 
 ---
 
 ## Overview
 
-- **Architecture**: Register-based (not stack-based). A Dis `WORD` is 32-bit on every ABI; `LONG`/`REAL` are 64-bit. **Pointer width is arch-dependent** (8 bytes on the LP64 aarch64 build) — see `AGENTS_DIS_ARCH.md`.
+- **Architecture**: Register-based (not stack-based). A Dis `WORD` is 32-bit on every ABI; `LONG`/`REAL` are 64-bit. **Pointer width is arch-dependent** (8 bytes on the LP64 aarch64 build) — see `ON_DIS_ARCH.md`.
 - **Module granularity**: Each `.dis` file is one module. Modules share bytecode but have separate data segments per instance.
 - **Thread model**: M:N — many Limbo threads (Prog) mapped onto fewer OS threads (Proc) via a cooperative/time-sliced scheduler
 - **GC**: hybrid — **reference-counting** (instant-free for acyclic objects, via `Heap.ref`) plus a **tri-color incremental mark-sweep** tracing pass to collect cycles
@@ -207,7 +207,7 @@ A `.dis` file has this structure (all integers encoded as variable-length):
 magic               XMAGIC (unsigned) or SMAGIC (signed/crypto)
                     NB: the value encodes the pointer ABI — 32-bit XMAGIC/SMAGIC vs
                     64-bit XMAGIC8/SMAGIC8. This LP64 tree uses XMAGIC8. See
-                    ref/AGENTS_DIS_ARCH.md.
+                    ON_DIS_ARCH.md.
 
 header:
     RT              runtime flags (MUSTCOMPILE, DONTCOMPILE, SHAREMP, HASLDT, HASEXCEPT)
@@ -463,8 +463,8 @@ The C `error()` longjmps into the handler search (`handler()`, `emu/port/excepti
 which walks the handler table from the current PC for a `Handler` whose `[pc1, pc2)`
 range contains the PC and whose `etab` has a matching pattern. A **typed** exception
 now keeps its full payload until a typed (`ExcName =>`) arm catches it, degrading to
-its name string only for a string/`"*"` arm — see `ref/AGENTS_LIMBO.md` (exception
-semantics) and `ref/AGENTS_DEBUGGING.md` (the R1 change). If no handler matches, the
+its name string only for a string/`"*"` arm — see `ON_LIMBO.md` (exception
+semantics) and `ON_DEBUGGING.md` (the R1 change). If no handler matches, the
 exception propagates to the parent Prog (via the `Progs` group).
 
 ---
@@ -559,8 +559,8 @@ the call boundary.
 The architecture-specific realization — the per-arch backends
 (`libinterp/comp-aarch64.c` is the only one built/tested here), the register map,
 `pctab`, the native-code arena, `segflush`, and the `jitlock` compile invariant — is
-in **`ref/AGENTS_DIS_ARCH.md`**, with the full codegen reference in
-**`ref/AGENTS_JIT.md`**.
+in **`ON_DIS_ARCH.md`**, with the full codegen reference in
+**`ON_JIT.md`**.
 
 ---
 
@@ -568,4 +568,4 @@ in **`ref/AGENTS_DIS_ARCH.md`**, with the full codegen reference in
 
 emu carves host memory into three pools (`main` / `heap` / `image`) via
 `emu/port/alloc.c`. Details (sizes, `-p` overrides, the `Bhdr` allocator) are
-host/arch realization — see **`ref/AGENTS_DIS_ARCH.md`**.
+host/arch realization — see **`ON_DIS_ARCH.md`**.

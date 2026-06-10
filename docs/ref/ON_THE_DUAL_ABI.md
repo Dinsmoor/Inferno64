@@ -29,13 +29,13 @@
 > `sizeof`, so its `IBY2PTR` is a literal `con` (currently 8) that must match the
 > build ABI — the one value not auto-derived (candidate for build-time generation).
 > This is the durable project record (it travels with the repo); update the
-> relevant `AGENTS_*.md` rather than relying on external notes.
+> relevant `docs/ref/ON_*.md` rather than relying on external notes.
 > **The GUI works (2026-06).** `CONF=emu` is the default build and `wm/wm` runs
 > the desktop under X11 (verified headless via Xvfb + screenshot: taskbar,
 > FreeType menus, mouse input). Getting there fixed two LP64 bugs — the draw
 > scan-line word width (libmemdraw/libdraw) and the exception-unwind `NOPC`
 > sentinel — and vendored FreeType 2.13.2. See the "GUI stack" and "Fixes"
-> sections below, and AGENTS_GRAPHICS.md. (`$Loader` LP64 fix is also done.)
+> sections below, and ON_GRAPHICS.md. (`$Loader` LP64 fix is also done.)
 > The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
 > arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
 > audited — see below). `github.com/caerwynj/inferno-lab` is the test battery;
@@ -131,7 +131,7 @@ PROFILE=<profile>` is equivalent.
 | `bleedingedge` | `-O3` | `native` | *(empty)* |
 
 `-DDISPTRCHECK` is the "Valgrind for Dis pointers" GC checker (validates every
-GC-reachable Dis pointer each pass; see AGENTS_DEBUGGING.md). `-DEMU_DEBUG_DEFAULTS`
+GC-reachable Dis pointer each pass; see ON_DEBUGGING.md). `-DEMU_DEBUG_DEFAULTS`
 makes the **`EMUCRASH` crash-dump+core default ON** in debug builds (so a
 wild-address fault on reproduction auto-dumps without setting the env var;
 `EMUCRASH=0` opts out — see `emu/Linux/os.c`). The 60-second hang watchdog is on
@@ -241,7 +241,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   `raise "fail:nothing killed"` back into the shell, which broke `wm/wm`'s
   `wmsetup`/`plumber`. Fixed: `#define NOPC (~(ulong)0)` (all-ones at native width;
   correct on ILP32 and LP64). Regression: `tests/lp64/suites/70_except.b`. Found
-  the native way (per AGENTS_DEBUGGING.md): the broken proc parks in `Broken` and
+  the native way (per ON_DEBUGGING.md): the broken proc parks in `Broken` and
   `/prog/<pid>/{exception,stack}` give the Dis-level trace — reach for `/prog`
   before gdb.
 - **Byte→word sign-extension into 64-bit fields (UBSan-audit class).** A `uchar`
@@ -255,7 +255,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   `lib9/dirstat-{Nt,posix}.c`; and `disw()`/the DEFL big-constant path in
   `libinterp/load.c`. Also made `libinterp/load.c:operand()` (the bytecode operand
   decoder) shift in `u32int` — behavior-identical, removes the UB. Found by the
-  UBSan sweep (see AGENTS_DEBUGGING.md "Sanitizer builds"); regression-covered by
+  UBSan sweep (see ON_DEBUGGING.md "Sanitizer builds"); regression-covered by
   `tests/lp64/suites/30_styxnet` (9P) and the suite at large. The remaining UBSan
   findings (pixel-assembly shifts, crypto/bignum byte-assembly, the string hash,
   `memmove(x,nil,0)`) are **benign** — results verified (correct render + crypto
@@ -288,7 +288,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   reflection round-trip runs and passes at `cflag==0`. Three bugs cracked sh: a one-character `cmnix` encoding error (tested x1 not
   x0 in is-H checks), `comvec` not preserving AAPCS64 callee-saved x19/x20/x21/x24 across
   the C boundary (corrupted `xec`'s `p` on reschedule), and a stale `R.PC` during yielding
-  builtins. See AGENTS_JIT.md "Root causes found and fixed".
+  builtins. See ON_JIT.md "Root causes found and fixed".
 - **Supporting changes that DID land (and are correct/regression-free):**
   - `emu/Linux/segflush-aarch64.c` now `mprotect()`s the flushed range RWX (pool/heap
     memory is non-executable on Linux; generated code faulted on instruction fetch).
@@ -530,7 +530,7 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
 ### Temporary debug instrumentation
 - `emu/Linux/os.c` `sysfault()`: prints `LP64 fault: ... in <module> pc=<n> op=<n>`
   via `modstatus(&R,...)` (added `#include "interp.h"`). Now a permanent part of the
-  fault path (the recoverable, non-`EMUCRASH` branch — see AGENTS_DEBUGGING.md
+  fault path (the recoverable, non-`EMUCRASH` branch — see ON_DEBUGGING.md
   "Graceful failure isolation"); kept deliberately for per-module fault triage.
 - The `libinterp/xec.c` `OP(consp)`/`OP(headp)` `print("DBG …")` dumps have been
   **removed**, and `appl/cmd/emuinit.b` has been **restored** from git (it is the real
@@ -753,7 +753,7 @@ response (never continue on a corrupt heap). Next step is a static hunt for the
 `1<<36` / `- 0x1000000000` pointer-arith site (weight the draw/teardown path and the
 `tests/lint/baseline.txt` narrowing sites), or mining a fresh core for the freed
 object's identity. Full detail + repro recipe: the project memory note
-`charon-close-heap-corruption` and AGENTS_DEBUGGING.md ("Graceful failure
+`charon-close-heap-corruption` and ON_DEBUGGING.md ("Graceful failure
 isolation", `EMUCRASH`, `EMUPOOLCHECK`).
 
 ## Second LP64 target: Linux/amd64 (x86-64) — glue added, UNBUILT/UNTESTED
@@ -805,7 +805,7 @@ The defining bug class of this port is the **64→32 truncation**: a 64-bit valu
 pointer far from its cause, or wedges a loop/scheduler. Four layers catch a
 truncation *before* it corrupts anything — at compile, link/load, and (debug) run
 time. (For *runtime* catching of a truncation that already slipped through and
-faulted/hung, see the fault/hang hooks in `ref/AGENTS_EMU_DEBUG.md`; for the
+faulted/hung, see the fault/hang hooks in `ON_EMU_DEBUG.md`; for the
 sanitizer/Valgrind audit of the C, same doc.)
 
 ### `make lint` — clang 64→32 narrowing lint
@@ -861,5 +861,5 @@ the dynamic analog of `verifytype`/`verifyctype`.
 > **Layering of all the LP64 defences.** `make lint` + the `genmove` assert catch
 > width bugs at **build time**; `verifytype`/`verifyctype` at **load/init**;
 > `DISPTRCHECK` at **run time** as the GC walks; and the runtime fault/hang hooks
-> (`EMUCRASH`/USR2/`EMUWATCHDOG`, in `ref/AGENTS_EMU_DEBUG.md`) when one still gets
+> (`EMUCRASH`/USR2/`EMUWATCHDOG`, in `ON_EMU_DEBUG.md`) when one still gets
 > through and faults or hangs.

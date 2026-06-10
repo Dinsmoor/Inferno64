@@ -10,9 +10,9 @@ command line, catching the LP64 heap bugs, and how the project is developed.
 - [Running emu directly](#running-emu-directly)
 - [Debugging: catching the heap bugs](#debugging-catching-the-heap-bugs)
 
-See also [`INSTALL`](INSTALL) (prerequisites, amd64 notes), [`LP64_NOTES.md`](LP64_NOTES.md)
-(the porting retrospective), and [`ref/AGENTS_*.md`](ref/) (per-subsystem references;
-start at [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md)).
+See also [`INSTALL`](../INSTALL) (prerequisites, amd64 notes) and
+[`ref/ON_*.md`](ref/) (per-subsystem "so you want to…" references; start at
+[`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md)).
 
 ## Building
 
@@ -108,7 +108,7 @@ the desktop slower to start and only pays off for **compute-bound** Limbo — th
 is IO-bound and the heavy work (`$Raster3`, image decode, TLS) is already native C.
 For interactive use prefer the interpreter; reserve `-c1` for batch/benchmark work.
 Leave `-B` (which disables the JIT's array-bounds checks) **off** while chasing
-heap bugs. See [`ref/AGENTS_JIT.md`](ref/AGENTS_JIT.md) for the trade-off.
+heap bugs. See [`ref/ON_JIT.md`](ref/ON_JIT.md) for the trade-off.
 
 ## Debugging: catching the heap bugs
 
@@ -161,7 +161,7 @@ gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>
 The fault message emu prints on the way down names the Dis module, the builtin
 (e.g. `Charon[$Sys]`), and a `pc=`; map that `pc` back to a Limbo source line with
 the module's `.sbl` file (`limbo -g` output). See
-[`ref/AGENTS_DEBUGGING.md`](ref/AGENTS_DEBUGGING.md) for the full workflow.
+[`ref/ON_DEBUGGING.md`](ref/ON_DEBUGGING.md) for the full workflow.
 
 For *how* this project is developed (the "demon machine" workflow — driving the
 desktop with `xdotool` over VNC, the gdb-mcp harness), see the

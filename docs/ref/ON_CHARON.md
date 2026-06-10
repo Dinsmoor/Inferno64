@@ -6,7 +6,7 @@ Charon is Inferno's graphical web browser, written entirely in Limbo. It runs on
 > some sections still describe the pre-modernisation state. Where a Modernisation
 > Plan item is marked ✅, treat that as the current behaviour. Notably HTTPS no
 > longer uses the SSL 2/3 `ssl3` path — it uses the `#T` devtls/mbedTLS device via
-> `Dial->pushtls` (see [AGENTS_NETWORK.md](AGENTS_NETWORK.md) §"Modern TLS").
+> `Dial->pushtls` (see [ON_NETWORK.md](ON_NETWORK.md) §"Modern TLS").
 
 ---
 
@@ -283,7 +283,7 @@ Each transport implements the `Transport` interface (`transport.m`): `connect`, 
   mbedTLS (TLS 1.2/1.3, SNI, modern AEAD suites, cert verification). The ctl fd is
   kept in `nc.tlsctl` and closing it tears down the conversation. The old
   `ssl3.dis` SSL2/3 path is no longer used (the `nc.sslx`/`SSL3->Context` fields
-  are vestigial). See AGENTS_NETWORK.md §"Modern TLS" and Modernisation Plan P0.1.
+  are vestigial). See ON_NETWORK.md §"Modern TLS" and Modernisation Plan P0.1.
 - Proxy: if `config.httpproxy` is set and the host is not in `config.noproxydoms`, the `CONNECT` method is used for HTTPS tunnelling.
 - Pipelining: `nc.pipeline` is true when multiple requests are queued on one connection; the header reader advances `nc.gocur`.
 - Redirections: handled inside `CU->hdraction`; up to `Maxredir = 10` hops before giving up.
@@ -586,7 +586,7 @@ A note on what Inferno already provides that is relevant here:
   and does the *entire* TLS 1.2/1.3 handshake + record layer in C, exposed as a
   push-onto-an-fd device. (The legacy SSL 3.0 record layer with the userspace
   `appl/lib/crypt/ssl3.b` handshake still exists as `devssl`/`ssl3.dis` but Charon
-  no longer uses it.) See AGENTS_NETWORK.md.
+  no longer uses it.) See ON_NETWORK.md.
 - `appl/lib/inflate.b`, `appl/lib/deflate.b`, `appl/cmd/gzip.b` — zlib inflate/deflate and gzip exist and are used by other parts of Inferno. The `Filter` module (`module/filter.m`, `DEFLATEPATH`/`INFLATEPATH`) provides a channel-based streaming interface ideal for wrapping a `ByteSource`.
 - `appl/lib/ecmascript/` — the existing ECMAscript-262 2nd ed engine. Extending vs. replacing is a genuine choice.
 
@@ -606,7 +606,7 @@ and added the **`#T` devtls device** (`emu/port/devtls.c`) that does the whole T
 certificate-chain verification against `/etc/ssl/certs/ca-certificates.crt`. Charon
 reaches it via `Dial->pushtls`/`dialtls` (`appl/lib/dial.b`); `http.b:connect`
 pushes TLS onto the dialed fd. This is system-wide (sh, dial, webgrab, Charon all
-share it), not Charon-specific. See AGENTS_NETWORK.md §"Modern TLS". Commits:
+share it), not Charon-specific. See ON_NETWORK.md §"Modern TLS". Commits:
 `33ff11f8` (vendor), `27165454` (device), `67b32e2f` (Charon), `b4018e54` (dial).
 
 **Original (superseded) in-Limbo plan, kept for context:**
@@ -970,7 +970,7 @@ a per-canvas offscreen `Draw->Image` that is composited into the page. A
 **canvas-damage fast-repaint path** (`f70b02b0`) supports timer-driven animation.
 Beyond the 2D API, a **3D `<canvas>` context** over `$Raster3`/`Raymath` was added
 (`15cdb299`); its design is documented in
-[CHARON_CANVAS3D.md](CHARON_CANVAS3D.md). The original sketch below (needing a new
+[ON_CHARON_CANVAS3D.md](ON_CHARON_CANVAS3D.md). The original sketch below (needing a new
 path renderer) is retained for context but is now implemented.
 
 The 2D API exposes an immediate-mode drawing surface; Inferno's `Draw` module provides most of the primitives needed:

@@ -2,7 +2,7 @@
 
 Inferno can run Dis bytecode in two modes: interpreted (the default, architecture-independent) or JIT-compiled to native machine code. The JIT is controlled by `cflag` and implemented per-architecture in `libinterp/comp-OBJTYPE.c`. For a new architecture like aarch64, the first decision is whether to implement a JIT or run interpreter-only.
 
-This doc does not re-cover the Dis VM scheduler (see AGENTS_EMU.md) or the Dis wire format (see AGENTS_9P.md). It focuses on the compilation pipeline itself.
+This doc does not re-cover the Dis VM scheduler (see ON_EMU.md) or the Dis wire format (see ON_9P.md). It focuses on the compilation pipeline itself.
 
 > **Read this first — two halves.** The aarch64 JIT is **implemented** (the
 > historical "Option B" was chosen). The sections up to "The aarch64 Decision" are
@@ -235,7 +235,7 @@ Called in two places after code generation (comp-arm.c):
 1. After generating `comvec` (the entry stub): `segflush(comvec, 10 * sizeof(*code))`
 2. After generating the full module: `segflush(base, n * sizeof(*base))`
 
-`segflush` must flush the D-cache write buffer and invalidate the I-cache for the given range so the CPU fetches the newly written instructions. See AGENTS_PORT.md for the aarch64 implementation.
+`segflush` must flush the D-cache write buffer and invalidate the I-cache for the given range so the CPU fetches the newly written instructions. See ON_PORTING.md for the aarch64 implementation.
 
 ## FPsave, FPrestore, umult
 
@@ -613,6 +613,6 @@ compile has already released the VM and needs no VM token to finish.
    `origmp=…;…;origmp=H` dance does) leaves later launches with `MP==H` →
    `MP+offset` wraps → wild low-address fault.
 
-GUI lesson (see `ref/AGENTS_GRAPHICS.md`): a Tk toplevel must be driven from the proc
+GUI lesson (see `ON_GRAPHICS.md`): a Tk toplevel must be driven from the proc
 that *owns* it — warmup's main proc owns Tk + animates, while a separate `warmer`
 proc does the compiling and feeds progress over a channel.

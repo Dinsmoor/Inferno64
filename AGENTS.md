@@ -2,12 +2,12 @@
 
 This document orients AI agents working on the Inferno OS codebase. Read this first, then consult the specialist files for deeper coverage of each subsystem.
 
-- **AGENTS_DIS.md** — Dis virtual machine, bytecode format, GC, channels
-- **AGENTS_LIMBO.md** — Limbo language, compiler, module system
-- **AGENTS_KERNEL.md** — Kernel internals, 9P protocol, device drivers, process management
-- **AGENTS_GRAPHICS.md** — Draw, Tk, prefab, wm windows (incl. software-rendered frames)
-- **AGENTS_3D.md** — raylib-in-Limbo: Raymath, the `$Raster3` C kernel, OBJ loader
-- **ref/AGENTS_DLM.md** — Dynamically Loaded Modules (libdynld/dynld): what runtime-loadable native C modules are, why they're stubbed on hosted emu *by design*, no 64-bit backend, and why DLM ≠ loading Linux drivers
+- **docs/ref/ON_DIS.md** — Dis virtual machine, bytecode format, GC, channels
+- **docs/ref/ON_LIMBO.md** — Limbo language, compiler, module system
+- **docs/ref/ON_KERNEL.md** — Kernel internals, 9P protocol, device drivers, process management
+- **docs/ref/ON_GRAPHICS.md** — Draw, Tk, prefab, wm windows (incl. software-rendered frames)
+- **docs/ref/ON_3D.md** — raylib-in-Limbo: Raymath, the `$Raster3` C kernel, OBJ loader
+- **docs/ref/ON_DLM.md** — Dynamically Loaded Modules (libdynld/dynld): what runtime-loadable native C modules are, why they're stubbed on hosted emu *by design*, no 64-bit backend, and why DLM ≠ loading Linux drivers
 
 ---
 
@@ -18,7 +18,7 @@ Inferno is a distributed operating system originally from Bell Labs. It runs in 
 - **Hosted (emu)**: a user-space process on Linux, macOS, Windows, FreeBSD, Plan 9, etc. The emulator provides the Dis VM, scheduler, namespace, and device interface on top of the host OS.
 - **Native (os/)**: a bare-metal kernel for ARM, x86, PowerPC, MIPS, SPARC. Same API surface as hosted mode — applications see no difference.
 
-All programs are written in **Limbo**, compiled to **Dis** bytecode, and run on the **Dis virtual machine**. The VM is the only execution environment; there is no FFI in the traditional sense (C modules are linked directly into the emulator binary). The dormant alternative — loading native C modules at *runtime* — is the DLM facility, deliberately stubbed on hosted emu; see [`ref/AGENTS_DLM.md`](ref/AGENTS_DLM.md) before assuming it's a live feature or a path to loading Linux drivers.
+All programs are written in **Limbo**, compiled to **Dis** bytecode, and run on the **Dis virtual machine**. The VM is the only execution environment; there is no FFI in the traditional sense (C modules are linked directly into the emulator binary). The dormant alternative — loading native C modules at *runtime* — is the DLM facility, deliberately stubbed on hosted emu; see [`docs/ref/ON_DLM.md`](docs/ref/ON_DLM.md) before assuming it's a live feature or a path to loading Linux drivers.
 
 The kernel API is entirely file-based, mediated by the **9P protocol**. Every resource — processes, network connections, windows, audio — is a file in a unified namespace. Processes can export file servers that other processes (including remote ones) can mount into their namespace.
 
@@ -139,7 +139,7 @@ recursive sub-mk via `$MKFLAGS` without re-quoting.
 and a release link-check; suite × CONF × run-mode test cells; a doc slot) and
 prints a `PASS/FAIL/SKIP/TODO` table, exiting nonzero iff a `require` cell
 fails. This makes the headless `emu-g` build a hard requirement so it can't rot
-silently. Full details in [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md).
+silently. Full details in [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md).
 
 `make all` is the safe default and is cheap (~1 min) — run it freely. The cost in
 this tree comes from the *lack* of nuking: a stale `.dis` against a freshly built
@@ -419,12 +419,12 @@ For each target, the compiler flags live in `mkfiles/mkfile-Linux-$OBJTYPE` (for
 | Question | Where to look |
 |----------|---------------|
 | What does opcode X do? | `libinterp/xec.c` (search `OP(iopcode)`) |
-| How is .dis file structured? | `libinterp/load.c` + `AGENTS_DIS.md` |
+| How is .dis file structured? | `libinterp/load.c` + `docs/ref/ON_DIS.md` |
 | How does GC work? | `libinterp/gc.c` |
 | How does alt/channel work? | `libinterp/alt.c` |
 | How does a Limbo thread get scheduled? | `emu/port/dis.c` (`addrun`, `delrun`) |
 | How does file open/read work? | `emu/port/chan.c`, then the relevant `devXXX.c` |
 | How does 9P mounting work? | `emu/port/devmnt.c` |
-| How does Limbo → Dis compilation work? | `limbo/` + `AGENTS_LIMBO.md` |
+| How does Limbo → Dis compilation work? | `limbo/` + `docs/ref/ON_LIMBO.md` |
 | What are the system call APIs? | `module/sys.m`, then `emu/port/devcons.c` for #c |
 | How does X11 graphics work? | `emu/Linux/win-x11a.c`, `emu/port/devdraw.c` |

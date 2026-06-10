@@ -11,10 +11,10 @@ There is also a pure-Limbo decoder family (`RImagefile`: `appl/lib/readpng.b`,
 targets the legacy 8-bit CMAP8 cube. `$Imageio` gives you true-colour RGBA in
 one call and is the path the 3D texture work uses.
 
-See also: [AGENTS_STB.md](AGENTS_STB.md) (the full vendored stb suite — what else
-is available and where it's useful), [AGENTS_3D.md](AGENTS_3D.md) (`$Raster3`
-textures consume these images), [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md) (Draw
-channels), [AGENTS_LIMBO.md](AGENTS_LIMBO.md) (reserved words).
+See also: [ON_STB.md](ON_STB.md) (the full vendored stb suite — what else
+is available and where it's useful), [ON_3D.md](ON_3D.md) (`$Raster3`
+textures consume these images), [ON_GRAPHICS.md](ON_GRAPHICS.md) (Draw
+channels), [ON_LIMBO.md](ON_LIMBO.md) (reserved words).
 
 ---
 
@@ -70,7 +70,7 @@ inverse, backed by `stb_image_write` (`stbwrap_encode_png`, memory callback — 
 host file IO). Input is the same `R,G,B,A` top-to-bottom layout `decode` produces,
 so a Draw `ABGR32` image's `readpixels` bytes encode directly. Used by
 `tests/jitperf/stft.b` to write a spectrogram PNG. Only PNG is wired today
-(stb_image_write can also do BMP/TGA/JPG/HDR — see [AGENTS_STB.md](AGENTS_STB.md)).
+(stb_image_write can also do BMP/TGA/JPG/HDR — see [ON_STB.md](ON_STB.md)).
 
 ## Gotchas (learned the hard way)
 

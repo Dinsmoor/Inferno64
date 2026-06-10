@@ -12,7 +12,7 @@ truncations — pointers, heap addresses, large file offsets — already use
 `ulong`/`uintptr`/`vlong` correctly (that is why emu boots and runs), and the
 real width bugs were caught earlier by the cunit suite and runtime debugging
 (`strtoull`, `mptov`, `venti`, the limbo `tptr` codegen fixes — see
-`ref/AGENTS_DUALABI.md`).
+`docs/ref/ON_THE_DUAL_ABI.md`).
 
 A "narrowing" is only a bug when a value that **can exceed 2³¹ in practice** is
 truncated and then **used at full width**. None of the baselined sites meet

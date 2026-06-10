@@ -22,7 +22,7 @@
 > A second, non-graphics LP64 bug also blocked the desktop in practice: the
 > exception unwinder's `NOPC` sentinel (`emu/port/exception.c`) was 32-bit, so a
 > `raise` that fell through a non-matching handler jumped to `prog-1`
-> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See AGENTS_DUALABI.md.
+> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See ON_THE_DUAL_ABI.md.
 
 ## Architecture Overview
 
@@ -440,7 +440,7 @@ screen.draw(dest_rect, buf, nil, buf.r.min);
 ## Hosting a software-rendered (animated) frame in a WM window
 
 If you compute pixels yourself (a software renderer, a video frame, the
-`$Raster3` 3D rasterizer — see [AGENTS_3D.md](AGENTS_3D.md)) and want them in a
+`$Raster3` 3D rasterizer — see [ON_3D.md](ON_3D.md)) and want them in a
 *normal managed window* (titlebar, resize, hide) rather than full-screen, use a
 `tkclient` toplevel with a **`panel`** widget as the drawing surface:
 
@@ -491,7 +491,7 @@ main proc on each tick so all image ops stay single-threaded.
 
 The pattern above (XRGB32 scratch → `writepixels` → `disp.draw`) suits any
 producer of raw pixel bytes. If a C primitive can write the panel image's
-`Memimage` directly (the `$Raster3` 3D rasterizer does — see AGENTS_3D.md), skip
+`Memimage` directly (the `$Raster3` 3D rasterizer does — see ON_3D.md), skip
 the scratch image and rasterize straight into the panel image, then `.p dirty` +
 `update`. `appl/wm/rayteapot.b` is that worked example; `appl/wm/polyhedra.b` is
 the older in-tree precedent for the panel/ticker loop.
@@ -515,7 +515,7 @@ the older in-tree precedent for the panel/ticker loop.
 | `libdraw/draw.c` | draw/gendraw primitives |
 | `include/memdraw.h` | In-memory drawing structures |
 | `appl/wm/clock.b` | Simple wmclient + direct draw example |
-| `appl/wm/rayteapot.b` | tkclient panel + software 3D (see AGENTS_3D.md) |
+| `appl/wm/rayteapot.b` | tkclient panel + software 3D (see ON_3D.md) |
 | `libinterp/raster3.c` | `$Raster3` software rasterizer / z-buffer / vertex kernel |
 | `appl/demo/chat/chat.b` | Tk text interface example |
 | `appl/wm/colors.b` | Tk + image manipulation example |

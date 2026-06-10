@@ -4,7 +4,7 @@ The whole [stb](https://github.com/nothings/stb) single-header collection is
 vendored at `libstb/stb/` (public domain / MIT; upstream commit pinned in
 `libstb/stb/UPSTREAM_COMMIT`). Today **image decode and PNG encode are wired**
 (stb_image + stb_image_write, both via `$Imageio` — see
-[AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md)); everything else is present as source and
+[ON_IMAGEIO.md](ON_IMAGEIO.md)); everything else is present as source and
 ready to activate. This doc is the catalogue: what each library does, where it
 would earn its place in an Inferno/Limbo program, and how to wire one.
 
@@ -12,10 +12,10 @@ stb is small, dependency-light ISO C — a good fit for the Inferno philosophy
 (no host GL/GPU, identical on every emu host, leaf C that never touches
 `lib9.h`). The trade-off is the same as the 3D port: it's all CPU/software.
 
-See also: [AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md) (the one wired module + the
-vendoring/build pattern), [AGENTS_3D.md](AGENTS_3D.md) (`$Raster3`, the obvious
-consumer of textures/atlases), [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md),
-[AGENTS_CHARON.md](AGENTS_CHARON.md) (the browser — images/fonts/audio/canvas).
+See also: [ON_IMAGEIO.md](ON_IMAGEIO.md) (the one wired module + the
+vendoring/build pattern), [ON_3D.md](ON_3D.md) (`$Raster3`, the obvious
+consumer of textures/atlases), [ON_GRAPHICS.md](ON_GRAPHICS.md),
+[ON_CHARON.md](ON_CHARON.md) (the browser — images/fonts/audio/canvas).
 
 ---
 
@@ -75,7 +75,7 @@ Follow the `$Imageio` pattern exactly (it mirrors the libmbedtls vendoring):
 4. **Draw-image results:** prefer returning RGBA8 and letting a Limbo lib build
    the image as `ABGR32` (one `writepixels`, no reorder) — and remember a Limbo
    library that calls Draw *methods* must `load Draw` itself (the bug that ate a
-   debug cycle; see [AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md)).
+   debug cycle; see [ON_IMAGEIO.md](ON_IMAGEIO.md)).
 5. **Build/commit:** `make all` (full, cheap). Generated `*mod.h` headers are
    build artifacts — keep them out of git (`.gitignore`). `libstb.a`/`.o` are
    already ignored.

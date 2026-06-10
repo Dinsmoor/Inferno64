@@ -56,7 +56,7 @@ emu/
 > This tree is built and tested only on **Linux/aarch64** (LP64). The portable
 > design below applies to every host port, but the other `emu/<OS>/` and
 > `emu/Linux/asm-*` variants are not exercised here. Arch-specific Dis/JIT detail is
-> in `ref/AGENTS_DIS_ARCH.md`; emu fault-debugging in `ref/AGENTS_EMU_DEBUG.md`.
+> in `ON_DIS_ARCH.md`; emu fault-debugging in `ON_EMU_DEBUG.md`.
 
 ---
 
@@ -404,7 +404,7 @@ These functions are declared in `emu/port/fns.h` and implemented per-OS:
 | `oslongjmp(buf, n)` | Signal-safe longjmp (for fault recovery) |
 | `readkbd()` | Block and return one keyboard character |
 
-On Linux: `osblock`/`osready` use POSIX `sem_wait`/`sem_post` (`emu/port/kproc-pthreads.c`, one semaphore per Proc); `osmillisleep` uses `nanosleep` (`emu/Linux/os.c`); faults (SIGSEGV, SIGBUS) call `oslongjmp` to unwind to the last `waserror` (unless EMUCRASH is set — see `ref/AGENTS_EMU_DEBUG.md`).
+On Linux: `osblock`/`osready` use POSIX `sem_wait`/`sem_post` (`emu/port/kproc-pthreads.c`, one semaphore per Proc); `osmillisleep` uses `nanosleep` (`emu/Linux/os.c`); faults (SIGSEGV, SIGBUS) call `oslongjmp` to unwind to the last `waserror` (unless EMUCRASH is set — see `ON_EMU_DEBUG.md`).
 
 ---
 

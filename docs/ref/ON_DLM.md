@@ -15,10 +15,10 @@ because in the hosted cross-development model you just compile the C builtin in.
 It has **no 64-bit backend** and is **not** a path to loading Linux kernel
 drivers.
 
-See also: [AGENTS_DIS.md](AGENTS_DIS.md) (why C kernels exist at all),
-[AGENTS_EMU.md](AGENTS_EMU.md) (hosted emu = a userspace process),
-[AGENTS_DUALABI.md](AGENTS_DUALABI.md) (the LP64 story that the 32-bit format
-collides with), [AGENTS_AARCH64.md](AGENTS_AARCH64.md).
+See also: [ON_DIS.md](ON_DIS.md) (why C kernels exist at all),
+[ON_EMU.md](ON_EMU.md) (hosted emu = a userspace process),
+[ON_THE_DUAL_ABI.md](ON_THE_DUAL_ABI.md) (the LP64 story that the 32-bit format
+collides with), [ON_AARCH64_PORT.md](ON_AARCH64_PORT.md).
 
 ---
 

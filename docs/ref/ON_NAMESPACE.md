@@ -143,7 +143,7 @@ The Limbo `os` module provides a higher-level `env->get/set` interface built on 
 | `nsgrp` | namespace group ID |
 | `pgrp` | process group ID |
 | `stack` | call stack frames |
-| `exception` | last **caught** exception as `pc module string`; **empty for a proc broken by an _unhandled_ exception** (`p->exstr` is only set on a catch — see AGENTS_DEBUGGING.md) |
+| `exception` | last **caught** exception as `pc module string`; **empty for a proc broken by an _unhandled_ exception** (`p->exstr` is only set on a catch — see ON_DEBUGGING.md) |
 | `fd` | open file descriptors |
 | `heap` | memory inspector |
 | `dbgctl` | debugger control |

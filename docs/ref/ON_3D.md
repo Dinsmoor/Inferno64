@@ -11,10 +11,10 @@ per-pixel and per-vertex loops in pure Limbo are too slow for real-time 3D. The
 resolution is **hybrid**: the hot rasterizer and vertex kernels are **C** (the
 `$Raster3` builtin); the API, math, and asset parsers are **Limbo**.
 
-See also: [AGENTS_GRAPHICS.md](AGENTS_GRAPHICS.md) (Draw/Tk/wm — including how to
-host a software-rendered animated frame in a window), [AGENTS_LIMBO.md](AGENTS_LIMBO.md)
-(language; mind the reserved words), [AGENTS_DIS.md](AGENTS_DIS.md) (why C kernels),
-[AGENTS_IMAGEIO.md](AGENTS_IMAGEIO.md) (decoding PNG/JPEG/… into textures via stb).
+See also: [ON_GRAPHICS.md](ON_GRAPHICS.md) (Draw/Tk/wm — including how to
+host a software-rendered animated frame in a window), [ON_LIMBO.md](ON_LIMBO.md)
+(language; mind the reserved words), [ON_DIS.md](ON_DIS.md) (why C kernels),
+[ON_IMAGEIO.md](ON_IMAGEIO.md) (decoding PNG/JPEG/… into textures via stb).
 
 ---
 
@@ -188,7 +188,7 @@ ABI switch can't leave a stale `raster3mod.h`.
 
 - **Reserved words** bit this port repeatedly: `fn`, `load`, `tl`, `hd` are Limbo
   keywords and **cannot be identifiers**. (`readobj` not `load`, `tlist` not `tl`,
-  `fnorm`/`dfar` not `fn`.) See AGENTS_LIMBO.md — there is a per-turn reminder hook
+  `fnorm`/`dfar` not `fn`.) See ON_LIMBO.md — there is a per-turn reminder hook
   in `.claude/`.
 - A bare boot module that returns makes `emu` exit 137/SIGKILL — harmless; for
   `raytest`, grep the printed `PASS n/n`, don't check the exit code.

@@ -5,13 +5,13 @@ the Dis VM — it raised an exception, went `Broken`, wedged, or you want a stac
 trace / diagnostic prints from *inside* Inferno. The first tool here is the VM's own
 `/prog` filesystem. If instead the **C emulator itself** crashed (host
 SIGSEGV/SIGBUS), hung, or corrupted its heap — i.e. emu died before you could reach
-`/prog` — use **`ref/AGENTS_EMU_DEBUG.md`** (sanitizers, fault/hang hooks, cores).
+`/prog` — use **`ON_EMU_DEBUG.md`** (sanitizers, fault/hang hooks, cores).
 For **heap corruption where the crash is far from the cause** (a stray/UAF write the
 allocator only notices later), that doc's **`LIMBRULFENCEMEMSIZE`** electric-fence
 quarantine traps the *writer* synchronously — it's what cracked the charon-teardown
 free-tree corruption.
-For the language itself see `ref/AGENTS_LIMBO.md`; for the static LP64 width-bug
-catchers see `ref/AGENTS_DUALABI.md`.
+For the language itself see `ON_LIMBO.md`; for the static LP64 width-bug
+catchers see `ON_THE_DUAL_ABI.md`.
 
 > **This repo differs from stock Inferno** in two ways that matter here: typed
 > exceptions now keep their payload across frames (R1, below), and the compiler
@@ -203,7 +203,7 @@ Heap query syntax: `addr.fmtN` where fmt is one of:
 
 > Dual-ABI note: `P`/`A`/`C`/`M` follow the pointer width (`IBY2PTR`), so on the
 > LP64 aarch64/amd64 build they are 8 bytes; `W` stays 32-bit. See
-> `ref/AGENTS_DUALABI.md`.
+> `ON_THE_DUAL_ABI.md`.
 
 ### Debug Control Protocol
 
@@ -338,7 +338,7 @@ Key compiler flags:
 
 The standard development combination is `limbo -gw`. (Whole tree: `cd appl && mk
 install`. Build caveats — emu-vs-Dis rebuild, ETXTBSY, ABI-switch header staleness —
-are in `ref/AGENTS_DUALABI.md`.)
+are in `ON_THE_DUAL_ABI.md`.)
 
 ---
 
@@ -398,7 +398,7 @@ Or read `/prog/PID/wait` for child exit events.
 | `limbo/lex.c` | compiler diagnostic funnel (C1 `showsrc` lives here) |
 | `man/3/prog`, `man/1/limbo`, `man/2/sys-print` | `/prog`, compiler flags, format verbs (manuals) |
 
-**Cross-references:** `ref/AGENTS_EMU_DEBUG.md` (the emu *itself* faulted/hung —
-sanitizers, fault/hang hooks, cores) · `ref/AGENTS_LIMBO.md` (the language &
-compiler) · `ref/AGENTS_DIS.md` (the Dis VM & instruction set) · `ref/AGENTS_DUALABI.md`
+**Cross-references:** `ON_EMU_DEBUG.md` (the emu *itself* faulted/hung —
+sanitizers, fault/hang hooks, cores) · `ON_LIMBO.md` (the language &
+compiler) · `ON_DIS.md` (the Dis VM & instruction set) · `ON_THE_DUAL_ABI.md`
 (LP64 static catchers, build profiles).

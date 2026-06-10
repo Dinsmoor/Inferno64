@@ -39,7 +39,7 @@ Most of the 246 baselined sites are in upstream lib9/libbio formatting/utf code
 and in length/IO-count locals that are benign on both ABIs. The point of the
 tool is the **next** narrowing, in new or changed code — the same class that
 produced the real bugs already fixed here (`strtoull`, `mptov`; see the cunit
-suite and `ref/AGENTS_DEBUGGING.md` → "Runtime observability").
+suite and `docs/ref/ON_DEBUGGING.md` → "Runtime observability").
 
 ## Notes / limits
 

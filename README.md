@@ -15,7 +15,7 @@ fix it.
 
 Most of the remaining LP64 related bugs have to do with heap corruption, which
 are pretty hard to narrow down. If you want to help catch them, see
-[Debugging](BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
+[Debugging](docs/ON_BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
 how to set up an emu session that reliably captures a core dump + logs.
 
 ## Try it out
@@ -34,18 +34,17 @@ You need an X display (a normal Linux desktop session); resize the window with
 `make run RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
 
 That's all you need to poke around. To actually build and hack on it — profiles,
-running emu directly, the JIT, debugging — see **[`BUILDING.md`](BUILDING.md)**.
+running emu directly, the JIT, debugging — see **[`docs/ON_BUILDING.md`](docs/ON_BUILDING.md)**.
 
 ## Documentation
 
 | if you want to… | see |
 |---|---|
-| build, pick a profile, run emu directly, debug | [`BUILDING.md`](BUILDING.md) |
+| build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
 | install prerequisites / amd64 notes | [`INSTALL`](INSTALL) |
-| the story of the 64-bit port (and the lessons) | [`LP64_NOTES.md`](LP64_NOTES.md) |
-| the authoritative dual-ABI reference | [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md) |
-| why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`ABI_MODEL.md`](ABI_MODEL.md) |
-| per-subsystem references (Dis, JIT, kernel, graphics, Charon, …) | [`ref/AGENTS_*.md`](ref/) |
+| the authoritative dual-ABI reference | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
+| why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`docs/ABI_MODEL.md`](docs/ABI_MODEL.md) |
+| per-subsystem references — "so you want to…" (Dis, JIT, kernel, graphics, Charon, …) | [`docs/ref/ON_*.md`](docs/ref/) |
 
 ## What is the deal with LP64/ILP64
 
@@ -69,7 +68,7 @@ go. This fork ships one on `master` and keeps the other on a branch:
   Parked on a branch for anyone who wants it.
 
 The full reasoning — per-architecture tables and the C-side safety nets — is in
-**[`ABI_MODEL.md`](ABI_MODEL.md)**.
+**[`docs/ABI_MODEL.md`](docs/ABI_MODEL.md)**.
 
 ### What does it mean for me wanting to write C for Inferno?
 
@@ -171,7 +170,7 @@ inferno takes less than a minute to compile from scratch)
 
 This fork includes some others' work:
 
-- **Limbo by Example** (`ref/limbobyexample/`) is by Sean "henesy" Hinchee —
+- **Limbo by Example** (`docs/ref/limbobyexample/`) is by Sean "henesy" Hinchee —
   <https://github.com/henesy/limbobyexample>
 - The LP64 regression suite under `tests/lp64/` draws on the test programs in
   caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab>

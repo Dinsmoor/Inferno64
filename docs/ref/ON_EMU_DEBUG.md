@@ -5,10 +5,10 @@ crashed with a host SIGSEGV/SIGBUS/SIGILL, hung, corrupted its heap, or you're
 hunting an LP64 64→32 truncation in the VM/libraries. Ask yourself first: *is the
 fault in my Limbo program, or in the emu?* If it's a Limbo program faulting (nil
 deref, bounds, an uncaught `raise`, a wedged app you can still reach via `/prog`),
-use **`ref/AGENTS_DEBUGGING.md`** instead — `/prog` is the first tool for a *broken*
+use **`ON_DEBUGGING.md`** instead — `/prog` is the first tool for a *broken*
 proc. This doc is for when the emu dies or freezes *before* you can `cat
 /prog/*/status`. For the **static** LP64 width-bug catchers (lint, genmove,
-verifytype, DISPTRCHECK) see **`ref/AGENTS_DUALABI.md`**; this doc is the runtime
+verifytype, DISPTRCHECK) see **`ON_THE_DUAL_ABI.md`**; this doc is the runtime
 half (catch it once it has already faulted/hung) plus the C memory-tooling.
 
 > **This repo differs from stock Inferno.** Debug builds default **`EMUCRASH=1`**
@@ -68,7 +68,7 @@ truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
 > (`emu/Linux/os.c:faultmoninit`). `EMUCRASH=0` explicitly opts out.
 > `release`/`bleedingedge` builds strip the define, so there it is off unless you
 > pass `EMUCRASH=1`. Still set `ulimit -c unlimited` to actually get the core. See
-> the build-profile table in `ref/AGENTS_DUALABI.md`.
+> the build-profile table in `ON_THE_DUAL_ABI.md`.
 
 By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis exception
 (`sysfault`→`disfault`), so corruption surfaces benignly layers later. With
@@ -105,7 +105,7 @@ idle: a `Pready` prog must be linked on the run queue, so a `Pready` prog found
 while the queue is empty is a **lost wakeup** (classic deadlock signature) and
 triggers a one-shot dump.
 
-> Native `/prog` inspection (`ref/AGENTS_DEBUGGING.md`) is still the first tool for
+> Native `/prog` inspection (`ON_DEBUGGING.md`) is still the first tool for
 > a *broken* proc you can reach; these hooks are for faults/hangs that kill or
 > freeze the system before you can `cat /prog/*/status`.
 
@@ -314,8 +314,8 @@ under it; chase that one via the deterministic address with `/prog`/gdb instead.
 | `libinterp/vgheap.h`, `valgrind-inferno.supp` | `-DVALGRIND` object-level heap tracking |
 | `include/isa.h` | Dis opcodes (decode the `op=` numbers in dumps) |
 
-**Cross-references:** `ref/AGENTS_DEBUGGING.md` (debugging a *Limbo program*: `/prog`,
-exceptions, disdump) · `ref/AGENTS_DUALABI.md` (the **static** LP64 width-bug
-catchers + build profiles) · `ref/AGENTS_EMU.md` (emulator architecture) ·
-`ref/AGENTS_PORT.md` (Linux/aarch64 port internals) · the `inferno-autonomy` skill
+**Cross-references:** `ON_DEBUGGING.md` (debugging a *Limbo program*: `/prog`,
+exceptions, disdump) · `ON_THE_DUAL_ABI.md` (the **static** LP64 width-bug
+catchers + build profiles) · `ON_EMU.md` (emulator architecture) ·
+`ON_PORTING.md` (Linux/aarch64 port internals) · the `inferno-autonomy` skill
 (headless repro + gdb MCP loop).
