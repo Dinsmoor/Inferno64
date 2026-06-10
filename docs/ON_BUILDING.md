@@ -4,15 +4,34 @@ This is the developer guide. If you just want to *run* it, the README's "Try it"
 section (`make run`) is all you need. This covers the build system, the emulator
 command line, catching the LP64 heap bugs, and how the project is developed.
 
+- [Prerequisites](#prerequisites)
 - [Building](#building)
 - [Build profiles](#build-profiles)
 - [Why `make`, not `mk` directly](#why-make-not-mk-directly)
 - [Running emu directly](#running-emu-directly)
 - [Debugging: catching the heap bugs](#debugging-catching-the-heap-bugs)
 
-See also [`INSTALL`](../INSTALL) (prerequisites, amd64 notes) and
-[`ref/ON_*.md`](ref/) (per-subsystem "so you want to…" references; start at
-[`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md)).
+See also the per-subsystem "so you want to…" references in [`ref/`](ref/) — start
+at [`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md) for the 32/64-bit story.
+
+## Prerequisites
+
+A host C toolchain (`gcc`, `ar`), GNU `make`, and the usual coreutils
+(`sha256sum`, `find`). For the default graphical `emu` you also need the X11 build
+headers — on Debian/Ubuntu:
+
+```sh
+sudo apt-get install build-essential libx11-dev libxext-dev
+```
+
+FreeType, mbedTLS, and stb are **vendored in-tree** (`libfreetype/`, `libmbedtls/`,
+`libstb/`), so you don't need system versions of those. A headless, graphics-less
+build (`CONF=emu-g`) needs no X11 headers at all. Plan 9's `mk` build tool is
+**not** a prerequisite — `make` compiles it from the host `gcc` on the first build
+(see [below](#why-make-not-mk-directly)).
+
+Supported hosts: Linux **aarch64** (the default) and **amd64** (build with
+`make OBJTYPE=amd64 all`).
 
 ## Building
 
@@ -56,10 +75,18 @@ there; use `release`/`bleedingedge` for a fast binary and absolute figures.
 
 ## Why `make`, not `mk` directly
 
-The system is built by Plan 9 `mk` (every component directory has an `mkfile`),
-and `mk install` / `mk clean` / `mk nuke` still work fine *inside a single
-directory*. But driving a whole-system build by hand is a foot-gun, so the
-top-level GNU `Makefile` wraps `mk` and is the only coherent entry point:
+Two reasons — one about correctness, one about portability:
+
+- **`mk` doesn't guarantee it rebuilds everything that changed.** Its incremental
+  dependency tracking is unreliable here, and a stale object — or a stale `.dis`
+  linked against a freshly rebuilt ABI — is a real, previously-debugged crash class.
+- **`make` runs pretty much everywhere.** Wrapping the build in GNU `make` improves
+  portability, gives one coherent entry point instead of a hand-driven recursive
+  `mk`, and makes it easy to add build rules and profiles.
+
+The system is still built by Plan 9 `mk` underneath (every component directory has
+an `mkfile`, and `mk install` / `mk clean` / `mk nuke` work fine *inside a single
+directory*); the top-level `Makefile` just drives it correctly:
 
 - **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
   or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
@@ -92,9 +119,12 @@ argument is the first Dis program to run:
 ./Linux/aarch64/bin/emu -c1 -r"$PWD" -g1280x800 wm/wm  # via the AArch64 JIT (-c1)
 ```
 
-On an x86-64 host the binary is at `./Linux/amd64/bin/emu`. For a headless box,
-run emu under a virtual framebuffer (e.g. `Xvfb :3` + a VNC server) and point
-`DISPLAY` at it before launching `wm/wm`.
+On an x86-64 host the binary is at `./Linux/amd64/bin/emu`. For a headless box
+(no monitor, or over SSH), don't wire up the framebuffer by hand —
+**[`scripts/headless_vnc.sh`](../scripts/headless_vnc.sh)** does it for you: it
+starts `Xvfb` + a VNC server, launches the desktop, and prints exactly how to
+connect (an SSH tunnel + your VNC client). `scripts/headless_vnc.sh stop` tears it
+down. (`make run` points you here too when `$DISPLAY` is empty.)
 
 **To shut emu down, type `^\` (Ctrl-\\) at the console it was launched from** —
 that is the hard-kill escape hatch (emu reminds you on startup). `^C` is *not* a
@@ -165,4 +195,4 @@ the module's `.sbl` file (`limbo -g` output). See
 
 For *how* this project is developed (the "demon machine" workflow — driving the
 desktop with `xdotool` over VNC, the gdb-mcp harness), see the
-[README](README.md#demon-machine-based-development).
+[README](../README.md#demon-machine-based-development).

@@ -172,9 +172,17 @@ RUNGEOM    ?= 1280x800
 RUNPROFILE ?= bleedingedge
 run:
 	@if [ -z "$$DISPLAY" ]; then \
-		echo "make run needs an X display (\$$DISPLAY is empty)." >&2; \
-		echo "Run it from a graphical desktop session, or start a headless shell with:" >&2; \
-		echo "    ./$(OBJDIR)/bin/emu -r\"$(ROOT)\" /dis/sh.dis" >&2; \
+		echo "make run needs an X display, but \$$DISPLAY is empty." >&2; \
+		echo "" >&2; \
+		echo "On a headless box (no monitor / over SSH), run the desktop over VNC:" >&2; \
+		echo "    make all && scripts/headless_vnc.sh" >&2; \
+		echo "        starts Xvfb + a VNC server, launches the desktop, and prints" >&2; \
+		echo "        exactly how to connect (SSH tunnel + VNC client).  scripts/headless_vnc.sh stop  tears it down." >&2; \
+		echo "" >&2; \
+		echo "Or skip the GUI entirely and get just a text shell:" >&2; \
+		echo "    make all && ./$(OBJDIR)/bin/emu -r\"$(ROOT)\" /dis/sh.dis" >&2; \
+		echo "" >&2; \
+		echo "Otherwise, run 'make run' from a graphical desktop session." >&2; \
 		exit 1; \
 	fi
 	@echo "Building Inferno ($(RUNPROFILE), full coherent build) ..."
@@ -340,6 +348,7 @@ help:
 	@echo "  make release    full build, -O2 portable baseline, no instrumentation"
 	@echo "  make bleedingedge  full build, -O3 -march=native"
 	@echo "  make run        full build (RUNPROFILE=$(RUNPROFILE)) + launch the GUI desktop"
+	@echo "                  (headless box? 'make all && scripts/headless_vnc.sh' runs it over VNC)"
 	@echo
 	@echo "Verify / maintain:"
 	@echo "  make check      per-platform build+test gate (run before pushing)"

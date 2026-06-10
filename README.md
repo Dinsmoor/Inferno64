@@ -1,8 +1,8 @@
-# Inferno64 — Inferno with a 64-bit (LP64) Dis ABI
+# Inferno64 — Inferno with a 64-bit Dis ABI
 
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
-**64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream
+**64-bit pointer model** in addition to the original 32-bit one. Upstream
 Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
 emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
 Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
@@ -34,7 +34,7 @@ You need an X display (a normal Linux desktop session); resize the window with
 `make run RUNGEOM=1920x1080`, or pick a profile with `make run RUNPROFILE=debug`.
 
 That's all you need to poke around. To actually build and hack on it — profiles,
-running emu directly, the JIT, debugging — see **[`docs/ON_BUILDING.md`](docs/ON_BUILDING.md)**.
+running emu directly, the JIT, debugging — see the documentation below.
 
 ## Documentation
 
@@ -45,24 +45,22 @@ The documentation lives under [`docs/`](docs/), organised as a
 | if you want to… | see |
 |---|---|
 | the full "so you want to…" doc index | [`docs/README.md`](docs/README.md) |
-| build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
-| install prerequisites / amd64 notes | [`INSTALL`](INSTALL) |
-| why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
+| prerequisites, build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
+| why your code behaves the same on every host (the 32/64-bit story) | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
 
-## What is the deal with LP64/ILP64
+## Will my code behave the same on every machine?
 
-Limbo's promise is "write it once, it runs the same everywhere": the compiler
-emits portable Dis bytecode (`.dis`) and the VM behaves identically on any host.
-Inferno originally assumed a Limbo `int` and a machine pointer were the same size
-(one 32-bit word), which breaks on a 64-bit host. This fork commits `master` to
-**LP64**: a Limbo `int` stays **32 bits on every host** (pointers are 64-bit only
-down in the C core), so a Limbo program means exactly the same thing on a 32-bit
-device and a 64-bit server — the C side absorbs the complexity, caught by a layered
-set of checks. The **ILP64** alternative (Limbo `int` widened to 64 bits to match
-the pointer) is parked on the `ilp64` branch.
+**Yes — that's the whole point of Inferno.** You write Limbo, the compiler turns it
+into portable Dis bytecode, and the virtual machine runs it the same way on every
+host: a 32-bit ARM board and a 64-bit server give identical results — same
+arithmetic, same overflow, same layout — *as long as the emulator has been ported
+to that host correctly*. Your **source code never changes**; at most the compiled
+`.dis` is rebuilt for a different machine.
 
-The full story — per-arch tables, what the C core must handle per platform, what it
-means for writing C vs. Limbo, and the nine safety nets — is in
+Keeping that promise on modern 64-bit machines (where a pointer is 64 bits but a
+Limbo `int` is deliberately still 32) took real work down in the C core. If you're
+going to hack on the C side, that's the one thing worth understanding — the full
+story, with per-platform tables, is in
 **[`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md)**.
 
 ## Are you going to try to push your changes to the upstream repository?
