@@ -44,10 +44,13 @@ fi
 hazard='^(include/(isa|interp|draw|tk)\.h|limbo/|libinterp/(comp-|das-|draw\.c|load\.c|runt\.c|tk\.c|raster3\.c)|libprefab/compound\.c|libtk/(ebind|menus)\.c|emu/port/devdraw\.c|appl/lib/styx\.b)'
 
 for c in "$@"; do
-	sha=$(git rev-parse --short "$c")
-	subj=$(git log -1 --format='%s' "$c")
+	# resolve to a concrete SHA in THIS (source) repo -- a symbolic ref like
+	# HEAD would otherwise resolve against the lp64 worktree in cherry-pick.
+	csha=$(git rev-parse --verify "$c^{commit}" 2>/dev/null) || { echo "bad commit: $c" >&2; exit 1; }
+	sha=$(git rev-parse --short "$csha")
+	subj=$(git log -1 --format='%s' "$csha")
 	echo "=== $sha  $subj"
-	hits=$(git show --name-only --format= "$c" | grep -E "$hazard" || true)
+	hits=$(git show --name-only --format= "$csha" | grep -E "$hazard" || true)
 	if [ -n "$hits" ]; then
 		echo "  !! ABI-sensitive files in this commit -- expect conflicts / wrong semantics on LP64:" >&2
 		echo "$hits" | sed 's/^/       /' >&2
@@ -58,7 +61,7 @@ for c in "$@"; do
 		*) echo "  skipped $sha"; continue ;;
 		esac
 	fi
-	if git -C "$lp64dir" cherry-pick -x "$c"; then
+	if git -C "$lp64dir" cherry-pick -x "$csha"; then
 		echo "  ok -> lp64"
 	else
 		echo "error: cherry-pick of $sha hit a conflict in $lp64dir." >&2
