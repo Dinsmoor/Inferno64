@@ -360,6 +360,10 @@ faultmoninit(void)
 	if(e != nil)
 		poolcheckfreq = atoi(e);
 
+	e = getenv("EMUPOOLPARANOID");	/* free-tree audit on EVERY alloc/free op */
+	if(e != nil)
+		poolparanoid = atoi(e);
+
 	memset(&act, 0, sizeof(act));
 	act.sa_handler = trapUSR2;
 	sigaction(SIGUSR2, &act, nil);

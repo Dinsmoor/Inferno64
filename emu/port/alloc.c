@@ -272,6 +272,124 @@ poolcheck(void)
 	}
 }
 
+/*
+ * Paranoid free-tree audit -- the same stray-pointer check as poolcheck(), but
+ * driven per allocator op (entry + exit of every poolalloc/poolfree) instead of
+ * once per GC.  poolcheck() can only fire at the next GC, which is useless when
+ * a corruption is created and then immediately chased within a single navigation
+ * teardown (no GC in between).  This brackets every op, so the FIRST audit to
+ * fault localises the stray write to the interval since the previous audit, and
+ * the entry/exit labels say whether an allocator op itself did it (clean entry,
+ * dirty exit) or whether external code scribbled the block between ops.
+ *
+ * Only walks the free TREE (BST nodes + their same-size rings), not every block,
+ * so it is cheap enough to run on every op.  Gated by EMUPOOLPARANOID=1 (off by
+ * default) because of that per-op cost.  Caller must hold p->l.
+ */
+int	poolparanoid = 0;
+
+/*
+ * Breakpoint target for the writer hunt.  poolparanoidcheck() calls this the
+ * instant it spots the bit-36 corruption, handing gdb the exact slot address so
+ * it can arm a hardware watchpoint (conditioned on a bit-36-clear value, which
+ * the allocator itself never writes) and catch the next stray write's stack.
+ * Deliberately not static / not inlinable so the symbol survives -O.
+ */
+void
+poolcorruptseen(void *slot, void *bad, void *good)
+{
+	USED(slot); USED(bad); USED(good);
+}
+
+/*
+ * Run the paranoid free-tree audit on the main pool from outside the allocator
+ * (e.g. bracketing the Dis teardown path in dis.c) to localise which step first
+ * scribbles the stray bit-36 pointer.  Takes the pool lock so the walk is safe
+ * against concurrent allocators.  Gated by EMUPOOLPARANOID like the in-allocator
+ * checks; the `where` label is printed on a hit.
+ */
+void
+mainpoolcheck(char *where)
+{
+	Pool *p;
+
+	if(!poolparanoid)
+		return;
+	p = &table.pool[0];
+	lock(&p->l);
+	poolparanoidcheck(p, where);
+	unlock(&p->l);
+}
+
+static char*
+_ppnode(Pool *p, Bhdr *b, char **fldp, Bhdr **badp)
+{
+	if(b->magic != MAGIC_F){ *fldp = "magic"; *badp = (Bhdr*)(uintptr)b->magic; return "non-free node in free tree"; }
+	if(b->parent != nil && !ptrinpool(p, b->parent)){ *fldp = "parent"; *badp = b->parent; return "stray free-tree pointer"; }
+	if(b->left   != nil && !ptrinpool(p, b->left))  { *fldp = "left";   *badp = b->left;   return "stray free-tree pointer"; }
+	if(b->right  != nil && !ptrinpool(p, b->right)) { *fldp = "right";  *badp = b->right;  return "stray free-tree pointer"; }
+	if(b->fwd != b && !ptrinpool(p, b->fwd))        { *fldp = "fwd";    *badp = b->fwd;    return "stray free-tree pointer"; }
+	if(b->prev != b && !ptrinpool(p, b->prev))      { *fldp = "prev";   *badp = b->prev;   return "stray free-tree pointer"; }
+	return nil;
+}
+
+void
+poolparanoidcheck(Pool *p, char *where)
+{
+	Bhdr *stack[128];
+	int sp, n;
+	Bhdr *b, *r, *bad;
+	char *fld, *msg;
+
+	if(!poolparanoid)
+		return;
+	sp = 0;
+	if(p->root != nil)
+		stack[sp++] = p->root;
+	while(sp > 0){
+		b = stack[--sp];
+		/* walk the same-size ring hanging off this BST node */
+		r = b; n = 0;
+		do {
+			msg = _ppnode(p, r, &fld, &bad);
+			if(msg != nil){
+				print("POOLPARANOID[%s]: %s -- pool %s free block %#p (size %lud) stray %s = %#p\n"
+				      "  magic=%#lux parent=%#p left=%#p right=%#p fwd=%#p prev=%#p\n",
+				      where, msg, p->name, r, (ulong)r->size, fld, bad,
+				      (ulong)r->magic, r->parent, r->left, r->right, r->fwd, r->prev);
+				/*
+				 * poolparanoid>=2: if the stray pointer is exactly this bug's
+				 * signature -- a single cleared bit 36 (the value is in-pool once
+				 * bit 36 is restored) -- repair it in place and keep running, to
+				 * prove the corruption is ONLY that one bit and characterise the
+				 * writer's victims over a long run instead of dying on the first.
+				 */
+				if(poolparanoid >= 2 && bad != nil
+				&& ptrinpool(p, (void*)((uintptr)bad | ((uintptr)1<<36)))){
+					Bhdr *good = (Bhdr*)((uintptr)bad | ((uintptr)1<<36));
+					void **slot = nil;
+					if(r->parent == bad) slot = (void**)&r->parent;
+					else if(r->left == bad) slot = (void**)&r->left;
+					else if(r->right == bad) slot = (void**)&r->right;
+					else if(r->fwd == bad) slot = (void**)&r->fwd;
+					else if(r->prev == bad) slot = (void**)&r->prev;
+					print("POOLPARANOID: REPAIR bit36 %s slot=%#p %#p -> %#p, continuing\n", fld, slot, bad, good);
+					poolcorruptseen(slot, bad, good);
+					if(slot != nil)
+						*slot = good;
+				} else
+					abort();
+			}
+			r = r->fwd;
+		} while(r != b && ++n < 100000 && ptrinpool(p, r));
+		/* children were validated in-pool by _ppnode on the representative */
+		if(b->left != nil && sp < nelem(stack))
+			stack[sp++] = b->left;
+		if(b->right != nil && sp < nelem(stack))
+			stack[sp++] = b->right;
+	}
+}
+
 void
 pooldel(Pool *p, Bhdr *t)
 {
@@ -580,9 +698,11 @@ poolalloc(Pool *p, ulong asize)
 
 	if(p->cursize > p->ressize && (prog = currun()) != nil && prog->flags&Prestricted)
 		return nil;
+	if(poolparanoid){ lock(&p->l); poolparanoidcheck(p, "alloc-entry"); unlock(&p->l); }
 	VG_MM_BEGIN;	/* the free-tree search reads poisoned in-band nodes of free blocks */
 	v = dopoolalloc(p, asize, getcallerpc(&p));
 	VG_MM_END;
+	if(poolparanoid){ lock(&p->l); poolparanoidcheck(p, "alloc-exit"); unlock(&p->l); }
 	return v;
 }
 
@@ -598,6 +718,7 @@ poolfree(Pool *p, void *v)
 		MM(p->pnum|(1<<8), getcallerpc(&p), (ulong)v, b->size);
 
 	lock(&p->l);
+	poolparanoidcheck(p, "free-entry");
 	p->nfree++;
 	p->cursize -= b->size;
 	c = B2NB(b);
@@ -621,6 +742,7 @@ poolfree(Pool *p, void *v)
 		B2T(b)->hdr = b;
 	}
 	pooladd(p, b);
+	poolparanoidcheck(p, "free-exit");
 	unlock(&p->l);
 	VG_MM_END;
 }
