@@ -272,6 +272,70 @@ poolcheck(void)
 	}
 }
 
+/*
+ * Paranoid free-tree audit -- the same stray-pointer check as poolcheck(), but
+ * driven per allocator op (entry + exit of every poolalloc/poolfree) instead of
+ * once per GC.  poolcheck() can only fire at the next GC, which is useless when
+ * a corruption is created and then immediately chased within a single navigation
+ * teardown (no GC in between).  This brackets every op, so the FIRST audit to
+ * fault localises the stray write to the interval since the previous audit, and
+ * the entry/exit labels say whether an allocator op itself did it (clean entry,
+ * dirty exit) or whether external code scribbled the block between ops.
+ *
+ * Only walks the free TREE (BST nodes + their same-size rings), not every block,
+ * so it is cheap enough to run on every op.  Gated by EMUPOOLPARANOID=1 (off by
+ * default) because of that per-op cost.  Caller must hold p->l.
+ */
+int	poolparanoid = 0;
+
+static char*
+_ppnode(Pool *p, Bhdr *b, char **fldp, Bhdr **badp)
+{
+	if(b->magic != MAGIC_F){ *fldp = "magic"; *badp = (Bhdr*)(uintptr)b->magic; return "non-free node in free tree"; }
+	if(b->parent != nil && !ptrinpool(p, b->parent)){ *fldp = "parent"; *badp = b->parent; return "stray free-tree pointer"; }
+	if(b->left   != nil && !ptrinpool(p, b->left))  { *fldp = "left";   *badp = b->left;   return "stray free-tree pointer"; }
+	if(b->right  != nil && !ptrinpool(p, b->right)) { *fldp = "right";  *badp = b->right;  return "stray free-tree pointer"; }
+	if(b->fwd != b && !ptrinpool(p, b->fwd))        { *fldp = "fwd";    *badp = b->fwd;    return "stray free-tree pointer"; }
+	if(b->prev != b && !ptrinpool(p, b->prev))      { *fldp = "prev";   *badp = b->prev;   return "stray free-tree pointer"; }
+	return nil;
+}
+
+void
+poolparanoidcheck(Pool *p, char *where)
+{
+	Bhdr *stack[128];
+	int sp, n;
+	Bhdr *b, *r, *bad;
+	char *fld, *msg;
+
+	if(!poolparanoid)
+		return;
+	sp = 0;
+	if(p->root != nil)
+		stack[sp++] = p->root;
+	while(sp > 0){
+		b = stack[--sp];
+		/* walk the same-size ring hanging off this BST node */
+		r = b; n = 0;
+		do {
+			msg = _ppnode(p, r, &fld, &bad);
+			if(msg != nil){
+				print("POOLPARANOID[%s]: %s -- pool %s free block %#p (size %lud) stray %s = %#p\n"
+				      "  magic=%#lux parent=%#p left=%#p right=%#p fwd=%#p prev=%#p\n",
+				      where, msg, p->name, r, (ulong)r->size, fld, bad,
+				      (ulong)r->magic, r->parent, r->left, r->right, r->fwd, r->prev);
+				abort();	/* never continue on a known-corrupt free-tree */
+			}
+			r = r->fwd;
+		} while(r != b && ++n < 100000 && ptrinpool(p, r));
+		/* children were validated in-pool by _ppnode on the representative */
+		if(b->left != nil && sp < nelem(stack))
+			stack[sp++] = b->left;
+		if(b->right != nil && sp < nelem(stack))
+			stack[sp++] = b->right;
+	}
+}
+
 void
 pooldel(Pool *p, Bhdr *t)
 {
@@ -409,6 +473,13 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 	size = asize;
 	osize = size;
 	size = (size + BHDRSIZE + p->quanta) & ~(p->quanta);
+
+	if(poolfencesize && p == mainmem && (ulong)size == poolfencesize){
+		Bhdr *fb = poolfencealloc(size);	/* electric-fence this size class */
+		if(fb != nil)
+			return B2D(fb);
+		/* arena exhausted: fall through to the normal pool */
+	}
 
 	lock(&p->l);
 	p->nalloc++;
@@ -580,9 +651,11 @@ poolalloc(Pool *p, ulong asize)
 
 	if(p->cursize > p->ressize && (prog = currun()) != nil && prog->flags&Prestricted)
 		return nil;
+	if(poolparanoid){ lock(&p->l); poolparanoidcheck(p, "alloc-entry"); unlock(&p->l); }
 	VG_MM_BEGIN;	/* the free-tree search reads poisoned in-band nodes of free blocks */
 	v = dopoolalloc(p, asize, getcallerpc(&p));
 	VG_MM_END;
+	if(poolparanoid){ lock(&p->l); poolparanoidcheck(p, "alloc-exit"); unlock(&p->l); }
 	return v;
 }
 
@@ -592,12 +665,19 @@ poolfree(Pool *p, void *v)
 	Bhdr *b, *c;
 	extern Bhdr *ptr;
 
+	if(poolfenceowns(v)){		/* LIMBRUL: quarantine instead of returning to the pool */
+		D2B(b, v);
+		poolfencefree(b);
+		return;
+	}
+
 	D2B(b, v);
 	VG_MM_BEGIN;	/* coalescing reads neighbouring free blocks' poisoned node/tail */
 	if(p->monitor)
 		MM(p->pnum|(1<<8), getcallerpc(&p), (ulong)v, b->size);
 
 	lock(&p->l);
+	poolparanoidcheck(p, "free-entry");
 	p->nfree++;
 	p->cursize -= b->size;
 	c = B2NB(b);
@@ -621,6 +701,7 @@ poolfree(Pool *p, void *v)
 		B2T(b)->hdr = b;
 	}
 	pooladd(p, b);
+	poolparanoidcheck(p, "free-exit");
 	unlock(&p->l);
 	VG_MM_END;
 }

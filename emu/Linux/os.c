@@ -12,6 +12,7 @@
 #include	<stdint.h>
 #include	<unistd.h>
 #include	<fcntl.h>
+#include	<sys/mman.h>
 
 #include	"dat.h"
 #include	"fns.h"
@@ -326,6 +327,100 @@ trapUSR2(int signo)
 }
 
 /*
+ * LIMBRUL electric-fence quarantine allocator (debug; Linux host).
+ *
+ * Routes one pool size class (LIMBRULFENCEMEMSIZE = the rounded pool block size,
+ * e.g. 128) through a reserved-VA arena instead of the shared pool: each block
+ * gets its own page(s), placed END-flush against a trailing PROT_NONE guard page
+ * (a write past the block faults), and on free the block's pages are
+ * mprotect(PROT_NONE)'d -- quarantine, so a use-after-free read/write faults
+ * SYNCHRONOUSLY at the offending instruction (run under gdb for the writer's
+ * stack). Unlike the lazy EMUPOOLPARANOID audit this needs no bit-36 arming: it
+ * traps the bad access itself, so a deterministic ASLR-off run suffices.
+ * Off unless LIMBRULFENCEMEMSIZE is set; zero behaviour change otherwise.
+ */
+ulong	poolfencesize;
+
+static struct {
+	Lock	l;
+	uchar	*lo;
+	uchar	*hi;
+	uchar	*next;
+	long	ps;
+} efence;
+
+void
+poolfenceinit(void)
+{
+	char *e;
+	uvlong arena;
+
+	e = getenv("LIMBRULFENCEMEMSIZE");
+	if(e == nil)
+		return;
+	poolfencesize = atoi(e);
+	if(poolfencesize == 0)
+		return;
+	efence.ps = sysconf(_SC_PAGESIZE);
+	arena = (uvlong)16*1024*1024*1024;		/* 16 GiB reserved VA (PROT_NONE) */
+	efence.lo = mmap(nil, arena, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if(efence.lo == MAP_FAILED){
+		print("LIMBRUL: arena reserve failed; fence disabled\n");
+		poolfencesize = 0;
+		return;
+	}
+	efence.hi = efence.lo + arena;
+	efence.next = efence.lo;
+	print("LIMBRUL: electric-fence on size-%lud blocks (arena %#p..%#p)\n",
+		poolfencesize, efence.lo, efence.hi);
+}
+
+int
+poolfenceowns(void *v)
+{
+	return poolfencesize && (uchar*)v >= efence.lo && (uchar*)v < efence.hi;
+}
+
+Bhdr*
+poolfencealloc(ulong blocksize)
+{
+	uchar *base, *guard;
+	uvlong datalen, total;
+	Bhdr *b;
+
+	datalen = (blocksize + efence.ps - 1) & ~((uvlong)efence.ps - 1);
+	total = datalen + efence.ps;			/* + trailing guard page */
+	lock(&efence.l);
+	if(efence.next + total > efence.hi){		/* arena exhausted */
+		unlock(&efence.l);
+		return nil;
+	}
+	base = efence.next;
+	efence.next += total;
+	unlock(&efence.l);
+	if(mprotect(base, datalen, PROT_READ|PROT_WRITE) != 0)
+		return nil;
+	guard = base + datalen;				/* stays PROT_NONE from the reserve */
+	b = (Bhdr*)(guard - blocksize);			/* block END flush to the guard */
+	b->magic = MAGIC_A;
+	b->size = blocksize;
+	B2T(b)->hdr = b;
+	return b;
+}
+
+void
+poolfencefree(Bhdr *b)
+{
+	uchar *guard, *base;
+	uvlong datalen;
+
+	guard = (uchar*)b + b->size;			/* page-aligned (block was flush) */
+	datalen = (b->size + efence.ps - 1) & ~((uvlong)efence.ps - 1);
+	base = guard - datalen;
+	mprotect(base, datalen, PROT_NONE);		/* quarantine: UAF access -> SIGSEGV */
+}
+
+/*
  * Wire up the observability features from the environment.  Called from
  * libinit before any Dis runs.
  *   EMUCRASH       wild-address faults dump then drop a core; hang -> abort.
@@ -359,6 +454,12 @@ faultmoninit(void)
 	e = getenv("EMUPOOLCHECK");	/* free-tree audit cadence (GCs); 0 disables */
 	if(e != nil)
 		poolcheckfreq = atoi(e);
+
+	e = getenv("EMUPOOLPARANOID");	/* free-tree audit on EVERY alloc/free op */
+	if(e != nil)
+		poolparanoid = atoi(e);
+
+	poolfenceinit();		/* LIMBRULFENCEMEMSIZE electric-fence (debug) */
 
 	memset(&act, 0, sizeof(act));
 	act.sa_handler = trapUSR2;

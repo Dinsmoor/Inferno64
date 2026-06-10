@@ -62,6 +62,14 @@ extern	Bhdr*	poolchain(Pool*);
 extern	int	ptrinpool(Pool*, void*);
 extern	void	poolcheck(void);
 extern	int	poolcheckfreq;
+extern	int	poolparanoid;
+extern	void	poolparanoidcheck(Pool*, char*);
+/* LIMBRUL electric-fence quarantine (debug; host-provided, gated by LIMBRULFENCEMEMSIZE) */
+extern	ulong	poolfencesize;			/* pool block size to fence; 0 = off */
+extern	void	poolfenceinit(void);
+extern	Bhdr*	poolfencealloc(ulong);		/* ready Bhdr* flush to a guard page, or nil */
+extern	int	poolfenceowns(void*);		/* is this data ptr in the fence arena? */
+extern	void	poolfencefree(Bhdr*);		/* quarantine the block (mprotect PROT_NONE) */
 extern	int	poolcompact(Pool*);
 extern	void	poolimmutable(void*);
 extern	ulong	poolmsize(Pool*, void*);
