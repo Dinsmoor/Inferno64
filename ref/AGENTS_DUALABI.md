@@ -1,5 +1,17 @@
 # Dual-ABI (32/64-bit) Notes — what the LP64 work added, and how a single tree builds either ABI
 
+> **Dis model: `master` is LP64 (committed). ILP64 is parked on `ilp64`.**
+> An **ILP64** variant — where the Dis word (Limbo `int`) is widened to the
+> pointer width so `IBY2WD == IBY2PTR == 8` on a 64-bit host — was prototyped and
+> is preserved on the **`ilp64` branch**. `master` deliberately commits to the
+> **LP64** model: the Dis word (Limbo `int`) stays **32 bits** (`IBY2WD`=4) on
+> every host so a `.dis` behaves bit-identically across architectures — the whole
+> point of Limbo-on-Dis being host-independent. The reasoning, the host-vs-Dis
+> "LP64" terminology trap, the per-arch tables, and the nine C-side hazard checks
+> are recorded in **[`../ABI_MODEL.md`](../ABI_MODEL.md)**. Keep ILP64-specific
+> commits (the `IBY2WD`=8 delta, its JIT/GUI/styx fallout) on `ilp64` only;
+> everything ABI-neutral is shared between the two branches.
+
 > **Branch / status (read first).** As of 2026-06-02 the LP64 work (`port-LP64`)
 > and `master` are **unified into one dual-ABI trunk** (`master` and `port-LP64`
 > point at the same merge commit; **`master` is the working trunk and is no longer
