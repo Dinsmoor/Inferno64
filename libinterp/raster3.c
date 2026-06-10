@@ -47,9 +47,10 @@ Raster3_drawmesh(void *fp)
 	F_Raster3_drawmesh *f = fp;
 	Image *dst, *tex;
 	ulong qidpath;
-	int dstid, texid, nv, ntri, locked;
+	int dstid, texid, nv, ntri, locked, i, nidx;
 	double *zbuf;
 	int *tris;
+	WORD *wtris;
 	void *verts;
 
 	if(f->dst == H || f->verts == H || f->tris == H)
@@ -79,12 +80,27 @@ Raster3_drawmesh(void *fp)
 		zbuf = (double*)f->zbuf->data;
 	verts = f->verts->data;
 	nv = f->verts->len;
-	tris = (int*)f->tris->data;
+	/*
+	 * tris is a Limbo 'array of int'.  Under ILP64 a Limbo int is a WORD
+	 * (8 bytes), so it can no longer be cast straight to a C int*; copy the
+	 * indices down into a C int array for drawmesh3.
+	 */
 	ntri = f->tris->len / 3;
+	nidx = ntri * 3;
+	wtris = (WORD*)f->tris->data;
+	tris = malloc(nidx * sizeof(int));
+	if(tris == nil){
+		if(locked)
+			unlockdisplay(dst->display);
+		return;
+	}
+	for(i = 0; i < nidx; i++)
+		tris[i] = (int)wtris[i];
 
 	drawmesh3(qidpath, dstid, texid, zbuf, verts, nv, tris, ntri,
 		f->mode, f->cull);
 
+	free(tris);
 	if(locked)
 		unlockdisplay(dst->display);
 }
