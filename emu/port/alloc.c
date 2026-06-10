@@ -288,39 +288,6 @@ poolcheck(void)
  */
 int	poolparanoid = 0;
 
-/*
- * Breakpoint target for the writer hunt.  poolparanoidcheck() calls this the
- * instant it spots the bit-36 corruption, handing gdb the exact slot address so
- * it can arm a hardware watchpoint (conditioned on a bit-36-clear value, which
- * the allocator itself never writes) and catch the next stray write's stack.
- * Deliberately not static / not inlinable so the symbol survives -O.
- */
-void
-poolcorruptseen(void *slot, void *bad, void *good)
-{
-	USED(slot); USED(bad); USED(good);
-}
-
-/*
- * Run the paranoid free-tree audit on the main pool from outside the allocator
- * (e.g. bracketing the Dis teardown path in dis.c) to localise which step first
- * scribbles the stray bit-36 pointer.  Takes the pool lock so the walk is safe
- * against concurrent allocators.  Gated by EMUPOOLPARANOID like the in-allocator
- * checks; the `where` label is printed on a hit.
- */
-void
-mainpoolcheck(char *where)
-{
-	Pool *p;
-
-	if(!poolparanoid)
-		return;
-	p = &table.pool[0];
-	lock(&p->l);
-	poolparanoidcheck(p, where);
-	unlock(&p->l);
-}
-
 static char*
 _ppnode(Pool *p, Bhdr *b, char **fldp, Bhdr **badp)
 {
@@ -343,21 +310,6 @@ poolparanoidcheck(Pool *p, char *where)
 
 	if(!poolparanoid)
 		return;
-	/*
-	 * Arming probe: report once whether this run's arena maps with bit 36 (the
-	 * 64 GiB bit) set. The bit-36 free-tree corruption is a silent no-op unless
-	 * a live heap pointer actually has bit 36 set, which is a ~50% ASLR roll, so
-	 * a hunt harness (tools/roll-armed-charon.sh) reads this to skip unarmed
-	 * runs. See the charon-close heap-corruption notes.
-	 */
-	{
-		static int armrep = 0;
-		if(!armrep && p->root != nil){
-			armrep = 1;
-			print("POOLPARANOID: arming pool %s root=%#p bit36=%d\n",
-				p->name, p->root, (int)(((uintptr)p->root>>36)&1));
-		}
-	}
 	sp = 0;
 	if(p->root != nil)
 		stack[sp++] = p->root;
@@ -372,28 +324,7 @@ poolparanoidcheck(Pool *p, char *where)
 				      "  magic=%#lux parent=%#p left=%#p right=%#p fwd=%#p prev=%#p\n",
 				      where, msg, p->name, r, (ulong)r->size, fld, bad,
 				      (ulong)r->magic, r->parent, r->left, r->right, r->fwd, r->prev);
-				/*
-				 * poolparanoid>=2: if the stray pointer is exactly this bug's
-				 * signature -- a single cleared bit 36 (the value is in-pool once
-				 * bit 36 is restored) -- repair it in place and keep running, to
-				 * prove the corruption is ONLY that one bit and characterise the
-				 * writer's victims over a long run instead of dying on the first.
-				 */
-				if(poolparanoid >= 2 && bad != nil
-				&& ptrinpool(p, (void*)((uintptr)bad | ((uintptr)1<<36)))){
-					Bhdr *good = (Bhdr*)((uintptr)bad | ((uintptr)1<<36));
-					void **slot = nil;
-					if(r->parent == bad) slot = (void**)&r->parent;
-					else if(r->left == bad) slot = (void**)&r->left;
-					else if(r->right == bad) slot = (void**)&r->right;
-					else if(r->fwd == bad) slot = (void**)&r->fwd;
-					else if(r->prev == bad) slot = (void**)&r->prev;
-					print("POOLPARANOID: REPAIR bit36 %s slot=%#p %#p -> %#p, continuing\n", fld, slot, bad, good);
-					poolcorruptseen(slot, bad, good);
-					if(slot != nil)
-						*slot = good;
-				} else
-					abort();
+				abort();	/* never continue on a known-corrupt free-tree */
 			}
 			r = r->fwd;
 		} while(r != b && ++n < 100000 && ptrinpool(p, r));

@@ -64,7 +64,6 @@ extern	void	poolcheck(void);
 extern	int	poolcheckfreq;
 extern	int	poolparanoid;
 extern	void	poolparanoidcheck(Pool*, char*);
-extern	void	mainpoolcheck(char*);
 /* LIMBRUL electric-fence quarantine (debug; host-provided, gated by LIMBRULFENCEMEMSIZE) */
 extern	ulong	poolfencesize;			/* pool block size to fence; 0 = off */
 extern	void	poolfenceinit(void);
