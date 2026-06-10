@@ -543,6 +543,13 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 	osize = size;
 	size = (size + BHDRSIZE + p->quanta) & ~(p->quanta);
 
+	if(poolfencesize && p == mainmem && (ulong)size == poolfencesize){
+		Bhdr *fb = poolfencealloc(size);	/* electric-fence this size class */
+		if(fb != nil)
+			return B2D(fb);
+		/* arena exhausted: fall through to the normal pool */
+	}
+
 	lock(&p->l);
 	p->nalloc++;
 
@@ -726,6 +733,12 @@ poolfree(Pool *p, void *v)
 {
 	Bhdr *b, *c;
 	extern Bhdr *ptr;
+
+	if(poolfenceowns(v)){		/* LIMBRUL: quarantine instead of returning to the pool */
+		D2B(b, v);
+		poolfencefree(b);
+		return;
+	}
 
 	D2B(b, v);
 	VG_MM_BEGIN;	/* coalescing reads neighbouring free blocks' poisoned node/tail */
