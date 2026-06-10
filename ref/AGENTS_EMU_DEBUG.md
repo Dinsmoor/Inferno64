@@ -109,6 +109,47 @@ triggers a one-shot dump.
 > a *broken* proc you can reach; these hooks are for faults/hangs that kill or
 > freeze the system before you can `cat /prog/*/status`.
 
+### `LIMBRULFENCEMEMSIZE=<blocksize>` — electric-fence one pool size class (catch the *writer*)
+
+The killer tool for heap corruption where **victim ≠ culprit** — a stray/wild/
+use-after-free write that `poolcheck`/`EMUPOOLPARANOID` only notices *much later*,
+at an unrelated free, with a useless backtrace. LIMBRUL routes one pool size class
+(`LIMBRULFENCEMEMSIZE` = the **rounded `Bhdr` block size**, e.g. `128`) out of the
+shared pool into a reserved-VA arena (`emu/Linux/os.c`): each block gets its own
+page, placed END-flush against a trailing `PROT_NONE` **guard page** (a write past
+the block → `SIGSEGV`), and on free the block's page is `mprotect(PROT_NONE)`'d —
+**quarantine**, so any use-after-free read/write faults **synchronously at the
+offending instruction**. Run it and open the core (or sit in gdb): the top frame
+*is* the writer.
+
+```sh
+ulimit -c unlimited
+LIMBRULFENCEMEMSIZE=128 EMUCRASH=1 emu -g1024x768 wm/wm /dis/sh.dis \
+    -c 'memfs /tmp; charon file:///tests/web/fixtures/probe_mbounce.html'
+# SIGSEGV at the bad access; `addr=` is inside the arena it prints at startup.
+gdb emu/Linux/o.emu /tmp/inferno-cores/core.emu.*    # frame 0 = the culprit
+```
+
+- **No bit-36 / ASLR "arming" needed.** Unlike the lazy `EMUPOOLPARANOID` audit
+  (which only *sees* the corruption when ASLR maps the arena with the clobbered
+  bit set), the fence traps the access itself — so a deterministic ASLR-off run
+  works, and it catches overruns and UAFs that don't even alter a sensitive bit.
+- **Pick the size from a core.** The `poolcheck`/`POOLPARANOID` line names the
+  victim block's `size` (e.g. `size 128`); fence *that* class.
+- **Cost:** one page per block (debug-only). Practical for one class at a time;
+  the class implicated by the cores is the one to fence. Heavy on VMAs — if
+  `mprotect` starts failing, raise `vm.max_map_count`. Off unless the env var is
+  set (zero behaviour change otherwise). Hooks: `poolfence*` in `emu/Linux/os.c`,
+  two call sites in `emu/port/alloc.c` (`dopoolalloc`, `poolfree`).
+- **Worked example:** this is what cracked the long-standing charon-teardown
+  bit-36 free-tree corruption — a use-after-free of the proc group in `killgrp()`
+  (`g->flags &= ~Pkilled` after the group was freed; `flags` aliased bit 36 of a
+  recycled free block's `parent`). Lazy detection had chased it for sessions;
+  fencing the 128-byte class faulted on the first bounce, in `killgrp`, with the
+  writer's stack. Fixed in `emu/port/dis.c` (`delgrp` defers freeing a `Pkilled`
+  group); guarded by `tests/web/regress_killgrp_uaf.sh` (fences that class +
+  bounces charon — CLEAN means the UAF hasn't returned).
+
 ### Graceful failure isolation — what already survives, what aborts
 
 A single misbehaving app does **not**, in general, take emu down — Dis already
@@ -119,7 +160,7 @@ isolates procs. The full model:
 | Limbo proc faults (nil deref, bounds, `raise`) | Dis exception → `killprog`/`killgrp` | that proc(group) dies, **scheduler continues** |
 | Wild-address `SIGSEGV`/`SIGBUS`/`SIGILL`/`SIGFPE` in the VM | `trapmemref`/`trapILL`/`trapFPE` → `sysfault` → `disfault` | converted to a Limbo exception → kills the faulting app, **emu survives** |
 | …same, but with `EMUCRASH=1` | `syscrash` → dump + restore `SIG_DFL` + re-raise | **whole emu dies** with a core (intentional, for debugging) |
-| Heap corruption | `poolcheck` → `abort()` | **whole emu dies** (unrecoverable — the stray free-tree-pointer class) |
+| Heap corruption | `poolcheck`/`EMUPOOLPARANOID` → `abort()` | **whole emu dies** (unrecoverable; detection is *lazy* — to catch the writer use `LIMBRULFENCEMEMSIZE`, above) |
 
 `disfault()` (`emu/port/dis.c`) `oslongjmp`s back to `vmachine`'s `waserror()`
 loop, which runs the prog's handler or `progexit()`s it, then re-enters the

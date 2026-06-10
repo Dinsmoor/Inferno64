@@ -6,6 +6,10 @@ trace / diagnostic prints from *inside* Inferno. The first tool here is the VM's
 `/prog` filesystem. If instead the **C emulator itself** crashed (host
 SIGSEGV/SIGBUS), hung, or corrupted its heap — i.e. emu died before you could reach
 `/prog` — use **`ref/AGENTS_EMU_DEBUG.md`** (sanitizers, fault/hang hooks, cores).
+For **heap corruption where the crash is far from the cause** (a stray/UAF write the
+allocator only notices later), that doc's **`LIMBRULFENCEMEMSIZE`** electric-fence
+quarantine traps the *writer* synchronously — it's what cracked the charon-teardown
+free-tree corruption.
 For the language itself see `ref/AGENTS_LIMBO.md`; for the static LP64 width-bug
 catchers see `ref/AGENTS_DUALABI.md`.
 
