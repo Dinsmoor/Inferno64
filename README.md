@@ -1,11 +1,19 @@
-# Inferno64 — Inferno with a 64-bit (LP64) Dis ABI
+# Inferno64 — Inferno with a 64-bit (ILP64) Dis ABI
 
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
-whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
-**64-bit (LP64) pointer model** in addition to the original 32-bit one. Upstream
-Inferno assumes a 32-bit Dis pointer/register slot, so on a 64-bit host the
-emulator could only run with a 32-bit toolchain (or `-m32`); this fork makes the
-Dis ABI itself 64-bit-clean, including an **AArch64 (ARM64) JIT**.
+whose Dis virtual machine, Limbo compiler, and hosted emulator run on a **64-bit
+pointer model**, including an **AArch64 (ARM64) JIT**. Upstream Inferno assumes a
+32-bit Dis pointer/register slot, so on a 64-bit host the emulator could only run
+with a 32-bit toolchain (or `-m32`); this fork makes the Dis ABI itself
+64-bit-clean.
+
+Inferno64 uses the **ILP64** model: a Limbo `int`, a `big`, a pointer, and a Dis
+register slot are all 64 bits wide. There's also an older **LP64** variant — `int`
+stays 32-bit and only pointers widen — that lives on a branch; it works, but its
+split between word-width and pointer-width made heap-corruption bugs miserable to
+track down, which is why ILP64 is the way forward. See
+[LP64 vs ILP64](#lp64-vs-ilp64--two-ways-to-be-64-bit) below for the full
+comparison and what each means for Limbo and C development.
 
 **IMPORTANT:** THIS PORT IS NOT PROVED TO BE BUG FREE. This will boot into
 the emu on aarch64 and you can do *most* desktop GUI work, but certain things
@@ -13,8 +21,9 @@ may still be broken. Feel free to try it, and if you do run into a crash or
 emu or wm freezes, then report it in a reproducible way and I'll see if I can
 fix it.
 
-Most of the remaining LP64 related bugs have to do with heap corruption, which
-are pretty hard to narrow down. If you want to help catch them, see
+Moving to ILP64 deliberately killed off the worst bug class — the pointer
+truncation that drove the heap corruption under LP64 — so it should be sturdier,
+but it is not proved clean. If you want to help catch what's left, see
 [Debugging](BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
 how to set up an emu session that reliably captures a core dump + logs.
 
@@ -52,7 +61,7 @@ No, I am doing my own thing, but if they want to talk to me then that's fine.
 
 ## Goals for Inferno64
 
-1. Make Inferno run natively (Dis/hosted emu) on a LP64 ABI
+1. Make Inferno run natively (Dis/hosted emu) on a 64-bit (ILP64) ABI
 2. Implement JIT compilers for some major LP64 architectures
 3. Make a proper test suite and harnesses to find memory bugs fast and make debugging easier
 4. Modernize some of the userspace applications to where 'i like them'
@@ -62,6 +71,94 @@ No, I am doing my own thing, but if they want to talk to me then that's fine.
 5. Make some improvements to Limbo (flesh out the undocumented Generics feature, etc)
 6. Improve ease of access to 'basically how does this work' style documentation
 7. Whatever else I want (might port the kernel too, may be able to take from the 9front doofuses)
+
+## LP64 vs ILP64 — two ways to be 64-bit
+
+There are two ways to make Dis 64-bit. Inferno64 went with **ILP64**; the earlier
+**LP64** approach still works and lives on a branch (`ilp64` was where ILP64 was
+developed, pushed as `Dinsmoor/Inferno64`). The difference is one question: *how
+wide is a Limbo `int`?*
+
+| | **ILP64** (Inferno64) | **LP64** (older, on a branch) |
+|---|---|---|
+| Limbo `int` | **64-bit** (`IBY2WD=8`) | 32-bit (`IBY2WD=4`) |
+| pointer / register slot | 64-bit (`IBY2PTR=8`) | 64-bit (`IBY2PTR=8`) |
+| core invariant | `int == big == WORD == PTR == 8` | `WORD != PTR` (4 vs 8) |
+| `.dis` word | 8 bytes | 4 bytes |
+
+ILP64 collapses everything to a single 8-byte width, which is simpler internally
+and is why it's the trunk — but in doing so it **redefines `int` to be 64-bit**.
+LP64 keeps the classic Limbo semantics (an `int` is still 32 bits) but pays for it
+by having to keep word-width and pointer-width separate *everywhere* in the
+compiler and VM — and that split is what made the heap-corruption bugs so hard to
+chase.
+
+### Pros and cons
+
+**ILP64 (what Inferno64 uses)**
+
+- ➕ Deletes the `WORD != PTR` hazard class outright — one width means no
+  truncation-on-store bugs and no `tint`/`tptr` bookkeeping. This is the main
+  reason for the switch: it removes the pointer-truncation that drove the LP64
+  heap corruption.
+- ➕ Matches caerwynj/inferno64, the de-facto upstream 64-bit Inferno, so there's
+  a reference answer-key; `big` becomes a no-op alias of `int`.
+- ➕ Validated: the regression suite is 178/178 under both the interpreter (`-c0`)
+  and the AArch64 JIT (`-c1`), the GUI comes up under both, and an amd64 JIT
+  backend is staged.
+- ➖ `int` is no longer 32-bit, which **changes the language**. Every 32-bit
+  boundary needs sign-extension care (Styx wire fields, `print` verbs, `.dis`
+  constants). Most are fixed, but the 32-bit *constant masking* (`h & ~(1<<31)`
+  idioms used in ~48 files) is deliberately left 32-bit — a standing semantic
+  seam.
+- ➖ C↔Limbo bitcasts all break: Limbo `int`(8) ≠ C `int`(4), so `Draw_Rect`(32B)
+  ≠ C `Rectangle`(16B). Fixed with field-wise converters, but every future
+  C/Limbo struct share must *convert*, never cast.
+- ➖ 2× memory for all int data, and it gives up the true dual-ABI build.
+
+**LP64 (older, still on a branch)**
+
+- ➕ `int` keeps its documented 32-bit meaning — overflow/wraparound, `1<<31`
+  hash idioms, `~0` sentinels (`NOFID`), and 32-bit wire fields all behave the
+  way the existing Limbo code expects, no per-boundary auditing.
+- ➕ C↔Limbo structs are bit-identical: Limbo `int`(4) == C `int`(4), so
+  `Draw_Point`/`Draw_Rect` map straight onto C `Point`/`Rectangle` and you can
+  reinterpret-cast across the boundary.
+- ➕ Smaller footprint (every `int` stays 4 bytes), and one source tree can still
+  target a 32-bit Dis.
+- ➖ The `WORD != PTR` hazard class is permanent: any compiler/VM slot that holds
+  an address must be pointer-width (the `tint`-vs-`tptr` discipline), and one
+  missed site is a silent pointer truncation — exactly the heap-corruption bugs
+  (e.g. closing a loaded Charon window) that were too annoying to debug.
+- ➖ Diverges from caerwynj/inferno64, so there's no reference implementation to
+  diff against.
+
+It works, it's just not where active development is — the rest of this section is
+mostly about ILP64.
+
+### What this means if you're hacking on it
+
+**Writing Limbo (ILP64):** `int` is 64-bit, so `big` and `int` are the same
+thing. Code that assumed a 32-bit `int` (hash functions that mask to 32 bits,
+anything packing an `int` into a 4-byte wire/file field) needs to sign-extend or
+mask explicitly at that boundary. Integer constants are still treated as
+32-bit-wide, so `~0` and `1<<31` idioms keep working — but a value that *relies*
+on 32-bit overflow will not wrap. (On the LP64 branch `int` is 32-bit and `big` is
+64-bit, exactly like upstream Limbo, so those old idioms behave as written.)
+
+**Writing C — builtins, devices, the VM (ILP64):** the rule is *never bitcast a C
+struct onto a Limbo struct* — a C `int` is still 4 bytes while a Limbo `int` is now
+8, so `Point`/`Rectangle`-style structs have different layouts and sizes. Convert
+field-by-field (see the `IRECT`/`DRECT` helpers and `limbopoints()`), and
+sign-extend any 32-bit value you read off the wire or out of a `.dis` into a 64-bit
+Dis word. (On the LP64 branch it was the opposite discipline: a Dis word is 4
+bytes, a pointer is 8, and any temp/slot/operand carrying an address had to be
+pointer-width — the `tptr` type, never `int` — or it truncated a pointer and
+corrupted the heap; C structs could be cast directly because the int widths
+matched.)
+
+The full story (every fix, the bug classes, and the reasoning) is in
+[`LP64_NOTES.md`](LP64_NOTES.md) and [`ref/AGENTS_DUALABI.md`](ref/AGENTS_DUALABI.md).
 
 ## Screenshot Gallery
 
