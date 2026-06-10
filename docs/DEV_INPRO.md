@@ -14,7 +14,7 @@ pointer here.
 > **Dis model (2026-06-10):** `master` commits to **LP64** (Limbo `int` = 32 bits
 > on every host). The **ILP64** experiment (Limbo `int` == pointer == 8) is parked
 > on the **`ilp64` branch**, not master. Rationale + comparison tables:
-> **`ABI_MODEL.md`**. ABI-neutral work is kept in sync across both branches;
+> **`ref/ON_THE_DUAL_ABI.md`**. ABI-neutral work is kept in sync across both branches;
 > only the `IBY2WD`=8-vs-4 delta is branch-specific.
 
 ## Active

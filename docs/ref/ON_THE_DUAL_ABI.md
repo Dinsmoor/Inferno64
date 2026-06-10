@@ -1,4 +1,4 @@
-# Dual-ABI (32/64-bit) Notes — what the LP64 work added, and how a single tree builds either ABI
+# Dual ABI (32/64-bit): why Limbo `int` is 32 bits, and what the LP64 port added
 
 > **Dis model: `master` is LP64 (committed). ILP64 is parked on `ilp64`.**
 > An **ILP64** variant — where the Dis word (Limbo `int`) is widened to the
@@ -8,9 +8,150 @@
 > every host so a `.dis` behaves bit-identically across architectures — the whole
 > point of Limbo-on-Dis being host-independent. The reasoning, the host-vs-Dis
 > "LP64" terminology trap, the per-arch tables, and the nine C-side hazard checks
-> are recorded in **[`../ABI_MODEL.md`](../ABI_MODEL.md)**. Keep ILP64-specific
-> commits (the `IBY2WD`=8 delta, its JIT/GUI/styx fallout) on `ilp64` only;
-> everything ABI-neutral is shared between the two branches.
+> are **the next section** ("So you want to understand the dual ABI"). Keep
+> ILP64-specific commits (the `IBY2WD`=8 delta, its JIT/GUI/styx fallout) on
+> `ilp64` only; everything ABI-neutral is shared between the two branches.
+
+## So you want to understand the dual ABI — LP64 vs ILP64
+
+**The target.** Limbo source code behaves *identically* on every host
+architecture. A compiled `.dis` may have to be recompiled per arch, but the
+*meaning* of a Limbo program never changes from host to host — provided the host
+`emu` / Inferno kernel is ported correctly. All the complexity is absorbed in the
+C core, behind defined checks and tests (below); userspace stays stable.
+
+**The decision.** Under that target, **LP64 is the correct Dis model.** It pins
+the Limbo `int` (the Dis WORD) at 32 bits on *every* host, so a `.dis` means the
+same thing wherever `emu` runs. ILP64 makes the Limbo `int` width follow the host
+pointer width (32 on a 32-bit host, 64 on a 64-bit host), which breaks that
+guarantee and defeats the point of Limbo-on-Dis being host-independent. The
+two-branch split (`master`/`lp64` vs `ilp64`) keeps both buildable; **`master`
+commits to LP64.**
+
+> **Terminology trap, kept throughout: "LP64" means two different things.**
+> (1) the *host C data model* — Linux aarch64/amd64 are LP64 *C platforms*
+> (`int`=4, `long`=8, ptr=8); permanent, true on **both** branches. (2) *Inferno's
+> Dis integer model* — `IBY2WD`=4 (LP64-Dis, what `master` ships) vs `IBY2WD`=8
+> (ILP64-Dis, the `ilp64` branch). **Only meaning (2) differs between branches.**
+
+### Table A — Host C data models (the platforms in this tree)
+
+| Host arch (OBJTYPE) | Example hosts in tree | C `int` | C `long` | C ptr | C model |
+|---|---|---|---|---|---|
+| `386`, `arm`, `mips`, `power`, `s800` (32-bit) | Nt(386), legacy *BSD/Irix/Solaris 32 | 32 | 32 | 32 | **ILP32** |
+| `aarch64` *(default)* | Linux, MacOSX | 32 | 64 | 64 | **LP64** |
+| `amd64` *(override)* | Linux, *BSD, Solaris | 32 | 64 | 64 | **LP64** |
+| `power64`/`mips64`/`sparc64` | (buildable, not active) | 32 | 64 | 64 | **LP64** |
+| *Win64* | **not a target** (`emu/Nt`=`386`) | 32 | 32 | 64 | *LLP64* |
+
+The host C model is a fixed property of the OS/arch — **identical on both
+branches**. Only ILP32 and LP64 hosts are actually built; no LLP64.
+
+### Table B — Limbo `int` (Dis WORD) width per host, under each Dis model
+
+| Host class | C model | **LP64-Dis** (`master`, `IBY2WD`=4 always) | **ILP64-Dis** (`ilp64`, `IBY2WD`=ptr) |
+|---|---|---|---|
+| 32-bit (386/arm/…) | ILP32 | Limbo `int` = **32** | Limbo `int` = **32** |
+| 64-bit (aarch64/amd64) | LP64 | Limbo `int` = **32** | Limbo `int` = **64** |
+| **Limbo `int` constant across all hosts?** | | ✅ **Yes — always 32** | ❌ **No — 32 or 64 by host** |
+
+This is the whole decision in one table. **LP64 pins Limbo `int` at 32 bits on
+every host arch** → a `.dis` behaves bit-identically wherever `emu` runs (same
+overflow, same `1<<31`, same masking, same struct layout), *as long as the host
+port itself is correct*. ILP64 makes the Limbo `int` width follow the host pointer
+width → the same source means different things on a 32-bit device and a 64-bit
+server.
+
+### Table C — What the C core must handle, per host platform
+
+This is the cost side: LP64 buys identical Limbo at the price of one C hazard on
+64-bit hosts. Here is exactly what the C core has to deal with, platform by
+platform.
+
+| Host / Dis model | ptr vs Dis WORD | What the C core must handle | What Limbo sees |
+|---|---|---|---|
+| 32-bit, either model (ILP32) | ptr 4 **==** WORD 4 | nothing special — pointer and Dis word are the same width, so the original Inferno "a pointer fits in a WORD" assumption still holds | `int` = 32 |
+| 64-bit, **LP64-Dis** (`master`) | ptr 8 **>** WORD 4 | **the hazard class:** never store a pointer in a `WORD`/`int`/`s32` slot (the high 32 bits truncate → wild address). Use `tptr`/`uintptr`/`void*` for pointers and `WORD` only for an actual Dis word. Limbo↔C struct identity *still holds* (Dis `int`=32=C `int`, so `Draw_Rect`==`Rectangle`) | `int` = 32 (same as a 32-bit host) |
+| 64-bit, **ILP64-Dis** (`ilp64`) | ptr 8 **==** WORD 8 | pointer==word again, so the truncation hazard goes away — **but** Limbo `int` is now 64-bit, so Limbo-struct **≠** C-struct: needs field-wise `IRECT/DRECT`, the `Tk_rect` return cast, and width care in `print %d`, the wire `g32`, and `alt` counts | `int` = 64 (**differs** from a 32-bit host) |
+
+The LP64 row is the trade `master` accepts: a single, well-understood C hazard
+(pointer wider than word) on 64-bit hosts, in exchange for Limbo that is identical
+everywhere. The mechanisms that catch that hazard are Tables E–F.
+
+### Table D — Verdict against the target
+
+| Requirement | LP64-Dis | ILP64-Dis |
+|---|---|---|
+| Limbo source behaves the same on every host arch | ✅ guaranteed (int=32 everywhere) | ⚠️ only within one width class |
+| `.dis` recompiled per arch is acceptable | ✅ (magic-gated, auto) | ✅ (magic-gated, auto) |
+| Don't break userspace / Limbo-struct == C-struct (`Draw_Rect`==`Rectangle`) | ✅ **holds** (int=32 = C int) | ❌ **breaks** (needs field-wise `IRECT/DRECT`, `Tk_rect` cast) |
+| Push complexity into C, keep Limbo simple | ✅ that's the model | ✗ inverts it (Limbo gets host-dependent int) |
+
+**For the target as stated, LP64 is the model that delivers it.** Its price is the
+C-side hazard class (pointer wider than word) — which is exactly what the checks
+in Tables E–F exist to catch.
+
+### Table E — LP64 C hazard classes → the defined check/test that catches each *(all verified in-tree)*
+
+| # | Hazard (only arises because C ptr=8 > Dis WORD=4) | Detection mechanism | Where | Phase |
+|---|---|---|---|---|
+| 1 | C pointer stored into a `WORD`/`int`/`s32` slot → high 32 bits truncated (the "tptr" class) | `make lint` → clang **`-Wshorten-64-to-32`** vs frozen `tests/lint/baseline.txt` | `tests/lint/run.sh` | **Build** |
+| 2 | Compiler emits a word-width move for a pointer-width type | **`genmove` width assert** → `fatal("… LP64 width mismatch")`, in **both** compilers | `limbo/gen.c` + `appl/cmd/limbo/gen.b` | **Compile** |
+| 3 | A temp that must hold a pointer is typed `tint` (4B) not `tptr` (8B) | explicit **`tptr`** pointer-width type routing | `limbo/ecom.c` / `ecom.b` | **Compile** |
+| 4 | GC pointer-map disagrees with a type's slot size/stride | **`verifytype` / `verifyctype`** GC-map↔size cross-check | `libinterp/heap.c` | **Init/runtime** |
+| 5 | A truncated/stray Dis pointer gets walked by the collector | **`DISPTRCHECK`** ("Valgrind for Dis pointers"), `-DDISPTRCHECK` debug build | `libinterp/gc.c` | **Runtime (debug)** |
+| 6 | Wrong-width `.dis` (stale 32-bit module on 64-bit emu) | **`XMAGIC` vs `XMAGIC8`** stamp + `exDiswidth` rejection → shell recompiles from source | `limbo/com.c`, `libinterp/load.c` | **Load** |
+| 7 | Stale generated module headers (`srv.h`, runt.h) after an ABI switch | `make` **force-regenerates** generated headers per-ABI; `clean`/`nuke` wipe them | mkfiles | **Build** |
+| 8 | Anything that slips all of the above | regression nets: **`tests/lp64`** (9 suites) + **`tests/cunit`** (per-C-lib: lib9/libmp/libsec/libmath/libbio/…) | `tests/` | **Test** |
+| 9 | First-fault capture for a bug in the wild | **`EMUCRASH=1`** core + `USR2` dump + `EMUWATCHDOG` | `emu/Linux/os.c` | **Runtime obs.** |
+
+### Table F — Defense-in-depth: when each net fires
+
+| Stage | Catches | Cost |
+|---|---|---|
+| Write C | (discipline: use `tptr`/`WORD`/`uintptr` deliberately) | — |
+| **Compile** | #2 `genmove` assert, #3 `tptr` typing | free, automatic, hard-fails |
+| **Build** | #1 `make lint` regression, #7 header regen | seconds; baseline diff |
+| **Load** | #6 wrong-width `.dis` | automatic recompile |
+| **Init / run** | #4 `verifytype`, #5 `DISPTRCHECK` (debug) | debug-build only |
+| **Test** | #8 `tests/lp64` + `tests/cunit` | `make check` gate |
+| **In the wild** | #9 `EMUCRASH`/`USR2`/watchdog | core on first fault |
+
+The takeaway: the LP64 hazard is **real but bounded and mechanically caught** — two
+of the nets (#2, #6) are *hard compile/load failures* you cannot miss, and #1/#8
+are CI-gateable. That is the trade the target implicitly accepts: **a known, tooled
+C hazard in exchange for Limbo source that means the same thing on every host
+arch.**
+
+### So you want to write C for Inferno — what the ABI means for you
+
+You're working in an **LP64** world: a C `int` is 32 bits, a C **pointer is 64
+bits**, and a Dis word (a Limbo `int`) is 32 bits. The one thing that bites people:
+the old Inferno habit of assuming "a pointer fits in a `WORD`" is **no longer
+true** — stuff a pointer into a `WORD`/`int`/32-bit slot and it gets truncated, and
+you get a wild address later (Table C, the LP64 row). Keep pointers and Dis words
+distinct: use pointer-width types (`void*`, `uintptr`, `tptr`) for pointers, and
+`WORD` only for an actual Dis word.
+
+You don't have to catch this by eye — that's what Tables E–F are. Run `make lint`
+and `make check` before you push and most truncation mistakes are caught for you.
+(If you genuinely *want* `int == pointer` in C, that's exactly what the `ilp64`
+branch gives you — but it's not `master`, and it moves the cost onto Limbo.)
+
+### So you want to write Limbo for Inferno — what the ABI means for you
+
+Basically nothing — and that's the whole point. Your `int` is **32 bits no matter
+what host the emu runs on**, so overflow, `1 << 31`, masking, and hashing all
+behave identically everywhere, and the same `.dis` means the same thing on every
+architecture. You never see pointers or any of the C-side hazards above; the VM
+deals with all of it. Two things worth knowing:
+
+- If you need a guaranteed 64-bit integer, use **`big`** (always 64 bits). `int` is
+  kept at 32 bits deliberately, *for* portability — not by accident.
+- A compiled `.dis` is stamped with the pointer width it was built for (`XMAGIC`
+  for 32-bit, `XMAGIC8` for 64-bit), so a module built for one width won't load on
+  the other — the shell just recompiles it from source when it can. That's the
+  "recompile the `.dis` per arch" half of the deal; your *source* never changes.
 
 > **Branch / status (read first).** As of 2026-06-02 the LP64 work (`port-LP64`)
 > and `master` are **unified into one dual-ABI trunk** (`master` and `port-LP64`

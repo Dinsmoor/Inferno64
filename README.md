@@ -47,67 +47,23 @@ The documentation lives under [`docs/`](docs/), organised as a
 | the full "so you want to…" doc index | [`docs/README.md`](docs/README.md) |
 | build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
 | install prerequisites / amd64 notes | [`INSTALL`](INSTALL) |
-| why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`docs/ABI_MODEL.md`](docs/ABI_MODEL.md) |
+| why Limbo `int` is 32-bit (LP64 vs ILP64, with tables) | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
 
 ## What is the deal with LP64/ILP64
 
-Limbo's whole promise is "write it once, it runs the same everywhere" — the
-compiler emits portable Dis VM bytecode (`.dis`) and the VM is supposed to behave
-identically on any host. Inferno's Dis VM was originally built on the assumption
-that a Limbo `int` and a machine pointer are the same size (one 32-bit word). On a
-64-bit host you have to decide what to do about that, and there are two ways to
-go. This fork ships one on `master` and keeps the other on a branch:
+Limbo's promise is "write it once, it runs the same everywhere": the compiler
+emits portable Dis bytecode (`.dis`) and the VM behaves identically on any host.
+Inferno originally assumed a Limbo `int` and a machine pointer were the same size
+(one 32-bit word), which breaks on a 64-bit host. This fork commits `master` to
+**LP64**: a Limbo `int` stays **32 bits on every host** (pointers are 64-bit only
+down in the C core), so a Limbo program means exactly the same thing on a 32-bit
+device and a 64-bit server — the C side absorbs the complexity, caught by a layered
+set of checks. The **ILP64** alternative (Limbo `int` widened to 64 bits to match
+the pointer) is parked on the `ilp64` branch.
 
-- **LP64 (`master`, the committed model).** A Limbo `int` stays **32 bits** on
-  every host; pointers are 64 bits down in the C core. The Dis word and the C
-  pointer are no longer the same size — which the C side has to be careful about —
-  but a Limbo program means *exactly* the same thing on a 32-bit device and a
-  64-bit server. That's the model that keeps Limbo portable, so it's the one we
-  commit to.
-- **ILP64 (the `ilp64` branch).** A Limbo `int` is widened to **64 bits** to match
-  the pointer, restoring the original "int == pointer" invariant. Tidier inside
-  the C core, but it makes the width of a Limbo `int` depend on the host, so a
-  Limbo program no longer behaves the same on a 32-bit box as on a 64-bit one.
-  Parked on a branch for anyone who wants it.
-
-The full reasoning — per-architecture tables and the C-side safety nets — is in
-**[`docs/ABI_MODEL.md`](docs/ABI_MODEL.md)**.
-
-### What does it mean for me wanting to write C for Inferno?
-
-You're working in an **LP64** world: a C `int` is 32 bits, a C **pointer is 64
-bits**, and a Dis word (a Limbo `int`) is 32 bits. The one thing that bites
-people: the old Inferno habit of assuming "a pointer fits in a `WORD`" is **no
-longer true** — stuff a pointer into a `WORD`/`int`/32-bit slot and it gets
-truncated, and you get a wild address later. Keep pointers and Dis words distinct:
-use pointer-width types (`void*`, `uintptr`) for pointers, and `WORD` only for an
-actual Dis word.
-
-You don't have to catch this by eye. There's a layered net for exactly this bug
-class — `make lint` (clang `-Wshorten-64-to-32` against a frozen baseline), a hard
-width assert in both Limbo compilers, GC type/size cross-checks, a `-DDISPTRCHECK`
-"valgrind for Dis pointers" debug build, wrong-width `.dis` rejection at load, and
-the `tests/lp64` + `tests/cunit` suites. Run `make lint` and `make check` before
-you push and most truncation mistakes are caught for you. (If you genuinely *want*
-`int == pointer` in C, that's exactly what the ILP64 branch gives you — but it's
-not `master`.)
-
-### What does it mean for me wanting to write Limbo for Inferno?
-
-Basically nothing — and that's the whole point. Your `int` is **32 bits no matter
-what host the emu runs on**, so overflow, `1 << 31`, masking, and hashing all
-behave identically everywhere, and the same `.dis` means the same thing on every
-architecture. You never see pointers or any of the C-side hazards above; the VM
-deals with all of it.
-
-Two things worth knowing:
-
-- If you need a guaranteed 64-bit integer, use **`big`** (always 64 bits). `int`
-  is kept at 32 bits deliberately, *for* portability — not by accident.
-- A compiled `.dis` is stamped with the pointer width it was built for (`XMAGIC`
-  for 32-bit, `XMAGIC8` for 64-bit), so a module built for one width won't load on
-  the other — the shell just recompiles it from source when it can. That's the
-  "recompile the `.dis` per arch" half of the deal; your *source* never changes.
+The full story — per-arch tables, what the C core must handle per platform, what it
+means for writing C vs. Limbo, and the nine safety nets — is in
+**[`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md)**.
 
 ## Are you going to try to push your changes to the upstream repository?
 
