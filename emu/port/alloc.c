@@ -343,6 +343,21 @@ poolparanoidcheck(Pool *p, char *where)
 
 	if(!poolparanoid)
 		return;
+	/*
+	 * Arming probe: report once whether this run's arena maps with bit 36 (the
+	 * 64 GiB bit) set. The bit-36 free-tree corruption is a silent no-op unless
+	 * a live heap pointer actually has bit 36 set, which is a ~50% ASLR roll, so
+	 * a hunt harness (tools/roll-armed-charon.sh) reads this to skip unarmed
+	 * runs. See the charon-close heap-corruption notes.
+	 */
+	{
+		static int armrep = 0;
+		if(!armrep && p->root != nil){
+			armrep = 1;
+			print("POOLPARANOID: arming pool %s root=%#p bit36=%d\n",
+				p->name, p->root, (int)(((uintptr)p->root>>36)&1));
+		}
+	}
 	sp = 0;
 	if(p->root != nil)
 		stack[sp++] = p->root;
