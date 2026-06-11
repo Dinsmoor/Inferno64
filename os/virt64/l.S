@@ -2,8 +2,8 @@
  * aarch64 (qemu -M virt) low-level support: entry, exception vectors,
  * setlabel/gotolabel, spl*, _tas, FP state.  GNU as.
  *
- * We run everything at EL1 with SP_EL1 (EL1h), identity-mapped,
- * MMU and caches off for the first bring-up (fine under TCG).
+ * We run everything at EL1 with SP_EL1 (EL1h), identity-mapped
+ * (MMU + caches on; flat 1GB-block map built at boot below).
  */
 
 #define DAIF_I		(1<<7)
@@ -72,6 +72,40 @@ _start:
 	stp	xzr, xzr, [x1], #16
 	b	1b
 2:
+	/*
+	 * MMU + caches on, identity map.  T0SZ=32 → 4GB VA, walks start
+	 * at level 1, so the whole map is two 1GB block entries:
+	 *   [0] 0x00000000  device nGnRnE, AF, AttrIdx1, PXN|UXN
+	 *       (flash, GIC @0x08000000, PL011 @0x09000000, virtio)
+	 *   [1] 0x40000000  normal write-back inner-shareable, AF, AttrIdx0
+	 * Remaining entries stay 0 (invalid) — kpgtbl is in just-cleared BSS.
+	 * No set/way D-cache invalidate: TCG doesn't model caches; real
+	 * hardware bring-up would need the 9front cache.v8.s dance.
+	 */
+	adrp	x1, kpgtbl
+	add	x1, x1, :lo12:kpgtbl
+	ldr	x2, =0x0060000000000405	/* device block: UXN|PXN|AF|AttrIdx1|block */
+	str	x2, [x1]
+	ldr	x2, =0x40000701		/* RAM block: AF|SH=ISH|AttrIdx0|block */
+	str	x2, [x1, #8]
+	dsb	ish
+	msr	ttbr0_el1, x1
+	mov	x2, #0xff		/* MAIR: Attr0=0xFF normal WB, Attr1=0x00 device-nGnRnE */
+	msr	mair_el1, x2
+	ldr	x2, =0x200803520	/* TCR: T0SZ=32, 4K, IRGN/ORGN=WB, SH=ISH, EPD1, IPS=40bit */
+	msr	tcr_el1, x2
+	isb
+	tlbi	vmalle1
+	ic	iallu
+	dsb	nsh
+	isb
+	mrs	x2, sctlr_el1
+	orr	x2, x2, #(1<<0)		/* M: MMU */
+	orr	x2, x2, #(1<<2)		/* C: D-cache */
+	orr	x2, x2, #(1<<12)	/* I: I-cache */
+	msr	sctlr_el1, x2
+	isb
+
 	/* boot stack, then C */
 	adrp	x1, bootstack
 	add	x1, x1, :lo12:bootstack
@@ -86,6 +120,9 @@ _start:
 	.globl bootstack
 bootstack:
 	.space	KSTACKSIZE
+	.balign	4096
+kpgtbl:
+	.space	4096
 
 /*
  * Exception vectors.  Each entry is at most 32 instructions.
