@@ -61,12 +61,28 @@ MEMDRAWC  := arc cmap defont ellipse fillpoly hwdraw icossin icossin2 \
 	     alloc cload draw load unload
 MEMLAYERC := draw layerop ldelete lhide line load lorigin lsetrefresh \
 	     ltofront ltorear unload lalloc
-# only the freestanding geometry/format helpers from libdraw — the rest
-# of that lib is the CLIENT side of the draw protocol and not kernel code
-DRAWC     := arith bytesperline chan computil defont drawrepl rectclip
+# full libdraw (its mkfile OFILES): the Tk/Draw builtin modules are
+# draw-protocol CLIENTS of devdraw, talking through the lib* I/O shims
+# in port/discall.c — same architecture as the hosted emu
+DRAWC     := alloc allocimagemix arith bezier border buildfont bytesperline \
+	     chan cloadimage computil creadimage defont draw drawrepl ellipse \
+	     font getdefont getsubfont init line mkfont openfont \
+	     poly loadimage readimage readsubfont rectclip \
+	     replclipr rgb string stringbg stringsubfont stringwidth subfont \
+	     unloadimage window \
+	     writeimage writesubfont
+# dropped: readcolmap/writecolmap (no callers, want Bio);
+# freesubfont/subfontcache/subfontname (libinterp/draw.c defines its own —
+# the emu links libdraw as an ARCHIVE so those members are never pulled)
 
 INTERPC := alt conv dec disops gc heap link load readmod runt raise stack \
-	   string validstk xec comp-aarch64 das-aarch64
+	   string validstk xec comp-aarch64 das-aarch64 draw tk geom
+
+# the whole Tk widget library (lists from libtk/mkfile + mkfile-std)
+TKC     := ebind grids image packr panel parse utils varbl windw xdata \
+	   canvs canvu carcs cbits cimag cline coval cpoly crect ctext cwind \
+	   colrs entry extns frame buton label listb menus scale scrol \
+	   textu textw tindx tmark ttags twind
 
 KERNC   := abort abs atol charstod cistrcmp cistrncmp cistrstr cleanname \
 	   convD2M convM2D convM2S convS2M dofmt exp fcallfmt floor fmt \
@@ -81,7 +97,7 @@ KERNC   := abort abs atol charstod cistrcmp cistrncmp cistrstr cleanname \
 OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
 	   $(INTERPC:%=$(O)/interp_%.o) $(KERNC:%=$(O)/kern_%.o) \
 	   $(MEMDRAWC:%=$(O)/md_%.o) $(MEMLAYERC:%=$(O)/ml_%.o) \
-	   $(DRAWC:%=$(O)/dr_%.o) \
+	   $(DRAWC:%=$(O)/dr_%.o) $(TKC:%=$(O)/tk_%.o) \
 	   $(O)/$(CONF).o $(O)/$(CONF).root.o
 
 all: $(KERNEL)
@@ -91,7 +107,8 @@ $(O):
 
 # ---- generated files ----
 
-GENH := $(CONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h
+GENH := $(CONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
+	$(ROOT)/libinterp/drawmod.h $(ROOT)/libinterp/tkmod.h
 
 $(CONF).c: ../port/mkdevc $(CONF)
 	AWK=awk sh ../port/mkdevc $(CONF) > $@
@@ -116,6 +133,12 @@ $(ROOT)/libinterp/runt.h:
 
 $(ROOT)/libinterp/sysmod.h:
 	cd $(ROOT)/libinterp && $(LIMBO) -t Sys -I../module ../module/runt.m > sysmod.h
+
+$(ROOT)/libinterp/drawmod.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t Draw -I../module ../module/runt.m > drawmod.h
+
+$(ROOT)/libinterp/tkmod.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t Tk -I../module ../module/runt.m > tkmod.h
 
 # ---- compile rules ----
 
@@ -147,6 +170,9 @@ $(O)/ml_%.o: $(ROOT)/libmemlayer/%.c | $(O)
 
 $(O)/dr_%.o: $(ROOT)/libdraw/%.c | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/tk_%.o: $(ROOT)/libtk/%.c | $(O)
+	$(CC) $(CFLAGS) -I$(ROOT)/libtk -c -o $@ $<
 
 $(O)/kern_%.o: $(ROOT)/libkern/%.c | $(O)
 	$(CC) $(CFLAGS) -I$(ROOT)/libkern -c -o $@ $<

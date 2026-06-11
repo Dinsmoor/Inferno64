@@ -16,6 +16,8 @@ lib
 
 mod
 	sys
+	draw
+	tk
 
 port
 	alarm
@@ -81,6 +83,7 @@ root
 	/dis/read.dis
 	/dis/xd.dis
 	/dis/bind.dis
+	/dis/drawtest.dis
 	/dis/lib/arg.dis
 	/dis/lib/bufio.dis
 	/dis/lib/env.dis

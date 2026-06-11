@@ -179,3 +179,23 @@ genrandom(uchar *buf, ulong n)
 	state = x;
 	return n;
 }
+
+/*
+ * access(2) for the in-kernel libdraw (subfontname.c probes font
+ * files with it): a kernel has no syscalls, so probe via kopen.
+ */
+extern int libopen(char*, int);
+extern int libclose(int);
+
+int
+access(char *name, int mode)
+{
+	int fd;
+
+	USED(mode);	/* AREAD/AEXIST both reduce to "can we open it" */
+	fd = libopen(name, OREAD);
+	if(fd < 0)
+		return -1;
+	libclose(fd);
+	return 0;
+}
