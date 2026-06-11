@@ -80,6 +80,12 @@ file *outside* those trees needs a line in the `root` section of the
 audit on every alloc/free); the Makefile stamps the value so flipping
 it recompiles alloc.c without a `make clean`. `HOSTBIN` as above.
 
+With the full application root the audit is *felt*: every alloc/free
+walks the whole free tree, so allocation-heavy work (rayteapot's .obj
+parse, charon) crawls — minutes instead of seconds.  Keep PARANOID=1
+while hunting memory bugs; build `make PARANOID=0` for an image meant
+for interactive use.
+
 ### Running it
 
 - Headless console in the terminal: `make run` (C-a x quits).
