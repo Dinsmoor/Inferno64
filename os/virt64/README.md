@@ -160,9 +160,10 @@ toolbar logs one harmless complaint and builds its default menu.
   overflow falls back to the interpreter). `segflush()` in main.c does
   the dc cvau/ic ivau dance.
 - Single CPU (see "SMP" below).
-- Entropy: rng.c is a polled legacy virtio-mmio driver for the qemu
-  entropy device — boot with `-device virtio-rng-device` (make run does;
-  qemu puts it in the last free slot, hence the probe scans all 32).
+- Entropy: rng.c is a polled virtio entropy driver on the modern
+  virtio-mmio transport (virtio.c) — boot with `-device
+  virtio-rng-device` (make run does; qemu fills slots from the last
+  one down, hence the probe scans all 32).
   Without the device, genrandom() falls back to a seeded xorshift
   (NOT crypto-grade).
 - `poolparanoidcheck()` in port/alloc.c audits the allocator free tree
