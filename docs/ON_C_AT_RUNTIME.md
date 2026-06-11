@@ -18,6 +18,46 @@ serves files via `tools/libstyx`; Inferno `mount`s it and drives the library by
 reading and writing files. Crash isolation is free, because it's a different
 address space.
 
+## Why this matters (the point, not the parlour trick)
+
+The deliverable is **not** "Inferno can do SQL." SQLite is just the proof
+carrier — it is portable enough to stand up in an afternoon, so it demonstrates
+the mechanism cleanly. (Inferno doesn't actually *need* SQLite; its own answer
+to structured data is Styx, `ndb`, and the filesystem-as-database.) The point is
+the general capability this unlocks:
+
+> **Any piece of mature, portable C can appear inside your namespace as a
+> mountable file tree — a first-class Inferno resource — without recompiling
+> emu, touching the kernel, or giving that foreign code the power to crash your
+> system.**
+
+And because it arrives as **Styx, not a linked-in blob**, it inherits everything
+the namespace already gives you, for free:
+
+- **It composes.** The library is just files, so the whole Inferno toolchain
+  works on it — `cat`, `grep`, sh pipelines, redirection, another Limbo program.
+  Capability arrives through the *one* interface the OS already has, not a
+  bespoke API.
+- **It distributes.** Styx is a network protocol: the C service can run on
+  another machine (offload compute, or sit where the data/hardware is) and you
+  `mount tcp!host!port`. One service, many mounters — including non-Inferno 9P
+  clients (Plan 9, Linux v9fs).
+- **It's sandboxable and per-process.** Per-process namespace unions decide
+  which processes even see the service and where it's bound; on native (with the
+  MMU) it's a real protection boundary. Untrusted parsers — historically the
+  worst attack surface anywhere — run *out there*, not in your address space.
+- **It's supervisable.** A crash is contained and recoverable: kill and respawn
+  it, run two versions side by side, hot-swap the implementation — apps using it
+  see at most a transient I/O error.
+
+This is the concrete bridge that lets Inferno reach the accumulated universe of
+battle-tested C (codecs, crypto, compression, regex/parser engines,
+font/PDF/media libraries, ML inference, scientific kernels, hardware userspace
+shims like libusb/evdev) **ported once, reused everywhere, by any language and
+any host, safely** — modern capability entering as *typed, file-served services*
+you compose, not a POSIX personality bolted on. The apps stay pure Limbo; the
+foreign C stays foreign, behind a file.
+
 See also: [ON_DLM.md](ON_DLM.md) (the in-process path, and why it's stubbed +
 gives no isolation), [ON_C_IN_INFERNO.md](ON_C_IN_INFERNO.md) /
 [ON_STB.md](ON_STB.md) (the *other* way to add C — compile a typed builtin
@@ -88,6 +128,7 @@ Files (all in `tools/sqlitefs/`, client in `appl/cmd/sql.b`):
 | `build-sqlite.sh` | compiles the vendored amalgamation into `sqlite3.o` |
 | `mkfile`, `mkfile-Linux` | host build (`mk`), mirrors `tools/odbc` |
 | `appl/cmd/sql.b` | minimal Limbo client: dial, mount, query, print |
+| `tools/sqlitefs/demo.sh` | self-contained fault-isolation demo (insert rows → `os`-crash the server → heartbeat proves emu lives → restart → rows survived) |
 
 The served tree:
 
