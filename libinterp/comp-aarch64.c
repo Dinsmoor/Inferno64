@@ -841,6 +841,46 @@ comcasec(Inst *i)
 	t[0] = (WORD)RELPC(patch[t[0]]);		/* wild dest */
 }
 
+/*
+ * compile() failed after pass 0 (e.g. the single JIT arena is full): the
+ * pass-0 "not done" markers — the NEGATED case-table counts comcase/
+ * comcasel/comcasec left in the module's data template — are still there,
+ * and the module is about to run INTERPRETED.  xec's casew/casel/casec
+ * read those counts as-is; a negated count breaks the binary search and
+ * fetches a garbage default dest, sending the prog to a wild PC ("illegal
+ * dis instruction" at best, a heap-scribbling wander at worst).  Undo the
+ * marks, leaving the tables exactly as the loader built them.
+ */
+static void
+uncase(Module *m, int size)
+{
+	Inst *i;
+	WORD *t;
+	int k;
+
+	if(m->origmp == H || m->origmp == nil)
+		return;
+	for(k = 0, i = m->prog; k < size; k++, i++){
+		switch(i->op){
+		case ICASE:
+			t = (WORD*)(m->origmp + i->d.ind + IBY2WD);
+			if(t[-1] < 0)
+				t[-1] = -t[-1]-1;
+			break;
+		case ICASEL:
+			t = (WORD*)(m->origmp + i->d.ind + 2*IBY2WD);
+			if(t[-2] < 0)
+				t[-2] = -t[-2]-1;
+			break;
+		case ICASEC:
+			t = (WORD*)(m->origmp + i->d.ind);
+			if(t[0] < 0)
+				t[0] = -t[0]-1;
+			break;
+		}
+	}
+}
+
 /* ---------------------------------------------------------------------- *
  *  Native cross-module call (IMCALL): commcall sets up the frame and tail-
  *  calls macmcal, which dispatches the runt / compiled-prog / interp-prog
@@ -1491,8 +1531,13 @@ compile(Module *m, int size, Modlink *ml)
 	}
 
 	base = jitcode((n + nlit*2) * sizeof(u32));
-	if(base == nil)
+	if(base == nil){
+		static int warned;
+		if(warned++ == 0)
+			print("jit: arena full at %s; this and later modules run interpreted\n",
+				m->name);
 		goto bad;
+	}
 
 	if(cflag > 3)
 		print("dis=%5d %5d asm=%p: %s\n", size, n, base, m->name);
@@ -1545,6 +1590,7 @@ compile(Module *m, int size, Modlink *ml)
 	segflush(base, (n + nlit*2) * sizeof(u32));
 	return 1;
 bad:
+	uncase(m, size);	/* undo pass-0 case-table marks; the module runs interpreted */
 	free(patch);
 	free(tmp);
 	free(base);
