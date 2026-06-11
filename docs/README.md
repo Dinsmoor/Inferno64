@@ -63,6 +63,9 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 
 | …do this | read |
 |---|---|
-| vendor a new external C library | [`ref/ON_STB.md`](ref/ON_STB.md) (the worked example — a dedicated guide is TODO) |
+| write C in the codebase at all (Plan 9 dialect, types, error model) | [`ref/ON_C_IN_INFERNO.md`](ref/ON_C_IN_INFERNO.md) |
+| write C that touches the Dis VM (the integer model + the one hazard) | [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md) |
+| debug or prevent heap corruption | [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails) |
+| vendor a new external C library | [`ref/ON_C_IN_INFERNO.md`](ref/ON_C_IN_INFERNO.md) → [`ref/ON_STB.md`](ref/ON_STB.md) (worked example) |
 | understand why you *can't* load native C modules at runtime | [`ref/ON_DLM.md`](ref/ON_DLM.md) |
 | build, pick a profile, run emu directly, catch heap bugs | [`ON_BUILDING.md`](ON_BUILDING.md) |
