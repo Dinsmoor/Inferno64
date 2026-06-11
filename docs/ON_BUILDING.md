@@ -12,7 +12,7 @@ command line, catching the LP64 heap bugs, and how the project is developed.
 - [Debugging: catching the heap bugs](#debugging-catching-the-heap-bugs)
 
 See also the per-subsystem "so you want to…" references in [`ref/`](ref/) — start
-at [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md) for the 32/64-bit story.
+at [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md) for the 32/64-bit story.
 
 ## Prerequisites
 
@@ -135,7 +135,7 @@ the desktop slower to start and only pays off for **compute-bound** Limbo — th
 is IO-bound and the heavy work (`$Raster3`, image decode, TLS) is already native C.
 For interactive use prefer the interpreter; reserve `-c1` for batch/benchmark work.
 Leave `-B` (which disables the JIT's array-bounds checks) **off** while chasing
-heap bugs. See [`ref/ON_JIT.md`](ref/ON_JIT.md) for the trade-off.
+heap bugs. See [`ON_JIT.md`](ON_JIT.md) for the trade-off.
 
 ## Debugging: catching the heap bugs
 
@@ -156,7 +156,7 @@ Leave ASLR **on** (don't use `setarch -R`) — it provokes the high-address faul
 The full story — *why* this corruption happens (a 64-bit pointer truncated into a
 32-bit Dis slot), how to prevent it, the step-by-step recipe, and the `LIMBRUL`
 electric-fence — is in
-**[`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)**.
+**[`ON_C_IN_DIS.md`](ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)**.
 
 For *how* this project is developed (the "demon machine" workflow — driving the
 desktop with `xdotool` over VNC, the gdb-mcp harness), see the

@@ -119,7 +119,7 @@ A few conventions worth knowing:
 - Devices are tables of file operations (a `Dev` struct) registered in `emu/port`;
   adding one is the canonical "extend the kernel" task — see `ON_KERNEL.md`.
 - The build is Plan 9 `mk` wrapped by the top-level `make`; how to build, the
-  profiles, and the vendored-library cache are in **`../ON_BUILDING.md`**.
+  profiles, and the vendored-library cache are in **`ON_BUILDING.md`**.
 
 ## Want to vendor an external C library?
 
@@ -129,4 +129,4 @@ rest of the system (often as a built-in `$Module`), wire it into the build order
 (the top-level `mkfile`'s `EMUDIRS`), and — for a heavy tree — let the
 content-signature cache skip rebuilding it when unchanged. The worked example with
 the most detail is the stb suite: **`ON_STB.md`** (and `ON_IMAGEIO.md` for how its
-output reaches Draw). The vendored-cache mechanics are in `../ON_BUILDING.md`.
+output reaches Draw). The vendored-cache mechanics are in `ON_BUILDING.md`.

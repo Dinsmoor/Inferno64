@@ -4,7 +4,7 @@
 
 This doc is the file-by-file map of the Linux/aarch64 emu port. It assumes
 familiarity with the kernel architecture (ON_EMU.md), the build system
-(`../ON_BUILDING.md` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI
+(`ON_BUILDING.md` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI
 work (ON_C_IN_DIS.md). For the architecture-level VM reference (register map,
 calling convention, type-map widths) see ON_AARCH64_PORT.md.
 

@@ -402,4 +402,4 @@ The `pipe(fds)` + `mount(fds[1], …)` + serve-on-`fds[0]` pattern is universal.
 | `man/5/0intro` | Protocol specification |
 | `man/2/styx` | Limbo styx module reference |
 | `man/2/styxservers` | Styxservers framework reference |
-| `doc/styx.ms` | Original Styx paper |
+| `ref/sources/styx.ms` | Original Styx paper |

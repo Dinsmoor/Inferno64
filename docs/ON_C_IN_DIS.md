@@ -47,6 +47,21 @@ to guarantee and turns it into the same unportable-VM nightmare that something l
 .NET was. We keep an `ilp64` branch around as an experiment, but it is **not** the
 model we build on; the rest of this document is the LP64 story.
 
+**In code, the whole difference is *what `sizeof` drives*.** Both models build from
+one source tree; the choice is which width is tied to the host:
+
+| | `include/isa.h` | `include/interp.h` | what `sizeof` sizes |
+|---|---|---|---|
+| **us (LP64)** | `IBY2WD = 4` (fixed literal) · `IBY2PTR = sizeof(void*)` | `WORD = int` (32 bits) | the **pointer/register slot** — it adapts to the host; the Dis word is pinned at 32 |
+| **ILP64** (`ilp64`, and caerwynj's fork) | `IBY2WD = sizeof(intptr)` | `WORD = long` (64 bits) | the **Dis word itself** — so a Limbo `int` follows the host pointer |
+
+So both projects use `sizeof` — the difference is *where*. We apply it to `IBY2PTR`
+(the pointer slot, which **must** equal the host's `sizeof(void*)` or the GC's
+pointer-maps corrupt memory) and keep `IBY2WD` a fixed `4` so the Dis word never
+moves. ILP64 instead ties `IBY2WD` to `sizeof(intptr)`, so widening the host pointer
+widens a Limbo `int` along with it. That single line is the entire LP64-vs-ILP64
+distinction.
+
 > **Terminology trap: "LP64" means two different things — keep them apart.**
 > (1) the *host C data model* — Linux aarch64/amd64 are LP64 *C platforms*
 > (`int`=4, `long`=8, ptr=8); that's a fixed property of the host OS/arch. (2)
@@ -264,7 +279,7 @@ lint`, the `genmove` width assert, the GC pointer-map cross-check, and `DISPTRCH
 > `sizeof`, so its `IBY2PTR` is a literal `con` (currently 8) that must match the
 > build ABI — the one value not auto-derived (candidate for build-time generation).
 > This is the durable project record (it travels with the repo); update the
-> relevant `docs/ref/ON_*.md` rather than relying on external notes.
+> relevant `docs/ON_*.md` rather than relying on external notes.
 > **The GUI works (2026-06).** `CONF=emu` is the default build and `wm/wm` runs
 > the desktop under X11 (verified headless via Xvfb + screenshot: taskbar,
 > FreeType menus, mouse input). Getting there fixed two LP64 bugs — the draw
@@ -311,7 +326,7 @@ around, plus the LP64 port design and the one open runtime bug (the idle-Charon
 heap corruption, below), so the next person knows what is real vs. deferred.
 
 How to build, the profiles, the vendored-library cache, and the `make check`
-gate are all in **[`../ON_BUILDING.md`](../ON_BUILDING.md)** — not repeated here.
+gate are all in **[`ON_BUILDING.md`](ON_BUILDING.md)** — not repeated here.
 One build hazard is ABI-specific, though, so it stays:
 
 > **Build hazard — stale generated module headers across an ABI switch.** The C

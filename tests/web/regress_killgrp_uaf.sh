@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regression guard for the killgrp() proc-group use-after-free -- the long-hunted
 # bit-36 free-tree heap corruption (root cause + fix: emu/port/dis.c; see
-# docs/ref/ON_EMU_DEBUG.md "LIMBRULFENCEMEMSIZE" and the charon-close notes).
+# docs/ON_EMU_DEBUG.md "LIMBRULFENCEMEMSIZE" and the charon-close notes).
 #
 # How it guards deterministically: LIMBRULFENCEMEMSIZE=128 routes the 128-byte
 # pool class (the proc-group block) through the electric-fence arena, so if the
