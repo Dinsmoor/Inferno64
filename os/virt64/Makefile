@@ -19,13 +19,17 @@ CC      := gcc
 AS      := gcc
 LD      := ld
 
+# Pool-allocator free-tree audit on every alloc/free (os/port/alloc.c).
+# Default on for development; `make PARANOID=0` for a faster kernel.
+PARANOID ?= 1
+
 INCS    := -I. -I$(ROOT)/Inferno/aarch64/include -I$(ROOT)/include -I$(ROOT)/libinterp
 CFLAGS  := -O1 -g -static -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	   -fno-stack-protector -fno-strict-aliasing -fno-omit-frame-pointer \
 	   -mstrict-align -mcmodel=small \
 	   -fplan9-extensions -std=gnu2x -fcommon \
 	   -Wno-unused-parameter -Wno-parentheses -Wno-unknown-pragmas \
-	   -DKERNDATE=$(shell date +%s) \
+	   -DKERNDATE=$(shell date +%s) -DPOOLPARANOID=$(PARANOID) \
 	   $(INCS)
 ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 
@@ -34,7 +38,7 @@ PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   random sysfile taslock xalloc \
 	   devcons devroot devenv devprog devpipe devdup
 
-ARCHC   := main trap clock uart stubs
+ARCHC   := main trap clock uart rng stubs
 ARCHS   := l
 
 INTERPC := alt conv dec disops gc heap link load readmod runt raise stack \
@@ -66,7 +70,9 @@ GENH := $(CONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libin
 $(CONF).c: ../port/mkdevc $(CONF)
 	AWK=awk sh ../port/mkdevc $(CONF) > $@
 
-$(CONF).root.h $(CONF).root.s: $(CONF) ../port/mkroot data2s ../init/virtinit.dis
+# grouped target (&:) — one mkroot run produces both; without it -j runs
+# the recipe twice in parallel and interleaves the output
+$(CONF).root.h $(CONF).root.s &: $(CONF) ../port/mkroot data2s ../init/virtinit.dis
 	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/net $(ROOT)/prog
 	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(CONF)
 
@@ -98,6 +104,12 @@ $(O)/%.o: %.S | $(O)
 $(O)/port_%.o: ../port/%.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# Recompile alloc.c when PARANOID changes value (stamp only updates then).
+$(O)/paranoid.stamp: force | $(O)
+	@[ "`cat $@ 2>/dev/null`" = "$(PARANOID)" ] || echo $(PARANOID) > $@
+force: ;
+$(O)/port_alloc.o: $(O)/paranoid.stamp
+
 $(O)/interp_%.o: $(ROOT)/libinterp/%.c $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -117,9 +129,10 @@ $(KERNEL): $(OBJ) virt64.ld
 	@echo "built $@"
 
 run: $(KERNEL)
-	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -nographic -kernel $(KERNEL)
+	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -nographic \
+		-device virtio-rng-device -kernel $(KERNEL)
 
 clean:
 	rm -rf $(O) $(KERNEL) $(CONF).c $(CONF).root.h $(CONF).root.s errstr.h version.h
 
-.PHONY: all run clean
+.PHONY: all run clean force

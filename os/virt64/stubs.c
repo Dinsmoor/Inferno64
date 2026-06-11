@@ -145,8 +145,9 @@ lockedcompile(Module *m, int size, Modlink *ml)
 }
 
 /*
- * weak PRNG for /dev/random until a real entropy source is wired up
- * (virtio-rng is the obvious candidate).  NOT cryptographically secure.
+ * /dev/notquiterandom: virtio-rng when present (rng.c), else a weak
+ * xorshift PRNG.  The fallback is NOT cryptographically secure; boot
+ * with `-device virtio-rng-device` for real entropy.
  */
 ulong
 genrandom(uchar *buf, ulong n)
@@ -154,12 +155,22 @@ genrandom(uchar *buf, ulong n)
 	static uvlong state;
 	uvlong x;
 	ulong i;
+	int got;
 	uvlong rdcntvct(void);
 
-	if(state == 0)
-		state = rdcntvct() | 1;
+	got = virtiorngread(buf, n);
+	if(got >= n)
+		return n;
+
+	if(state == 0){
+		/* one-time seed: device entropy if any came through, else the counter */
+		x = rdcntvct();
+		if(got > 0)
+			memmove(&x, buf, got > sizeof(x) ? sizeof(x) : got);
+		state = x | 1;
+	}
 	x = state;
-	for(i = 0; i < n; i++){
+	for(i = got; i < n; i++){
 		x ^= x << 13;
 		x ^= x >> 7;
 		x ^= x << 17;

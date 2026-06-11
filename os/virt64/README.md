@@ -10,7 +10,11 @@ interactive Inferno shell on the PL011 serial console.
 cd os/virt64
 make            # → ivirt64.elf
 make run        # qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -kernel ivirt64.elf -nographic
+make PARANOID=0 # faster kernel: skip the pool free-tree audit on every alloc/free
 ```
+
+`PARANOID` (default 1) sets `poolparanoid` in port/alloc.c; the Makefile
+stamps the value so flipping it recompiles alloc.c without a `make clean`.
 
 Built with the host gcc as a freestanding cross-dialect compile (no
 kencc): `-fplan9-extensions -std=gnu2x -fcommon -mstrict-align
@@ -31,16 +35,28 @@ display): `DISPLAY=:3 qemu-system-aarch64 ... -display gtk -serial vc
 | GICv2 | dist 0x08000000, cpu 0x08010000 |
 | generic timer | CNTP (physical), PPI intid 30 |
 | RAM | 0x40000000, kernel loaded at +0x200000 |
+| virtio-mmio | 32 transports at 0x0a000000 + N*0x200, intids 48+N |
 
 ## Current scope / deliberate simplifications
 
-- MMU and caches OFF (fine under TCG; turn-on recipe cribbed from
-  9front sys/src/9/arm64 l.s/mem.c is in the commit history notes).
-- Single CPU, JIT off (`cflag 0`; mmap stub fails by design).
-- Entropy is a seeded xorshift (NOT crypto-grade) — use virtio-rng
-  before anything security-relevant.
+- MMU and caches ON: TTBR0-only identity map, two 1GB block entries
+  (device + RAM) built in l.S before the boot stack; T0SZ=32, MAIR
+  idx0=WB-normal/idx1=device-nGnRnE (recipe adapted from 9front
+  sys/src/9/arm64 l.s/mem.c).
+- Dis JIT ON (`cflag 1`): one 4MB xalloc-backed code arena, single-arena
+  mode (`jitsinglearena` in libinterp/comp-aarch64.c — a second arena
+  would break the `[jitlo,jithi)` native-PC dispatch test in xec.c, so
+  overflow falls back to the interpreter). `segflush()` in main.c does
+  the dc cvau/ic ivau dance.
+- Single CPU (see "SMP" below).
+- Entropy: rng.c is a polled legacy virtio-mmio driver for the qemu
+  entropy device — boot with `-device virtio-rng-device` (make run does;
+  qemu puts it in the last free slot, hence the probe scans all 32).
+  Without the device, genrandom() falls back to a seeded xorshift
+  (NOT crypto-grade).
 - `poolparanoidcheck()` in port/alloc.c audits the allocator free tree
-  on every alloc/free (this is a development kernel).
+  on every alloc/free; `make PARANOID=0` turns it off (development
+  default is on).
 
 ## gcc-vs-kencc porting rules learned here
 

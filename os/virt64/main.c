@@ -111,6 +111,7 @@ main(void)
 	procinit();
 	links();
 	chandevreset();
+	virtiornginit();	/* optional: -device virtio-rng-device */
 
 	/* Dis JIT: one modest xalloc arena (see jitcode in comp-aarch64.c) */
 	cflag = 1;

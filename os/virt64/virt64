@@ -76,6 +76,8 @@ root
 	/dis/echo.dis
 	/dis/ps.dis
 	/dis/pwd.dis
+	/dis/read.dis
+	/dis/xd.dis
 	/dis/lib/arg.dis
 	/dis/lib/bufio.dis
 	/dis/lib/env.dis

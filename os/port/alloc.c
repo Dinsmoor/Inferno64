@@ -68,8 +68,14 @@ Pool*	imagmem = &table.pool[2];
  * another block in the SAME pool.  Runs at entry+exit of each allocator op
  * when poolparanoid is set, so the first failing audit brackets the stray
  * write to a single interval.  Caller must hold p->l.
+ *
+ * Default comes from the build (-DPOOLPARANOID=0|1); the audit walks the
+ * whole free tree on every alloc/free, so production builds may want it off.
  */
-int	poolparanoid = 1;
+#ifndef POOLPARANOID
+#define POOLPARANOID 1
+#endif
+int	poolparanoid = POOLPARANOID;
 
 int
 ptrinpool(Pool *p, void *a)

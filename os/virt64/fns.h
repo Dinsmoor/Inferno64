@@ -30,6 +30,8 @@ void	setpanic(void);
 void	trapinit(void);
 void	uartinit(void);
 void	vectors(void);
+void	virtiornginit(void);
+int	virtiorngread(uchar*, int);
 ulong	va2pa(void*);
 
 /*
