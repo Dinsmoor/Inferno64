@@ -45,10 +45,25 @@ ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 nocache nodynld parse pgrp print proc qio qlock \
 	   random sysfile taslock xalloc \
-	   devcons devroot devenv devprog devpipe devdup
+	   devcons devroot devenv devprog devpipe devdup devdraw devpointer
 
-ARCHC   := main trap clock uart rng stubs
+ARCHC   := main trap clock uart rng ramfb screen stubs
 ARCHS   := l
+
+# libmemdraw/libmemlayer file lists follow the libs' own mkfiles
+# (COMMONFILES + the Inferno/Plan9 SYSFILES), minus iprint.c: the
+# kernel has a real iprint and the lib's is a stub for hosted builds.
+# minus iprint (kernel has the real one) and the file-I/O entry points
+# (cread/read/write/openmemsubfont want libc open/read — nothing in the
+# kernel references them)
+MEMDRAWC  := arc cmap defont ellipse fillpoly hwdraw icossin icossin2 \
+	     line mesh poly string subfont \
+	     alloc cload draw load unload
+MEMLAYERC := draw layerop ldelete lhide line load lorigin lsetrefresh \
+	     ltofront ltorear unload lalloc
+# only the freestanding geometry/format helpers from libdraw — the rest
+# of that lib is the CLIENT side of the draw protocol and not kernel code
+DRAWC     := arith bytesperline chan computil defont drawrepl rectclip
 
 INTERPC := alt conv dec disops gc heap link load readmod runt raise stack \
 	   string validstk xec comp-aarch64 das-aarch64
@@ -65,6 +80,8 @@ KERNC   := abort abs atol charstod cistrcmp cistrncmp cistrstr cleanname \
 
 OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
 	   $(INTERPC:%=$(O)/interp_%.o) $(KERNC:%=$(O)/kern_%.o) \
+	   $(MEMDRAWC:%=$(O)/md_%.o) $(MEMLAYERC:%=$(O)/ml_%.o) \
+	   $(DRAWC:%=$(O)/dr_%.o) \
 	   $(O)/$(CONF).o $(O)/$(CONF).root.o
 
 all: $(KERNEL)
@@ -120,6 +137,15 @@ force: ;
 $(O)/port_alloc.o: $(O)/paranoid.stamp
 
 $(O)/interp_%.o: $(ROOT)/libinterp/%.c $(GENH) | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/md_%.o: $(ROOT)/libmemdraw/%.c | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/ml_%.o: $(ROOT)/libmemlayer/%.c | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/dr_%.o: $(ROOT)/libdraw/%.c | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(O)/kern_%.o: $(ROOT)/libkern/%.c | $(O)

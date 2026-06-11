@@ -109,6 +109,7 @@ main(void)
 	clockinit();
 	printinit();
 	uartinit();
+	screeninit();	/* ramfb, if qemu was given -device ramfb */
 	procinit();
 	links();
 	chandevreset();

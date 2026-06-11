@@ -5,6 +5,8 @@ dev
 	prog
 	pipe
 	dup
+	draw
+	pointer
 
 ip
 
@@ -45,8 +47,8 @@ link
 
 code
 	int main_pool_pcnt = 40;
-	int heap_pool_pcnt = 40;
-	int image_pool_pcnt = 0;
+	int heap_pool_pcnt = 30;
+	int image_pool_pcnt = 20;	/* memdraw images live here; 0 panics in screeninit */
 
 	int consoleprint = 1;
 	int redirectconsole = 0;
