@@ -87,6 +87,57 @@ it recompiles alloc.c without a `make clean`. `HOSTBIN` as above.
   boots faster than a client can connect, so `wait=off` loses the
   banner). See "Debugging" below for the gdb stub.
 
+## Graphical session
+
+With a display the kernel boots straight into a wm desktop (toolbar
+with start menu, Tk shell windows, working mouse + keyboard):
+
+```sh
+DISPLAY=:3 qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 \
+    -kernel ivirt64.elf \
+    -global virtio-mmio.force-legacy=false \
+    -device virtio-rng-device -device ramfb \
+    -device virtio-keyboard-device -device virtio-tablet-device \
+    -display gtk -serial vc -monitor none
+```
+
+The pieces, all in this directory:
+
+- **ramfb.c** — display: qemu's fw_cfg-configured scanout of guest RAM
+  (everything fw_cfg is big-endian, including directory entries).
+- **screen.c** — gscreen Memimage over the 1024x768 XRGB32 framebuffer;
+  kernel console text renders into it; devdraw attaches to it.
+- **virtio.c / vinput.c** — modern (v2) virtio-mmio transport +
+  virtio-keyboard/tablet drivers; the tablet's absolute coordinates
+  mean no pointer grab.  `-global virtio-mmio.force-legacy=false` is
+  required (input devices are modern-only, and the flag flips every
+  transport, so rng speaks modern too).
+- Kernel links libmemdraw/libmemlayer (devdraw's rasterizer), full
+  libdraw + libtk + the Draw/Tk builtin modules (clients of devdraw via
+  the lib* shims in port/discall.c, same architecture as emu).
+- The root bakes the wm closure: wm/wm + toolbar + wm/sh, their
+  /dis/lib dependencies, /fonts/{pelm,misc,lucm} and /icons/tk.
+- virtinit binds #i/#m/#s and spawns `wm/wm` under its own sh; the
+  serial console sh starts a few seconds later (see below).
+
+Two hard-won lessons baked into the code:
+
+- **quotefmtinstall() is load-bearing.**  Without it %q prints
+  literally and swallows its argument — and the whole wm<->client
+  window protocol is %q-formatted strings, so windows are requested
+  with garbage rects and silently never appear, while Tk reports
+  success.  (Diagnosed by tracing wm's request channel.)
+- **The console and the GUI share kbdq.**  devcons used to sleep
+  holding the kbd qlock (GUI startup hung until a serial byte arrived)
+  and a console reader could steal interleaved bytes of GUI typing;
+  both fixed in port/devcons.c, and init orders the readers so wm's
+  keyboard client is the senior sleeper.
+
+The serial console remains on the qemu `vc` tab; while a GUI owns
+/dev/keyboard the console sh parks (it resumes if the keyboard is
+closed).  `/lib/wmsetup` does not exist in the baked root, so the
+toolbar logs one harmless complaint and builds its default menu.
+
 ## Hardware (qemu -M virt)
 
 | device | where |
