@@ -84,7 +84,8 @@ Files (all in `tools/sqlitefs/`, client in `appl/cmd/sql.b`):
 | file | role |
 |---|---|
 | `sqlitefs.c` | the host server: links SQLite, serves Styx, `-t` self-test |
-| `fetch-sqlite.sh` | fetches the pinned SQLite amalgamation + builds `sqlite3.o` (not vendored) |
+| `sqlite3.c`, `sqlite3.h` | the vendored SQLite amalgamation (public domain; see `NOTICE`) |
+| `build-sqlite.sh` | compiles the vendored amalgamation into `sqlite3.o` |
 | `mkfile`, `mkfile-Linux` | host build (`mk`), mirrors `tools/odbc` |
 | `appl/cmd/sql.b` | minimal Limbo client: dial, mount, query, print |
 
@@ -104,7 +105,7 @@ The served tree:
 
 ```sh
 # on the host (Linux), from the repo root:
-sh tools/sqlitefs/fetch-sqlite.sh                 # fetch + compile sqlite3.o
+sh tools/sqlitefs/build-sqlite.sh                 # compile the vendored sqlite3.o
 export ROOT=$PWD PATH=$PWD/Linux/$OBJTYPE/bin:$PATH
 (cd tools/libstyx  && mk install)                 # once: host Styx server lib
 (cd tools/sqlitefs && mk install)                 # -> Linux/$OBJTYPE/bin/sqlitefs
@@ -201,8 +202,10 @@ trades isolation for in-process speed or vice-versa.
 
 To expose library `libfoo` the same way:
 
-1. **Get the source.** Prefer a self-contained amalgamation; fetch it in a
-   `fetch-*.sh` rather than committing a big blob (see `fetch-sqlite.sh`).
+1. **Get the source.** Prefer a self-contained amalgamation. Vendor it if the
+   licence is permissive (SQLite is public domain — vendored here verbatim with
+   a `NOTICE`) so the build is self-contained; otherwise fetch a pinned release
+   in a `build-*.sh`. Either way compile it with the **host** `cc`.
 2. **Copy `tools/sqlitefs/` to `tools/foofs/`.** Replace the SQLite calls in the
    `Styxops` handlers (`open`/`read`/`write`/`close`) with `libfoo` calls.
    Design a **coarse** file interface (a `cmd` you write, a `data` you read).
@@ -247,5 +250,6 @@ mid-session (`kill -SEGV`) fails the next query with "connection refused" while
 **emu keeps running**; restarting it returns the data intact — the fault
 isolation the pattern exists to provide.
 
-The SQLite amalgamation is intentionally **not** vendored (`.gitignore`d);
-`fetch-sqlite.sh` pulls the pinned 3.46.1 release on demand.
+The SQLite amalgamation (3.46.1, public domain) is vendored in `tools/sqlitefs/`
+with provenance + SHA-256 in `NOTICE`; `build-sqlite.sh` compiles it to
+`sqlite3.o` (the only `.gitignore`d build artifact).
