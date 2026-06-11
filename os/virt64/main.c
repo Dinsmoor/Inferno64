@@ -117,9 +117,14 @@ main(void)
 	virtiornginit();	/* optional: -device virtio-rng-device */
 	virtioinputinit();	/* optional: -device virtio-keyboard-device / virtio-tablet-device */
 
-	/* Dis JIT: one modest xalloc arena (see jitcode in comp-aarch64.c) */
+	/*
+	 * Dis JIT: one xalloc arena (see jitcode in comp-aarch64.c; a second
+	 * arena would break xec's [jitlo,jithi) dispatch test).  When it fills,
+	 * later modules run interpreted — correct but slow, so size it for the
+	 * full-application root.  16MB fits beside the 90%-of-RAM pools at -m 512.
+	 */
 	cflag = 1;
-	jitarenasize = 4*1024*1024;
+	jitarenasize = 16*1024*1024;
 	jitsinglearena = 1;
 
 	eve = strdup("inferno");

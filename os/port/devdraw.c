@@ -1965,6 +1965,42 @@ drawlsetrefresh(ulong qidpath, int id, void *reffn, void *refx)
 	return memlsetrefresh(i, reffn, refx);
 }
 
+/*
+ * Rasterize a triangle mesh straight into a draw image's Memimage (the
+ * native 3D primitive memmesh; see libmemdraw/mesh.c).  Resolves the
+ * destination (and optional texture) by (client path, id) like
+ * drawlsetrefresh, under the draw qlock.  Ported from emu/port/devdraw.c
+ * for the $Raster3 builtin; dst must be an off-screen (non-layer) image.
+ */
+int
+drawmesh3(ulong qidpath, int dstid, int texid, double *zbuf,
+	void *verts, int nv, int *idx, int ntri, int mode, int cull)
+{
+	Client *client;
+	DImage *dd, *dt;
+	Memimage *dst, *tex;
+	int ret;
+
+	client = drawclientofpath(qidpath);
+	if(client == nil)
+		return 0;
+	qlock(&sdraw);
+	ret = 0;
+	dd = drawlookup(client, dstid, 0);
+	if(dd != nil && dd->image != nil && dd->image->layer == nil){
+		dst = dd->image;
+		tex = nil;
+		if(texid != 0){
+			dt = drawlookup(client, texid, 0);
+			if(dt != nil)
+				tex = dt->image;
+		}
+		ret = memmesh(dst, zbuf, verts, nv, idx, ntri, tex, mode, cull);
+	}
+	qunlock(&sdraw);
+	return ret;
+}
+
 Dev drawdevtab = {
 	'i',
 	"draw",

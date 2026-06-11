@@ -21,6 +21,8 @@ mod
 	draw
 	tk
 	loader
+	math
+	raster3
 
 port
 	alarm

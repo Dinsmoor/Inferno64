@@ -34,9 +34,11 @@ init()
 		sys->print("init: bind #s: %r\n");
 
 	# the baked root (devroot) is read-only; give the system writable
-	# space where applications expect it (acme temp files, $home state)
+	# space where applications expect it (acme temp files, $home state,
+	# game score tables)
 	memfsmount("/tmp");
 	memfsmount("/usr/inferno");
+	memfsmount("/lib/scores");
 
 	# graphical session if there's a display; dies harmlessly if not
 	spawn wmstart();
