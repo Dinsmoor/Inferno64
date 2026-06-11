@@ -75,6 +75,8 @@ extern int	munmap(void*, unsigned long);
 static uchar*	jitarena;
 extern uchar*	jitlo;		/* native-code bounds, used by xec() dispatch */
 extern uchar*	jithi;
+ulong	jitarenasize = 64*1024*1024;	/* native kernel shrinks this (256MB RAM) */
+int	jitsinglearena;			/* never open a second arena (native kernel) */
 
 static void*
 jitcode(ulong n)
@@ -84,7 +86,17 @@ jitcode(ulong n)
 
 	n = (n + 15) & ~15UL;
 	if(jitarena == nil || jitarena + n > jithi) {
-		sz = 64*1024*1024;
+		/*
+		 * xec()'s native-PC test is the single range [jitlo, jithi);
+		 * a gap between two arenas containing non-JIT memory would
+		 * misclassify bytecode PCs there as native.  The hosted emu's
+		 * low-mmap arenas keep the gap clean; the native kernel draws
+		 * from xalloc where the gap would be heap, so it must stop at
+		 * one arena and let later modules run interpreted.
+		 */
+		if(jitarena != nil && jitsinglearena)
+			return nil;
+		sz = jitarenasize;
 		if(n > sz)
 			sz = (n + 0xFFF) & ~0xFFFUL;
 		p = mmap(JITLOWHINT, sz, PROT_READ|PROT_WRITE|PROT_EXEC,
@@ -96,8 +108,10 @@ jitcode(ulong n)
 			return nil;
 		}
 		jitarena = p;
-		jitlo = p;			/* first arena: record low bound */
-		jithi = (uchar*)p + sz;
+		if(jitlo == nil || (uchar*)p < jitlo)
+			jitlo = p;
+		if((uchar*)p + sz > jithi)
+			jithi = (uchar*)p + sz;
 	}
 	p = jitarena;
 	jitarena += n;

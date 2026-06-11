@@ -92,19 +92,31 @@ freedyndata(Modlink *ml)
 
 /*
  * The aarch64 JIT allocates its code arena with mmap on the hosted emu.
- * Always fail here: the kernel runs interpreted (cflag=0); a real JIT
- * arena can come from xspanalloc when the JIT is brought up natively.
+ * Here it draws from xalloc: all RAM is below 2GB on qemu -M virt, so
+ * the JIT's low-address requirement (32-bit jump-table slots) is free.
+ * Returning MAP_FAILED on exhaustion makes compile() fall back to the
+ * interpreter instead of panicking.
  */
 void*
 mmap(void *addr, unsigned long len, int prot, int flags, int fd, long off)
 {
-	USED(addr); USED(len); USED(prot); USED(flags); USED(fd); USED(off);
-	return (void*)-1;
+	uchar *p;
+
+	USED(addr); USED(prot); USED(flags); USED(fd); USED(off);
+	p = xallocz(len + 64, 0);
+	if(p == nil)
+		return (void*)-1;
+	return (void*)(((uintptr)p + 63) & ~63UL);
 }
 
 int
 munmap(void *addr, unsigned long len)
 {
+	/*
+	 * only reachable from jitcode()'s landed-too-high path, which
+	 * cannot happen with sub-2GB RAM; leak by design (the aligned
+	 * pointer can't go back to xfree anyway).
+	 */
 	USED(addr); USED(len);
 	return 0;
 }

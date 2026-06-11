@@ -15,6 +15,8 @@ void (*screenputs)(char*, int);	/* no screen on this board */
 
 extern ulong kerndate;
 extern int cflag;
+extern ulong jitarenasize;
+extern int jitsinglearena;
 extern int consoleprint;
 extern int main_pool_pcnt;
 extern int heap_pool_pcnt;
@@ -109,6 +111,11 @@ main(void)
 	procinit();
 	links();
 	chandevreset();
+
+	/* Dis JIT: one modest xalloc arena (see jitcode in comp-aarch64.c) */
+	cflag = 1;
+	jitarenasize = 4*1024*1024;
+	jitsinglearena = 1;
 
 	eve = strdup("inferno");
 
