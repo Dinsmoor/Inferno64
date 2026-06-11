@@ -4,28 +4,88 @@ The first bare-metal aarch64 port of the Inferno kernel (`os/` tree,
 not hosted emu). Boots under `qemu-system-aarch64 -M virt` to an
 interactive Inferno shell on the PL011 serial console.
 
-## Build & run
+## Building the image
 
 ```sh
 cd os/virt64
-make            # → ivirt64.elf
+make            # → ivirt64.elf (this IS the image: one self-contained ELF)
 make run        # qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -kernel ivirt64.elf -nographic
 make PARANOID=0 # faster kernel: skip the pool free-tree audit on every alloc/free
+make clean      # also removes the generated virt64.c / *.root.* / errstr.h / version.h
 ```
 
-`PARANOID` (default 1) sets `poolparanoid` in port/alloc.c; the Makefile
-stamps the value so flipping it recompiles alloc.c without a `make clean`.
+There is no disk or initrd: the kernel ELF embeds its entire root
+filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.
 
-Built with the host gcc as a freestanding cross-dialect compile (no
-kencc): `-fplan9-extensions -std=gnu2x -fcommon -mstrict-align
--ffreestanding -fno-builtin`. GNU as for l.S, custom linker script at
-0x40200000. Limbo bytecode for the embedded root (devroot) is taken
-prebuilt from `dis/`; the config file `virt64` lists what gets baked in
-(mkdevc/mkroot awk machinery, same as the classic os ports).
+### Prerequisites
 
-To show the console as a window on an X display (e.g. the shared VNC
-display): `DISPLAY=:3 qemu-system-aarch64 ... -display gtk -serial vc
--monitor none`.
+- an aarch64 host with gcc + binutils (the kernel is built natively with
+  the host toolchain as a freestanding cross-dialect compile — no
+  mk/kencc: `-fplan9-extensions -std=gnu2x -fcommon -mstrict-align
+  -ffreestanding -fno-builtin`; GNU as for l.S; custom linker script
+  `virt64.ld`, link address 0x40200000)
+- `qemu-system-aarch64` to run it
+- a **hosted** Inferno build somewhere, for two things the Makefile
+  pulls in: the `limbo` compiler binary and the prebuilt `.dis` files
+  baked into the root. The Makefile looks for `$(ROOT)/Linux/aarch64/
+  bin/limbo` (i.e. `make all` was run at this repo's root) and falls
+  back to the main shared tree at `/home/tyler/inferno-os`; override
+  with `make HOSTBIN=/path/to/Linux/aarch64/bin`.
+
+### How the image is assembled
+
+The config file `virt64` (same format as the classic os ports) drives
+two awk generators from `os/port/`:
+
+- `mkdevc virt64 > virt64.c` — turns the `dev`/`link`/`code`/`init`
+  sections into the device table, conf strings and `virtinit()` glue.
+- `mkroot virt64 > virt64.root.{h,s}` — walks the `root` section and
+  bakes every listed path into assembly via `data2s`; directories
+  become empty mountpoints, files are embedded byte-for-byte. This is
+  the root filesystem the kernel serves through devroot.
+
+`../init/virtinit.b` is the init module (compiled with the hosted
+`limbo` at build time); it sets up the namespace and execs
+`/dis/sh.dis` on the console. `errstr.h` and `version.h` are generated
+too — all of these are `make clean`-ed and rebuilt, never edited.
+
+### The dis/ prebuilts (gotcha)
+
+Everything under the repo-root `dis/` tree is **gitignored** build
+output of the hosted build. A fresh clone has no `dis/sh.dis` to bake,
+and this Makefile does not build them. Populate them by running the
+hosted build (`make all` at the repo root, see docs/ON_BUILDING.md) —
+or copy the handful of needed files from another built tree. The
+`root` section of `virt64` is the authoritative list of what must
+exist.
+
+### Adding a file to the baked-in root
+
+1. Make sure the file exists under the repo root at the path you want
+   it to have inside Inferno (e.g. a new tool: build it hosted so
+   `dis/foo.dis` exists).
+2. Add that path to the `root` section of the `virt64` config file.
+3. `make` — mkroot regenerates `virt64.root.s` and the file appears in
+   the booted system. Growing the image is fine; it all lives in the
+   256MB of guest RAM.
+
+### Build knobs
+
+`PARANOID` (default 1) sets `poolparanoid` in port/alloc.c (free-tree
+audit on every alloc/free); the Makefile stamps the value so flipping
+it recompiles alloc.c without a `make clean`. `HOSTBIN` as above.
+
+### Running it
+
+- Headless console in the terminal: `make run` (C-a x quits).
+- As a window on an X display (e.g. the shared VNC display):
+  `DISPLAY=:3 qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256
+  -kernel ivirt64.elf -device virtio-rng-device -display gtk -serial vc
+  -monitor none`.
+- Scripted/CI: `-display none -serial tcp:127.0.0.1:PORT,server=on,wait=on`
+  and drive the console over the socket (use `wait=on`: the kernel
+  boots faster than a client can connect, so `wait=off` loses the
+  banner). See "Debugging" below for the gdb stub.
 
 ## Hardware (qemu -M virt)
 

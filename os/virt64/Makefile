@@ -9,7 +9,16 @@ MAKEFLAGS += -rR
 
 ROOT    := ../..
 CONF    := virt64
-HOSTBIN := /home/tyler/inferno-os/Linux/aarch64/bin
+
+# limbo (and the prebuilt .dis baked into the root, see README "Building the
+# image") come from a HOSTED build: `make all` at some inferno-os repo root.
+# Prefer this tree's own hosted build; fall back to the main shared tree.
+# Override with: make HOSTBIN=/path/to/Linux/aarch64/bin
+ifneq ($(wildcard $(ROOT)/Linux/aarch64/bin/limbo),)
+HOSTBIN ?= $(ROOT)/Linux/aarch64/bin
+else
+HOSTBIN ?= /home/tyler/inferno-os/Linux/aarch64/bin
+endif
 LIMBO   := $(HOSTBIN)/limbo
 
 O       := build

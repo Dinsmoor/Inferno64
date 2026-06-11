@@ -733,7 +733,14 @@ The native kernel has the same conceptual structure but is implemented different
 
 The `os/port/` directory contains architecture-independent kernel code (proc management, channel routing, memory allocation) that mirrors `emu/port/` semantically but is implemented for bare-metal.
 
-For aarch64/ARM64 native kernel work, look in `os/arm/` and `os/omap/` (TI OMAP) as reference points — there is no dedicated os/aarch64 port yet.
+For aarch64/ARM64 native kernel work, the dedicated port is **`os/virt64`** —
+a bare-metal aarch64 kernel for `qemu-system-aarch64 -M virt` that boots to an
+interactive Inferno sh with MMU, caches, the Dis JIT, virtio-rng entropy and
+PSCI reboot/halt. `os/virt64/README.md` is the durable reference: how the
+image is built (config → mkdevc/mkroot → one ELF), how to add files to the
+baked-in root, the gcc-vs-kencc porting rules learned, and the qemu/gdb debug
+workflow. The classic `os/arm/` and `os/omap/` (TI OMAP, 32-bit) remain useful
+as kencc-era reference points.
 
 ---
 
