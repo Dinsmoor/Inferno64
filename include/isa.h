@@ -185,19 +185,31 @@ enum
 {
 	MAXDIS	= ISELF+1,
 
-	XMAGIC	= 819248,	/* Normal magic, 32-bit pointer ABI */
-	SMAGIC	= 923426,	/* Signed module, 32-bit pointer ABI */
+	XMAGIC	= 819248,	/* base magic: 32-bit pointer, 32-bit word (classic Dis) */
+	SMAGIC	= 923426,	/* signed module, classic */
 	/*
-	 * Pointer-width ABI tag in the .dis magic.  A module compiled for an
-	 * LP64 (8-byte pointer) Dis has a different binary layout (register/
-	 * pointer slot sizes, GC map granularity, frame sizes) than a 32-bit
-	 * module, but the instruction/data stream still parses either way, so
-	 * the magic is the only safe discriminator.  Bit 0x100000 set => the
-	 * module uses 64-bit pointer slots.  A 32-bit VM and a 64-bit VM thus
-	 * reject each other's binaries (see libinterp/load.c, limbo/com.c).
+	 * ABI width tags OR'd onto the base magic.  A module's binary layout
+	 * (register/pointer slot sizes, GC-map granularity, frame sizes, the
+	 * width of a Dis word / Limbo int) is a pure function of two widths:
+	 * IBY2PTR (the pointer slot) and IBY2WD (the Dis word).  The
+	 * instruction/data stream still *parses* regardless of either, so the
+	 * magic is the only safe discriminator.  Two bits encode the two
+	 * widths so that any ABI mismatch -- not just pointer-width skew --
+	 * is rejected rather than silently mis-run (see libinterp/load.c):
+	 *
+	 *   IBY2PTR IBY2WD  flags                 ABI
+	 *      4      4     -                     classic 32-bit  (XMAGIC)
+	 *      8      4     DISptr64              LP64            (XMAGIC8)
+	 *      8      8     DISptr64|DISword64    ILP64
+	 *
+	 * DISptr64 keeps its historical value, so existing XMAGIC8 binaries
+	 * (LP64 = ptr64, word32, DISword64 clear) load unchanged.
 	 */
-	XMAGIC8	= 1867824,	/* XMAGIC|0x100000: normal magic, 64-bit pointer ABI */
-	SMAGIC8	= 1972002,	/* SMAGIC|0x100000: signed module, 64-bit pointer ABI */
+	DISptr64   = 0x100000,	/* set: IBY2PTR == 8 (64-bit pointer slots) */
+	DISword64  = 0x200000,	/* set: IBY2WD  == 8 (64-bit Dis word / Limbo int) */
+	DISabimask = DISptr64 | DISword64,
+	XMAGIC8	= XMAGIC | DISptr64,	/* grandfathered alias: LP64 (ptr64, word32) = 1867824 */
+	SMAGIC8	= SMAGIC | DISptr64,	/* grandfathered alias: signed LP64 = 1972002 */
 
 	AMP	= 0x00,		/* Src/Dst op addressing */
 	AFP	= 0x01,

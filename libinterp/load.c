@@ -78,7 +78,7 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 	ulong ul[2];
 	WORD lo, hi;
 	int lsize, id, v, entry, entryt, tnp, tsz, siglen;
-	int mag, mymagic, mysmagic;
+	int mag, mymagic, mysmagic, abi;
 	int de, pc, i, n, isize, dsize, hsize, dasp;
 	uchar *mod, sm, *istream, **isp, *si, *addr, *dastack[DADEPTH];
 	Link *l;
@@ -98,14 +98,21 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 	m->pctab = nil;
 
 	/*
-	 * Accept only the magic for this build's Dis pointer width (IBY2PTR).
-	 * A module compiled for the other width parses fine but its register/
-	 * pointer-slot layout would be wrong at run time, so reject it with a
-	 * distinct, catchable error (exDiswidth) that the shell uses to trigger
-	 * a recompile from source.  Genuine garbage still reports "bad magic".
+	 * Accept only the magic for this build's Dis ABI widths -- both the
+	 * pointer slot (IBY2PTR) and the Dis word (IBY2WD), encoded as the
+	 * DISptr64/DISword64 flag bits on the base magic.  A module compiled
+	 * for any other width combination parses fine but its slot/frame/GC
+	 * layout would be wrong at run time, so reject it with a distinct,
+	 * catchable error (exDiswidth) that the shell uses to trigger a
+	 * recompile from source.  This is what stops an ILP64 (ptr64, word64)
+	 * binary from silently mis-running on this LP64 (ptr64, word32) VM:
+	 * same pointer width, different word width, so the old pointer-only
+	 * tag could not tell them apart.  Genuine garbage (a base that is
+	 * neither XMAGIC nor SMAGIC) still reports "bad magic".
 	 */
-	mymagic = (IBY2PTR == 8) ? XMAGIC8 : XMAGIC;
-	mysmagic = (IBY2PTR == 8) ? SMAGIC8 : SMAGIC;
+	abi = ((IBY2PTR == 8) ? DISptr64 : 0) | ((IBY2WD == 8) ? DISword64 : 0);
+	mymagic = XMAGIC | abi;
+	mysmagic = SMAGIC | abi;
 	mag = operand(isp);
 	if(mag == mysmagic){
 		siglen = operand(isp);
@@ -126,7 +133,7 @@ parsemod(char *path, uchar *code, ulong length, Dir *dir)
 			goto bad;
 		}
 	}
-	else if(mag == XMAGIC || mag == SMAGIC || mag == XMAGIC8 || mag == SMAGIC8){
+	else if((mag & ~DISabimask) == XMAGIC || (mag & ~DISabimask) == SMAGIC){
 		kwerrstr(exDiswidth);
 		goto bad;
 	}

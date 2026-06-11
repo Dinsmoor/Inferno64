@@ -23,4 +23,4 @@ char exTcheck[]		 = "type check";
 char exInval[]		 = "invalid argument";
 char exNilref[]		 = "dereference of nil";
 char exRange[]		 = "value out of range";
-char exDiswidth[]	 = "dis module compiled for wrong pointer width";
+char exDiswidth[]	 = "dis module compiled for wrong Dis ABI width";

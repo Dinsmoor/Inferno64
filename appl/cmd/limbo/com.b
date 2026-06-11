@@ -287,12 +287,14 @@ modcom(entry: ref Decl)
 
 	writet = sys->millisec();
 	if(gendis){
-		# Stamp the magic for the pointer width this compiler targets, so a
-		# 64-bit Dis and a 32-bit Dis reject each other's binaries.  This
-		# build emits the layout selected by IBY2PTR (see isa.m).
+		# Stamp the magic for the ABI widths this compiler targets, so a Dis
+		# built for a different pointer *or* word width rejects this binary.
+		# This build emits the layout selected by IBY2PTR/IBY2WD (see isa.m).
 		mag := XMAGIC;
 		if(IBY2PTR == 8)
-			mag = XMAGIC8;
+			mag |= DISptr64;
+		if(IBY2WD == 8)
+			mag |= DISword64;
 		discon(mag);
 		hints := 0;
 		if(mustcompile)

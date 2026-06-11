@@ -179,10 +179,16 @@
 	# add new operators here
 	MAXDIS: con iota;
 
-XMAGIC:		con 819248;	# Normal magic, 32-bit pointer ABI
-SMAGIC:		con 923426;	# Signed module, 32-bit pointer ABI
-XMAGIC8:	con 1867824;	# XMAGIC|16r100000: normal magic, 64-bit pointer ABI
-SMAGIC8:	con 1972002;	# SMAGIC|16r100000: signed module, 64-bit pointer ABI
+XMAGIC:		con 819248;	# base magic: 32-bit pointer, 32-bit word (classic Dis)
+SMAGIC:		con 923426;	# signed module, classic
+# ABI width tags OR'd onto the base magic (see include/isa.h): DISptr64 for
+# IBY2PTR==8, DISword64 for IBY2WD==8.  Two bits so a pointer-width *or*
+# word-width mismatch is rejected (an ILP64 ptr64/word64 .dis vs this LP64
+# ptr64/word32 one).  XMAGIC8/SMAGIC8 kept as the grandfathered LP64 aliases.
+DISptr64:	con 16r100000;	# IBY2PTR == 8
+DISword64:	con 16r200000;	# IBY2WD  == 8
+XMAGIC8:	con 1867824;	# XMAGIC|DISptr64: normal magic, LP64 (ptr64, word32)
+SMAGIC8:	con 1972002;	# SMAGIC|DISptr64: signed module, LP64
 
 AMP:		con 16r00;	# Src/Dst op addressing 
 AFP:		con 16r01;

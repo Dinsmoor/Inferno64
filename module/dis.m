@@ -2,10 +2,15 @@ Dis: module
 {
 	PATH:	con "/dis/lib/dis.dis";
 
-	XMAGIC:		con	819248;
-	SMAGIC:		con	923426;
-	XMAGIC8:	con	1867824;	# XMAGIC|16r100000: 64-bit pointer ABI
-	SMAGIC8:	con	1972002;	# SMAGIC|16r100000: signed 64-bit pointer ABI
+	XMAGIC:		con	819248;		# base: 32-bit pointer, 32-bit word
+	SMAGIC:		con	923426;		# signed, classic
+	# ABI width tags OR'd onto the base magic (see include/isa.h).  Mask
+	# them off to read a .dis width-agnostically (header/source-path lookup).
+	DISptr64:	con	16r100000;	# IBY2PTR == 8
+	DISword64:	con	16r200000;	# IBY2WD  == 8
+	DISabimask:	con	DISptr64|DISword64;
+	XMAGIC8:	con	1867824;	# XMAGIC|DISptr64: LP64 (ptr64, word32)
+	SMAGIC8:	con	1972002;	# SMAGIC|DISptr64: signed LP64
 	MUSTCOMPILE:	con	1<<0;
 	DONTCOMPILE:	con 	1<<1;
 	SHAREMP:	con 	1<<2;

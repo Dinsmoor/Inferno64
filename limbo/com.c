@@ -308,12 +308,20 @@ if(debug['v']) print("fncom: %s %d %p\n", d->sym->name, d->refs, d);
 
 	if(gendis){
 		/*
-		 * Stamp the magic for the pointer width this compiler targets, so
-		 * a 64-bit Dis and a 32-bit Dis reject each other's binaries.  This
-		 * compiler is built with the same isa.h (hence IBY2PTR) as the VM
-		 * that will run its output, so the two always agree.
+		 * Stamp the magic for the ABI widths this compiler targets, so a
+		 * Dis built for a different pointer *or* word width rejects this
+		 * binary.  This compiler is built with the same isa.h (hence
+		 * IBY2PTR/IBY2WD) as the VM that will run its output, so the two
+		 * always agree.
 		 */
-		discon(IBY2PTR == 8 ? XMAGIC8 : XMAGIC);
+		{
+			ulong magic = XMAGIC;
+			if(IBY2PTR == 8)
+				magic |= DISptr64;
+			if(IBY2WD == 8)
+				magic |= DISword64;
+			discon(magic);
+		}
 		hints = 0;
 		if(mustcompile)
 			hints |= MUSTCOMPILE;

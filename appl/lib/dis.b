@@ -222,16 +222,17 @@ loadobj(disfile: string): (ref Mod, string)
 	disptr = 0;
 	m := ref Mod;
 	m.magic = operand();
-	if(m.magic == SMAGIC || m.magic == SMAGIC8) {
+	if((m.magic & ~DISabimask) == SMAGIC) {
 		n := operand();
 		m.sign = disobj[disptr:disptr+n];
 		disptr += n;
 		m.magic = operand();
 	}
-	# accept both the 32-bit (XMAGIC) and 64-bit (XMAGIC8) pointer ABIs:
-	# this reader (mdb, rt, the recompile source lookup) only inspects the
-	# width-independent header/instruction stream, not pointer-slot layout.
-	if(m.magic != XMAGIC && m.magic != XMAGIC8){
+	# accept any Dis ABI width (32/64-bit pointer, 32/64-bit word): this
+	# reader (mdb, rt, the recompile source lookup) only inspects the
+	# width-independent header/instruction stream, not slot/frame layout,
+	# so it strips the DISptr64/DISword64 tags before checking the base.
+	if((m.magic & ~DISabimask) != XMAGIC){
 		disobj = nil;
 		return (nil, "bad magic number");
 	}

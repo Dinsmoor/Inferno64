@@ -23,5 +23,5 @@ extern	char exTcheck[];	/* type check */
 extern	char exInval[];		/* invalid argument */
 extern	char exNilref[];	/* dereference of nil */
 extern	char exRange[];		/* value out of range */
-extern	char exDiswidth[];	/* dis module compiled for wrong pointer width */
+extern	char exDiswidth[];	/* dis module compiled for wrong Dis ABI width */
 extern  char exLoadedmod[];     /* need newmod */

@@ -824,9 +824,10 @@ runexternal(ctxt: ref Context, args: list of ref Listnode, last: int): string
 		if (!disfile)
 			npath += ".dis";
 		mod := load Command npath;
-		# A .dis compiled for the other pointer width (32- vs 64-bit Dis)
-		# is rejected by the loader.  If its source is available, recompile
-		# it with the running system's limbo and retry the load once.
+		# A .dis compiled for a different Dis ABI width (pointer or word --
+		# e.g. an ILP64 module on this LP64 system) is rejected by the
+		# loader.  If its source is available, recompile it with the running
+		# system's limbo and retry the load once.
 		if (mod == nil && wrongwidth(sys->sprint("%r")) && recompilemod(ctxt, npath))
 			mod = load Command npath;
 		if (mod != nil) {
@@ -871,7 +872,7 @@ runexternal(ctxt: ref Context, args: list of ref Listnode, last: int): string
 
 wrongwidth(e: string): int
 {
-	m := "wrong pointer width";
+	m := "wrong Dis ABI width";
 	j := len m;
 	return j <= len e && e[len e-j:] == m;
 }
@@ -916,7 +917,7 @@ recompilemod(ctxt: ref Context, path: string): int
 	(ok, nil) := sys->stat(src);
 	if (ok < 0)
 		return 0;
-	diagnostic(ctxt, path + ": compiled for wrong pointer width; recompiling from " + src);
+	diagnostic(ctxt, path + ": compiled for wrong Dis ABI width; recompiling from " + src);
 	ctxt.run(stringlist2list("limbo" :: "-I" :: "/module" :: "-o" :: path :: src :: nil), 0);
 	return 1;
 }
