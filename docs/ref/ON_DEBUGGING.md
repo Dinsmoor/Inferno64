@@ -13,7 +13,7 @@ allocator only notices later), that doc's **`LIMBRULFENCEMEMSIZE`** electric-fen
 quarantine traps the *writer* synchronously — it's what cracked the charon-teardown
 free-tree corruption.
 For the language itself see `ON_LIMBO.md`; for the static LP64 width-bug
-catchers see `ON_THE_DUAL_ABI.md`.
+catchers see `ON_C_IN_DIS.md`.
 
 > **This repo differs from stock Inferno** in two ways that matter here: typed
 > exceptions now keep their payload across frames (R1, below), and the compiler
@@ -205,7 +205,7 @@ Heap query syntax: `addr.fmtN` where fmt is one of:
 
 > Dual-ABI note: `P`/`A`/`C`/`M` follow the pointer width (`IBY2PTR`), so on the
 > LP64 aarch64/amd64 build they are 8 bytes; `W` stays 32-bit. See
-> `ON_THE_DUAL_ABI.md`.
+> `ON_C_IN_DIS.md`.
 
 ### Debug Control Protocol
 
@@ -340,7 +340,7 @@ Key compiler flags:
 
 The standard development combination is `limbo -gw`. (Whole tree: `cd appl && mk
 install`. Build caveats — emu-vs-Dis rebuild, ETXTBSY, ABI-switch header staleness —
-are in `ON_THE_DUAL_ABI.md`.)
+are in `ON_C_IN_DIS.md`.)
 
 ---
 
@@ -402,5 +402,5 @@ Or read `/prog/PID/wait` for child exit events.
 
 **Cross-references:** `ON_EMU_DEBUG.md` (the emu *itself* faulted/hung —
 sanitizers, fault/hang hooks, cores) · `ON_LIMBO.md` (the language &
-compiler) · `ON_DIS.md` (the Dis VM & instruction set) · `ON_THE_DUAL_ABI.md`
+compiler) · `ON_DIS.md` (the Dis VM & instruction set) · `ON_C_IN_DIS.md`
 (LP64 static catchers, build profiles).

@@ -1,38 +1,62 @@
-# Dual ABI (32/64-bit): why Limbo `int` is 32 bits, and what the LP64 port added
+# So you want to write C that touches the Dis VM?
 
-> **Dis model: `master` is LP64 (committed). ILP64 is parked on `ilp64`.**
-> An **ILP64** variant — where the Dis word (Limbo `int`) is widened to the
-> pointer width so `IBY2WD == IBY2PTR == 8` on a 64-bit host — was prototyped and
-> is preserved on the **`ilp64` branch**. `master` deliberately commits to the
-> **LP64** model: the Dis word (Limbo `int`) stays **32 bits** (`IBY2WD`=4) on
-> every host so a `.dis` behaves bit-identically across architectures — the whole
-> point of Limbo-on-Dis being host-independent. The reasoning, the host-vs-Dis
-> "LP64" terminology trap, the per-arch tables, and the nine C-side hazard checks
-> are **the next section** ("So you want to understand the dual ABI"). Keep
-> ILP64-specific commits (the `IBY2WD`=8 delta, its JIT/GUI/styx fallout) on
-> `ilp64` only; everything ABI-neutral is shared between the two branches.
+> *So you want to write C that touches the Dis VM?* This is the reference — the
+> integer model, the one C hazard it creates, and how to debug the heap corruption
+> that follows from getting it wrong.
 
-## So you want to understand the dual ABI — LP64 vs ILP64
+Inferno was designed at the turn of the millennium, when the machines it ran on
+were 32-bit. Its virtual machine, **Dis**, rested on a quiet assumption: that a
+Limbo `int` and a machine pointer are the same size — one 32-bit word. For two
+decades that was simply true, so a great deal of C in the VM stuffs pointers into
+`int`-sized slots and never thinks about it.
 
-**The target.** Limbo source code behaves *identically* on every host
-architecture. A compiled `.dis` may have to be recompiled per arch, but the
-*meaning* of a Limbo program never changes from host to host — provided the host
-`emu` / Inferno kernel is ported correctly. All the complexity is absorbed in the
-C core, behind defined checks and tests (below); userspace stays stable.
+On a modern 64-bit machine that assumption breaks. A pointer is now 64 bits, but we
+**deliberately keep a Limbo `int` at 32 bits** — because that is what lets a Limbo
+program behave *identically* on every host (a 32-bit ARM board and a 64-bit server
+give the same arithmetic, overflow, and layout), as long as the emulator is ported
+to that host correctly. The compiled `.dis` may be rebuilt per arch; the *meaning*
+of the source never changes. The cost of that promise is paid entirely in C: the
+Dis word (32 bits) and a machine pointer (64 bits) are no longer the same size, so
+any C that conflates them is now a bug.
 
-**The decision.** Under that target, **LP64 is the correct Dis model.** It pins
-the Limbo `int` (the Dis WORD) at 32 bits on *every* host, so a `.dis` means the
-same thing wherever `emu` runs. ILP64 makes the Limbo `int` width follow the host
-pointer width (32 on a 32-bit host, 64 on a 64-bit host), which breaks that
-guarantee and defeats the point of Limbo-on-Dis being host-independent. The
-two-branch split (`master`/`lp64` vs `ilp64`) keeps both buildable; **`master`
-commits to LP64.**
+To let **one** source tree build for both the old 32-bit machines and new 64-bit
+ones, we had to make the VM's C say what it means everywhere it used to lean on
+"pointer == word". When a stray pointer still gets truncated into a 32-bit slot,
+the symptom you actually see is **heap corruption** — a wild address written
+somewhere it shouldn't be, crashing much later and far away. This document is that
+whole story: the integer model, the single hazard it creates, how the code is
+structured to keep it out, and how to debug the corruption when it slips through.
 
-> **Terminology trap, kept throughout: "LP64" means two different things.**
+If instead you want to write C in the wider Inferno/emu codebase (the Plan 9 C
+dialect, `lib9` types, `error()`/`waserror()`, devices, the host port) and *not*
+specifically the VM boundary, see **`ON_C_IN_INFERNO.md`**.
+
+## The integer model: we target LP64
+
+**This repo targets an LP64 Dis model.** The Dis word — a Limbo `int` — stays
+**32 bits** (`IBY2WD`=4) on every host; only the C pointer grows to 64. The brief
+reason is the one above: a fixed 32-bit `int` is what makes a `.dis` mean the same
+thing on every machine, so Limbo stays genuinely portable. The price is the C
+hazard this whole document is about — and it's a price worth paying.
+
+The obvious alternative is to widen the Dis word to match the pointer
+(`IBY2WD`=8 — an "ILP64" model). That would delete the hazard, but it makes the
+width of a Limbo `int` depend on the host, so the *same* source stops behaving the
+same on a 32-bit and a 64-bit machine. That trades away the one thing Limbo exists
+to guarantee and turns it into the same unportable-VM nightmare that something like
+.NET was. We keep an `ilp64` branch around as an experiment, but it is **not** the
+model we build on; the rest of this document is the LP64 story.
+
+> **Terminology trap: "LP64" means two different things — keep them apart.**
 > (1) the *host C data model* — Linux aarch64/amd64 are LP64 *C platforms*
-> (`int`=4, `long`=8, ptr=8); permanent, true on **both** branches. (2) *Inferno's
-> Dis integer model* — `IBY2WD`=4 (LP64-Dis, what `master` ships) vs `IBY2WD`=8
-> (ILP64-Dis, the `ilp64` branch). **Only meaning (2) differs between branches.**
+> (`int`=4, `long`=8, ptr=8); that's a fixed property of the host OS/arch. (2)
+> *Inferno's Dis integer model* — our choice to keep the Dis word at `IBY2WD`=4
+> (a 32-bit `int`) even on a 64-bit host. The two are independent; this document is
+> about meaning (2).
+
+The tables below are the evidence for the choice. Where an "ILP64" column appears,
+it is the **rejected** alternative, shown only for contrast — not a second model we
+ship.
 
 ### Table A — Host C data models (the platforms in this tree)
 
@@ -153,6 +177,76 @@ deals with all of it. Two things worth knowing:
   the other — the shell just recompiles it from source when it can. That's the
   "recompile the `.dis` per arch" half of the deal; your *source* never changes.
 
+## Debugging heap corruption (when prevention fails)
+
+Heap corruption here is not mysterious, and it's almost always the *same* bug
+wearing a different hat: a 64-bit pointer got truncated into a 32-bit Dis slot
+(Table C, the LP64 row), then written back as a bogus address that lands in the
+middle of the heap. The bad write *succeeds* silently, so the crash only comes much
+later — when the allocator or the garbage collector next walks the structure that
+got scribbled on. That gap between cause and symptom is the only thing that makes
+it feel hard.
+
+The cure for "hard to reproduce" is to make it **crash immediately, at the writer,
+with a core** instead of much later somewhere innocent. The `debug` profile already
+sets this up (it defaults `EMUCRASH` on and builds the `DISPTRCHECK` checker); the
+steps below are the same thing by hand on any build.
+
+**1. Tell the host kernel where to drop cores (once per boot):**
+
+```sh
+sudo mkdir -p /tmp/inferno-cores
+echo '/tmp/inferno-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+```
+
+(`%e` program, `%p` pid, `%t` timestamp. The directory must exist and be writable;
+to survive reboots put `kernel.core_pattern=...` in `/etc/sysctl.d/`.)
+
+**2. Raise the core-size limit:** `ulimit -c unlimited`
+
+**3. Leave ASLR on.** Several of these bugs only surface at high addresses, so do
+**not** run emu under `setarch -R` (ASLR-off) — letting the host randomize the
+address space is exactly what provokes the fault.
+
+**4. Launch with the crash/observability knobs:**
+
+```sh
+ulimit -c unlimited
+env EMUCRASH=1 EMUWATCHDOG=60 \
+    ./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
+```
+
+- `EMUCRASH=1` — a wild/illegal Dis fault aborts the process immediately (dropping a
+  core) instead of being swallowed into a Dis exception that silently wedges the VM.
+  **This is the important one** (on by default in `debug` builds) — without it an
+  intermittent corruption fault just leaves a zombie/hung emu and the evidence is gone.
+- `EMUWATCHDOG=60` — if the VM hangs for 60s (a deadlock, not a hard fault) the
+  watchdog dumps every Dis thread so you can see who is stuck.
+- `kill -USR2 <emu-pid>` forces that same thread dump from a live emu any time.
+- `DISPTRCHECK` (the `debug` profile, or `make emu-disptrcheck`) is "Valgrind for
+  Dis pointers": it validates every GC-reachable Dis pointer each collection, so a
+  truncated one is caught the pass *after* it is written rather than at the eventual
+  crash (see "Catching LP64 width bugs" below).
+
+**5. Hand the core to gdb:**
+
+```sh
+gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>
+(gdb) bt              # host C backtrace at the fault
+(gdb) info registers  # the faulting address is usually a smashed pointer
+```
+
+The fault message emu prints on the way down names the Dis module, the builtin
+(e.g. `Charon[$Sys]`), and a `pc=`; map that `pc` back to a Limbo source line with
+the module's `.sbl` (`limbo -g`). When you need to catch the *exact* writer of a
+specific size class, use the `LIMBRUL` electric-fence (see "Open runtime bug"
+below). For the broader emu-fault tooling see `ON_EMU_DEBUG.md`; for debugging a
+*Limbo program* rather than the C heap, see `ON_DEBUGGING.md`.
+
+**Preventing it in the first place** is the static/semantic check layer — `make
+lint`, the `genmove` width assert, the GC pointer-map cross-check, and `DISPTRCHECK`
+— under "Catching LP64 width bugs statically and semantically" below.
+
 > **Branch / status (read first).** As of 2026-06-02 the LP64 work (`port-LP64`)
 > and `master` are **unified into one dual-ABI trunk** (`master` and `port-LP64`
 > point at the same merge commit; **`master` is the working trunk and is no longer
@@ -216,98 +310,9 @@ This file records every place where something was turned off, stubbed, or worked
 around, plus the LP64 port design and the one open runtime bug (the idle-Charon
 heap corruption, below), so the next person knows what is real vs. deferred.
 
-Build with the top-level `Makefile` (wraps `mk`, which has unreliable incremental
-dependency tracking — the Makefile nukes objects between components):
-
-```
-make                  # == make all : Linux/aarch64/bin/emu (full GUI; debug; default)
-make all CONF=emu-g   # graphics-less headless build (faster; tests run under this)
-make release          # release build: no instrumentation, -O2, portable -march
-make bleedingedge     # -O3 -march=native, no instrumentation (host-tuned)
-make run              # full build + launch the GUI desktop (the easy "try it" path)
-make help             # one-screen target summary + current build settings
-make check            # pre-push gate: the per-platform capability matrix
-```
-
-Bare `make` is the default goal `all` (an explicit `.DEFAULT_GOAL`, so it can't
-silently fall through to the mk-bootstrap target). `make run` does a full
-coherent build then launches — it never relaunches a possibly-stale binary.
-`make all` writes the profile it built to `$(OBJDIR)/.buildmode`. The build also
-prints a loud warning if an `emu` is running while you rebuild (overwriting its
-files underneath it crashes it with faults that masquerade as real bugs); it
-does not auto-kill.
-
-**Vendored-library content cache (make + compiler + coreutils only — no ccache,
-no third-party tools).** The heavy vendored C trees — `libfreetype`, `libmbedtls`,
-`libstb` — only change on a manual source update yet dominate the C build time, so
-`_emu` skips their nuke+rebuild when a content signature shows them unchanged
-(`mkfiles/libcache.sh`; `CACHED_LIBS` in the Makefile). The signature is a SHA-256
-of: every source file under the lib dir hashed *by path* (so any edit/add/remove/
-rename of a vendored file busts it — a dependency update can't be served stale) +
-the Inferno headers the wrapper files include (`$ROOT/include`,
-`$ROOT/$SYSTARG/$OBJTYPE/include`) + the arch mkfile (flags) + `PROFILE`/`OBJTYPE`/
-`CONF` + `gcc --version`. Match (and the `.a` exists) → skip; any difference → full
-nuke+rebuild, then the stamp (`$OBJDIR/lib/.sig-<lib>`) is rewritten *after* a
-successful build (an interrupted build can't leave a valid stamp). Everything else
-— the toolchain-coupled `limbo`/`libinterp`/`emu` and the whole `.dis` tree —
-always rebuilds. Content hash, not mtime (mtime is the unreliable signal that made
-`mk` incremental builds untrustworthy). Escape hatches: `make all NOCACHE=1` forces
-all libs; `make clean`/`nuke` delete the stamps. Cold build ~11s, warm (vendored
-skipped) ~6s on a 20-core box. NB: there are two `freetype.c` — the cached vendored
-amalgamation (`libfreetype/`) and the `$Freetype` builtin glue (`libinterp/`); only
-the former is cached, the latter rebuilds with libinterp.
-
-**Build profiles (`make debug | release | bleedingedge`, or `PROFILE=`).** A
-profile is an optimization + arch + instrumentation bundle selected by overriding
-the arch mkfile's `OLEVEL` / `MTUNE` / `DBGFLAGS` on the mk command line (an mk
-command-line assignment wins over the mkfile's; the mkfile defaults *are* the
-debug profile, so `PROFILE=debug` passes no override). `make <profile>` is a
-convenience target that runs a full `make all` in that profile; `make all
-PROFILE=<profile>` is equivalent.
-
-| profile | OLEVEL | MTUNE (`-march=$MTUNE`) | DBGFLAGS |
-|---|---|---|---|
-| `debug` (default) | `-Og` | `armv8-a` | `-DDISPTRCHECK -DEMU_DEBUG_DEFAULTS` |
-| `release` | `-O2` | `armv8-a` | *(empty)* |
-| `bleedingedge` | `-O3` | `native` | *(empty)* |
-
-`-DDISPTRCHECK` is the "Valgrind for Dis pointers" GC checker (validates every
-GC-reachable Dis pointer each pass; see ON_DEBUGGING.md). `-DEMU_DEBUG_DEFAULTS`
-makes the **`EMUCRASH` crash-dump+core default ON** in debug builds (so a
-wild-address fault on reproduction auto-dumps without setting the env var;
-`EMUCRASH=0` opts out — see `emu/Linux/os.c`). The 60-second hang watchdog is on
-by default in *all* builds (`EMUWATCHDOG=0` disables). Report **relative**
-benchmark numbers (JIT-vs-interp ratios) on debug builds; use `release`/
-`bleedingedge` for absolute numbers, once routine usage bugs are mostly caught.
-The completion banner prints which profile you built. (mk gotcha: profile
-override values **must be single tokens** — no space, no `=` — because mk forwards
-command-line assignments into recursive sub-mk via `$MKFLAGS` *without* re-quoting,
-so a multi-word or `=`-bearing value gets split/mangled in a subdir build. Hence
-`OLEVEL`/`MTUNE` rather than a spaced `OPTFLAGS`/`MARCH` string, and the `-march`
-`=` lives in the mkfile's `CFLAGS` as `-march=$MTUNE`, not in the override.)
-
-**Single source of build order.** The component build order lives **only** in the
-top-level `mkfile`'s `EMUDIRS` block; the GNU `Makefile` *derives* its list from
-there (awk-extracted) instead of keeping a second copy, so `mk` and `make` can
-never disagree about what gets built — a directory missing from the list is a
-silently-never-compiled component (the same staleness class this build guards
-against). `libdynld` is deliberately **not** in the list (see the dropped-modules
-note below).
-
-**`make check` — the pre-push gate.** Runs the capability matrix declared in
-`tests/check/platforms/$(SYSTARG)-$(OBJTYPE).manifest`: builds every required
-CONF (`emu`, `emu-g`, plus a `PROFILE=release` link-check), runs every required suite
-(`cunit`, `lp64`+`web` under the declared run-modes, `jitperf`), and prints a
-`PASS/FAIL/SKIP/TODO` matrix; nonzero exit iff a `require` cell fails. This is
-what makes the **`emu-g` build a hard master-push requirement** (a config that
-breaks only the headless build, like the `raster3`-in-`emu-g` rot, fails the
-gate instead of silently rotting the test path) and catches a release build that
-won't link. The matrix is declarative and per-platform: cells are `require` /
-`skip` (with reason) / `todo`; `skip`/`todo` are always *printed* so untested
-surface stays visible. Linux-amd64's manifest marks the JIT run-mode cells
-`skip` ("comp-amd64.c unverified under LP64") — the matrix is identical across
-platforms; only the *trust* differs. `make check` builds debug, does the
-`PROFILE=release` link-check, then restores the debug tree, so expect a few minutes.
+How to build, the profiles, the vendored-library cache, and the `make check`
+gate are all in **[`../ON_BUILDING.md`](../ON_BUILDING.md)** — not repeated here.
+One build hazard is ABI-specific, though, so it stays:
 
 > **Build hazard — stale generated module headers across an ABI switch.** The C
 > activation-record headers for builtin modules (`limbo -a`/`limbo -t` output:

@@ -1,20 +1,20 @@
-# In-Progress — current work, deferred items, and ideas (durable LP64/dual-ABI reference is now ref/ON_THE_DUAL_ABI.md)
+# In-Progress — current work, deferred items, and ideas (durable LP64/dual-ABI reference is now ref/ON_C_IN_DIS.md)
 
 This is the **live checklist**: what we are working on right now, what is parked,
 and a scratchpad for ideas/plans before they become work. Keep it brief — when an
 item grows real detail, write that detail in the subsystem doc it belongs to
-(`ref/ON_THE_DUAL_ABI.md`, `ref/ON_CHARON.md`, `ref/ON_JIT.md`, …) and leave a one-line
+(`ref/ON_C_IN_DIS.md`, `ref/ON_CHARON.md`, `ref/ON_JIT.md`, …) and leave a one-line
 pointer here.
 
 > The big LP64/dual-ABI port writeup that used to live in this file is now the
-> durable reference **`ref/ON_THE_DUAL_ABI.md`** (design, every fix, the `tptr` bug
+> durable reference **`ref/ON_C_IN_DIS.md`** (design, every fix, the `tptr` bug
 > class, the test harnesses, deferred items, the open heap bug, amd64 glue). This
 > file is only the "what's active" view.
 
 > **Dis model (2026-06-10):** `master` commits to **LP64** (Limbo `int` = 32 bits
 > on every host). The **ILP64** experiment (Limbo `int` == pointer == 8) is parked
 > on the **`ilp64` branch**, not master. Rationale + comparison tables:
-> **`ref/ON_THE_DUAL_ABI.md`**. ABI-neutral work is kept in sync across both branches;
+> **`ref/ON_C_IN_DIS.md`**. ABI-neutral work is kept in sync across both branches;
 > only the `IBY2WD`=8-vs-4 delta is branch-specific.
 
 ## Active
@@ -35,18 +35,18 @@ pointer here.
 
 - [ ] **Idle-Charon heap corruption** (poolcheck abort on window close) —
       characterised, not root-caused. The bit-36 stray-free-tree-pointer bug.
-      Detail: `ref/ON_THE_DUAL_ABI.md` §"Open runtime bug" + memory
+      Detail: `ref/ON_C_IN_DIS.md` §"Open runtime bug" + memory
       `charon-close-heap-corruption`. Next: static hunt for the `1<<36` /
       `-0x1000000000` pointer-arith site, or mine a fresh core.
 - [ ] **Off-boot-path LP64 items** — `asm.c` `-S` `Tcasec` listing; `devprog.c`/
-      `devprof.c` pointer↔text casts. Listing/debug only. `ref/ON_THE_DUAL_ABI.md`
+      `devprof.c` pointer↔text casts. Listing/debug only. `ref/ON_C_IN_DIS.md`
       §"Deferred LP64 items".
 - [ ] **amd64 (x86-64) bring-up** — glue is in-tree but UNBUILT/UNTESTED; needs a
-      real build + test pass and the FP/MXCSR checks. `ref/ON_THE_DUAL_ABI.md`
+      real build + test pass and the FP/MXCSR checks. `ref/ON_C_IN_DIS.md`
       §"Second LP64 target".
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ref/ON_JIT.md`,
-      `ref/ON_THE_DUAL_ABI.md` §"Stubbed / disabled".
+      `ref/ON_C_IN_DIS.md` §"Stubbed / disabled".
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
 
 ## Ideas / plans (scratchpad)

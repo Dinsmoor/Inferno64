@@ -5,7 +5,7 @@
 This doc is the file-by-file map of the Linux/aarch64 emu port. It assumes
 familiarity with the kernel architecture (ON_EMU.md), the build system
 (`../ON_BUILDING.md` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI
-work (ON_THE_DUAL_ABI.md). For the architecture-level VM reference (register map,
+work (ON_C_IN_DIS.md). For the architecture-level VM reference (register map,
 calling convention, type-map widths) see ON_AARCH64_PORT.md.
 
 > **Status: the port is complete and is the primary development target.** Every
@@ -14,7 +14,7 @@ calling convention, type-map widths) see ON_AARCH64_PORT.md.
 > documents the port **as built** — what each file is and the decisions baked into
 > it — not a to-do list. It doubles as the recipe if the port ever has to be
 > reconstructed for another arch. **Only Linux/aarch64 has actually been built and
-> tested here**; the amd64 glue is in-tree but unbuilt (ON_THE_DUAL_ABI.md).
+> tested here**; the amd64 glue is in-tree but unbuilt (ON_C_IN_DIS.md).
 
 ## What the port consists of
 
@@ -305,7 +305,7 @@ JIT. Not a stub.
   ```
   Leaving this as `nofence` on aarch64 is exactly the bug that was fixed — do not
   "optimize" it back. 32-bit ARM has the same latent weakness. See memory
-  `aarch64-unlock-release-barrier` and ON_THE_DUAL_ABI.md.
+  `aarch64-unlock-release-barrier` and ON_C_IN_DIS.md.
 
 - **`libinit()`** calls `kprocinit()` (portable), sets up signal handlers (portable), reads `/etc/passwd` for user info (portable). No arch-specific work.
 

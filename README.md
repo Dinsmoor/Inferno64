@@ -13,10 +13,10 @@ may still be broken. Feel free to try it, and if you do run into a crash or
 emu or wm freezes, then report it in a reproducible way and I'll see if I can
 fix it.
 
-Most of the remaining LP64 related bugs have to do with heap corruption, which
-are pretty hard to narrow down. If you want to help catch them, see
-[Debugging](docs/ON_BUILDING.md#debugging-catching-the-heap-bugs) in the build guide for
-how to set up an emu session that reliably captures a core dump + logs.
+The bugs that remain are mostly heap corruption from the 32/64-bit pointer work —
+a known, bounded class, not black magic. If you want to help catch one, the
+[heap-debugging guide](docs/ref/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)
+explains *why* it happens and how to get a clean core + log on the first fault.
 
 ## Try it out
 
@@ -46,7 +46,7 @@ The documentation lives under [`docs/`](docs/), organised as a
 |---|---|
 | the full "so you want to…" doc index | [`docs/README.md`](docs/README.md) |
 | prerequisites, build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
-| why your code behaves the same on every host (the 32/64-bit story) | [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md) |
+| why your code behaves the same on every host (the 32/64-bit story) | [`docs/ref/ON_C_IN_DIS.md`](docs/ref/ON_C_IN_DIS.md) |
 
 ## Will my code behave the same on every machine?
 
@@ -61,7 +61,7 @@ Keeping that promise on modern 64-bit machines (where a pointer is 64 bits but a
 Limbo `int` is deliberately still 32) took real work down in the C core. If you're
 going to hack on the C side, that's the one thing worth understanding — the full
 story, with per-platform tables, is in
-**[`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md)**.
+**[`docs/ref/ON_C_IN_DIS.md`](docs/ref/ON_C_IN_DIS.md)**.
 
 ## Are you going to try to push your changes to the upstream repository?
 

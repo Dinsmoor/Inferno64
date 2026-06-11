@@ -12,7 +12,7 @@ command line, catching the LP64 heap bugs, and how the project is developed.
 - [Debugging: catching the heap bugs](#debugging-catching-the-heap-bugs)
 
 See also the per-subsystem "so you want to…" references in [`ref/`](ref/) — start
-at [`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md) for the 32/64-bit story.
+at [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md) for the 32/64-bit story.
 
 ## Prerequisites
 
@@ -88,24 +88,21 @@ The system is still built by Plan 9 `mk` underneath (every component directory h
 an `mkfile`, and `mk install` / `mk clean` / `mk nuke` work fine *inside a single
 directory*); the top-level `Makefile` just drives it correctly:
 
-- **`mk`'s incremental dependency tracking is unreliable here** — a stale object,
-  or a stale `.dis` linked against a freshly rebuilt ABI, is a real and
-  previously-debugged crash class. `make` **nukes objects between components** so
-  nothing stale survives. A full rebuild is cheap (~10s on a fast box). The one
-  exception is the heavy *vendored* libraries (libfreetype, libmbedtls, libstb),
-  which only change on a manual source update: those are skipped when a content
-  signature shows them unchanged (`mkfiles/libcache.sh` — hashes every vendored
-  source file by path, the headers they include, the build flags, the ABI, and the
-  compiler). Any change busts the signature and forces a full rebuild of that lib,
-  so a dependency update can never be served stale. `make all NOCACHE=1` (and
-  `make clean`/`nuke`) bypass the cache entirely. No third-party tools — just make,
-  the compiler, and coreutils.
-- **both halves must be built in the right order** — the C side produces the
-  `limbo` compiler that then compiles the Dis tree; `make` sequences this and
+- **It nukes objects between components**, so nothing stale survives a build. A
+  full rebuild is cheap (~10s on a fast box). The one exception is the heavy
+  *vendored* libraries (libfreetype, libmbedtls, libstb), which only change on a
+  manual source update: those are skipped when a content signature shows them
+  unchanged (`mkfiles/libcache.sh` — hashes every vendored source file by path, the
+  headers they include, the build flags, the ABI, and the compiler). Any change
+  busts the signature and forces a full rebuild of that lib, so a dependency update
+  can never be served stale. `make all NOCACHE=1` (and `make clean`/`nuke`) bypass
+  the cache entirely. No third-party tools — just make, the compiler, and coreutils.
+- **It builds both halves in the right order** — the C side produces the `limbo`
+  compiler that then compiles the Dis tree; `make` sequences this and
   **regenerates the per-ABI module headers**, so a 32↔64-bit switch can't link
   wrong-width stubs.
-- `make` also warns if an `emu` is running while you rebuild — overwriting its
-  files underneath it produces crashes that look like real bugs.
+- **It warns if an `emu` is running** while you rebuild — overwriting its files
+  underneath it produces crashes that look like real bugs.
 
 ## Running emu directly
 
@@ -142,56 +139,24 @@ heap bugs. See [`ref/ON_JIT.md`](ref/ON_JIT.md) for the trade-off.
 
 ## Debugging: catching the heap bugs
 
-Most of the remaining LP64 bugs are heap corruption, which is hard to narrow down.
-The goal of the setup below is that the *very first* time something faults you get
-a clean core dump + log, instead of having to reproduce an intermittent crash.
-
-**1. Tell the host kernel where to drop cores (once per boot):**
-
-```sh
-sudo mkdir -p /tmp/inferno-cores
-echo '/tmp/inferno-cores/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
-```
-
-(`%e` program, `%p` pid, `%t` timestamp. The directory must exist and be writable.
-To make it survive reboots put `kernel.core_pattern=...` in `/etc/sysctl.d/`.)
-
-**2. Raise the core-size limit in the shell you launch emu from:** `ulimit -c unlimited`
-
-**3. Leave ASLR on.** Several of these bugs only surface at high addresses, so do
-**not** run emu under `setarch -R` (ASLR-off) — let the host randomize the address
-space; that is what provokes the fault.
-
-**4. Launch emu with the crash/observability env vars:**
+The remaining LP64 bugs are mostly heap corruption, and the `debug` profile is
+built to catch them: it defaults `EMUCRASH` on (a wild Dis fault drops a core *at
+the writer* instead of wedging the VM) and builds the `DISPTRCHECK` GC checker. The
+short version is **build `debug`, reproduce, get a core, `gdb` it**:
 
 ```sh
+sudo sh -c 'mkdir -p /tmp/inferno-cores; \
+  echo /tmp/inferno-cores/core.%e.%p.%t > /proc/sys/kernel/core_pattern'   # once per boot
 ulimit -c unlimited
-env EMUCRASH=1 EMUWATCHDOG=60 \
-    ./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
+env EMUCRASH=1 EMUWATCHDOG=60 ./Linux/aarch64/bin/emu -r"$PWD" -g1280x800 wm/wm
+gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>     # bt; info registers
 ```
 
-- `EMUCRASH=1` — a wild/illegal Dis fault aborts the process immediately (dumping
-  a core) instead of being swallowed into a Dis exception that can silently wedge
-  the VM. **This is the important one** (and it is on by default in `debug`
-  builds) — without it an intermittent heap-corruption fault often just leaves a
-  zombie/hung emu and the evidence is gone.
-- `EMUWATCHDOG=60` — if the VM hangs for 60s (a deadlock rather than a hard fault)
-  the watchdog prints a dump of every Dis thread so you can see who is stuck.
-- `kill -USR2 <emu-pid>` forces the same Dis thread dump from a live (or
-  apparently-hung) emu at any time.
-
-**5. When you get a core, hand it straight to gdb:**
-
-```sh
-gdb ./Linux/aarch64/bin/emu /tmp/inferno-cores/core.emu.<pid>.<ts>
-(gdb) bt              # host C backtrace at the fault
-(gdb) info registers  # the faulting address is usually a smashed pointer
-```
-
-The fault message emu prints on the way down names the Dis module, the builtin
-(e.g. `Charon[$Sys]`), and a `pc=`; map that `pc` back to a Limbo source line with
-the module's `.sbl` file (`limbo -g` output). See
-[`ref/ON_DEBUGGING.md`](ref/ON_DEBUGGING.md) for the full workflow.
+Leave ASLR **on** (don't use `setarch -R`) — it provokes the high-address faults.
+The full story — *why* this corruption happens (a 64-bit pointer truncated into a
+32-bit Dis slot), how to prevent it, the step-by-step recipe, and the `LIMBRUL`
+electric-fence — is in
+**[`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)**.
 
 For *how* this project is developed (the "demon machine" workflow — driving the
 desktop with `xdotool` over VNC, the gdb-mcp harness), see the

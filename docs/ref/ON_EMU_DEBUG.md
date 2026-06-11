@@ -10,7 +10,7 @@ deref, bounds, an uncaught `raise`, a wedged app you can still reach via `/prog`
 use **`ON_DEBUGGING.md`** instead — `/prog` is the first tool for a *broken*
 proc. This doc is for when the emu dies or freezes *before* you can `cat
 /prog/*/status`. For the **static** LP64 width-bug catchers (lint, genmove,
-verifytype, DISPTRCHECK) see **`ON_THE_DUAL_ABI.md`**; this doc is the runtime
+verifytype, DISPTRCHECK) see **`ON_C_IN_DIS.md`**; this doc is the runtime
 half (catch it once it has already faulted/hung) plus the C memory-tooling.
 
 > **This repo differs from stock Inferno.** Debug builds default **`EMUCRASH=1`**
@@ -70,7 +70,7 @@ truncated frame/linkage pointer (cf. the 24-bit `string.dis` fault).
 > (`emu/Linux/os.c:faultmoninit`). `EMUCRASH=0` explicitly opts out.
 > `release`/`bleedingedge` builds strip the define, so there it is off unless you
 > pass `EMUCRASH=1`. Still set `ulimit -c unlimited` to actually get the core. See
-> the build-profile table in `ON_THE_DUAL_ABI.md`.
+> the build-profile table in `ON_C_IN_DIS.md`.
 
 By default a SIGSEGV/SIGBUS in the VM is swallowed into a recoverable Dis exception
 (`sysfault`→`disfault`), so corruption surfaces benignly layers later. With
@@ -317,7 +317,7 @@ under it; chase that one via the deterministic address with `/prog`/gdb instead.
 | `include/isa.h` | Dis opcodes (decode the `op=` numbers in dumps) |
 
 **Cross-references:** `ON_DEBUGGING.md` (debugging a *Limbo program*: `/prog`,
-exceptions, disdump) · `ON_THE_DUAL_ABI.md` (the **static** LP64 width-bug
+exceptions, disdump) · `ON_C_IN_DIS.md` (the **static** LP64 width-bug
 catchers + build profiles) · `ON_EMU.md` (emulator architecture) ·
 `ON_PORTING.md` (Linux/aarch64 port internals) · the `inferno-autonomy` skill
 (headless repro + gdb MCP loop).

@@ -18,7 +18,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
   belongs to.
 - The dual-ABI story — *why* a Limbo `int` is 32 bits (the LP64-vs-ILP64 decision,
   with per-arch tables) **and** everything the LP64 port added — is one doc:
-  [`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md).
+  [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md).
 - **`ref/`** also holds reference material we didn't write — the rendered Limbo
   manuals (`*.html`) and Sean Hinchee's [`limbobyexample/`](ref/limbobyexample/).
 
@@ -42,7 +42,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | understand how Dis is realised on a host/ABI | [`ref/ON_DIS_ARCH.md`](ref/ON_DIS_ARCH.md) |
 | write or extend the native-code JIT | [`ref/ON_JIT.md`](ref/ON_JIT.md) |
 | port emu to a new host system | [`ref/ON_PORTING.md`](ref/ON_PORTING.md) → [`ref/ON_AARCH64_PORT.md`](ref/ON_AARCH64_PORT.md) |
-| understand the 32/64-bit dual ABI — *why* Limbo `int` is 32-bit everywhere, the tables, how one tree builds both | [`ref/ON_THE_DUAL_ABI.md`](ref/ON_THE_DUAL_ABI.md) |
+| understand the 32/64-bit dual ABI — *why* Limbo `int` is 32-bit everywhere, the tables, how one tree builds both | [`ref/ON_C_IN_DIS.md`](ref/ON_C_IN_DIS.md) |
 | dig into the emulator's architecture | [`ref/ON_EMU.md`](ref/ON_EMU.md) |
 | debug the *emu itself* (C-level faults, hangs, cores) | [`ref/ON_EMU_DEBUG.md`](ref/ON_EMU_DEBUG.md) |
 | read the kernel internals | [`ref/ON_KERNEL.md`](ref/ON_KERNEL.md) |

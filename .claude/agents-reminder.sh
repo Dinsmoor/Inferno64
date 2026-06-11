@@ -6,7 +6,7 @@
 # traces.)
 cd /home/tyler/inferno-os 2>/dev/null || exit 0
 [ -f docs/DEV_INPRO.md ] || exit 0
-echo "Durable project knowledge lives in docs/ref/ON_*.md (\"so you want to X\" topic references). Before deep debugging/building/graphics/etc., consult the relevant file (start: docs/DEV_INPRO.md — the live in-progress checklist; docs/ref/ON_THE_DUAL_ABI.md is the durable dual-ABI/LP64 reference). Do NOT read them all every turn — just the one that fits the task. Topic map:"
+echo "Durable project knowledge lives in docs/ref/ON_*.md (\"so you want to X\" topic references). Before deep debugging/building/graphics/etc., consult the relevant file (start: docs/DEV_INPRO.md — the live in-progress checklist; docs/ref/ON_C_IN_DIS.md is the durable dual-ABI/LP64 reference). Do NOT read them all every turn — just the one that fits the task. Topic map:"
 for f in docs/ref/ON_*.md; do
 	[ -f "$f" ] || continue
 	h=$(grep -m1 '^# ' "$f" 2>/dev/null | sed 's/^# *//')

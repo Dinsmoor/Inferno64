@@ -7,12 +7,12 @@ instruction set — true on any host. *This* doc covers how that model is realiz
 a concrete **architecture and pointer-ABI**: the dual-ABI field widths, the per-ABI
 `.dis` magic, compiled (JIT) execution and its register map, and the emu memory
 pools. The deep JIT codegen reference is `ON_JIT.md`; the durable width
-rules are `ON_THE_DUAL_ABI.md` — this doc is the bridge.
+rules are `ON_C_IN_DIS.md` — this doc is the bridge.
 
 > **Only Linux/aarch64 (LP64) is built and tested in this tree.** Everything below
 > reflects that target. The other `comp-*.c` / `das-*.c` backends (arm/386/mips/
 > power/sparc) are upstream legacy and are **not** built or exercised here; the
-> Linux/amd64 LP64 glue exists but is **UNBUILT/UNTESTED** (see `ON_THE_DUAL_ABI.md`).
+> Linux/amd64 LP64 glue exists but is **UNBUILT/UNTESTED** (see `ON_C_IN_DIS.md`).
 
 ---
 
@@ -37,7 +37,7 @@ The invariant that keeps Dis bytecode portable: **a Dis `WORD` is always 32-bit*
 All width logic in the C is symbolic (`IBY2PTR` vs `IBY2WD`), and a static assert in
 `xec.c` (`sizeof(void*)==IBY2PTR`) guards it. The class of bug this creates — a
 64-bit value truncated to 32 — and the layered defences against it are documented in
-`ON_THE_DUAL_ABI.md` and `ON_EMU_DEBUG.md`.
+`ON_C_IN_DIS.md` and `ON_EMU_DEBUG.md`.
 
 ---
 
@@ -124,12 +124,12 @@ addresses in 32-bit `WORD` slots that the interpreter reads back as `R.PC`. See
 Override at launch: `-p main=N`, `-p heap=N`, `-p image=N`. The allocator uses a
 balanced tree of free blocks (`Bhdr`) and coalesces neighbours on free. The
 `Bhdr.size` field is a 32-bit `int` (a pre-existing ~2GB-per-pool design limit, not
-an LP64 regression — see `ON_THE_DUAL_ABI.md`). Heap corruption here trips
+an LP64 regression — see `ON_C_IN_DIS.md`). Heap corruption here trips
 `poolcheck`, which `abort()`s (see `ON_EMU_DEBUG.md`).
 
 ---
 
 **Cross-references:** `ON_DIS.md` (the portable VM & instruction set) ·
 `ON_JIT.md` (JIT codegen, the as-built aarch64 reference) ·
-`ON_THE_DUAL_ABI.md` (the durable dual-ABI width rules + the LP64 bug class) ·
+`ON_C_IN_DIS.md` (the durable dual-ABI width rules + the LP64 bug class) ·
 `ON_EMU.md` (emulator architecture) · `ON_AARCH64_PORT.md` (the arch port).

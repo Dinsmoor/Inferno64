@@ -139,7 +139,7 @@ recursive sub-mk via `$MKFLAGS` without re-quoting.
 and a release link-check; suite × CONF × run-mode test cells; a doc slot) and
 prints a `PASS/FAIL/SKIP/TODO` table, exiting nonzero iff a `require` cell
 fails. This makes the headless `emu-g` build a hard requirement so it can't rot
-silently. Full details in [`docs/ref/ON_THE_DUAL_ABI.md`](docs/ref/ON_THE_DUAL_ABI.md).
+silently. Full details in [`docs/ref/ON_C_IN_DIS.md`](docs/ref/ON_C_IN_DIS.md).
 
 `make all` is the safe default and is cheap (~1 min) — run it freely. The cost in
 this tree comes from the *lack* of nuking: a stale `.dis` against a freshly built

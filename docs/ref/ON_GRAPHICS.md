@@ -24,7 +24,7 @@
 > A second, non-graphics LP64 bug also blocked the desktop in practice: the
 > exception unwinder's `NOPC` sentinel (`emu/port/exception.c`) was 32-bit, so a
 > `raise` that fell through a non-matching handler jumped to `prog-1`
-> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See ON_THE_DUAL_ABI.md.
+> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See ON_C_IN_DIS.md.
 
 ## Architecture Overview
 

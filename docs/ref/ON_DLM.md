@@ -19,7 +19,7 @@ drivers.
 
 See also: [ON_DIS.md](ON_DIS.md) (why C kernels exist at all),
 [ON_EMU.md](ON_EMU.md) (hosted emu = a userspace process),
-[ON_THE_DUAL_ABI.md](ON_THE_DUAL_ABI.md) (the LP64 story that the 32-bit format
+[ON_C_IN_DIS.md](ON_C_IN_DIS.md) (the LP64 story that the 32-bit format
 collides with), [ON_AARCH64_PORT.md](ON_AARCH64_PORT.md).
 
 ---
