@@ -706,7 +706,21 @@ qproduce(Queue *q, void *vp, int len)
 	b = q->blast;
 	if((q->state & Qcoalesce)==0 || q->bfirst==nil || b->lim-b->wp < len){
 		/* need a new block */
-		b = iallocb(len);
+		if((q->state & Qcoalesce) && len < 128){
+			/*
+			 * small produces on a coalescing queue get a real
+			 * append block: _allocb leaves wp at the end (its
+			 * headroom is for prepending), which would leave
+			 * nothing to coalesce INTO, and per-char produces
+			 * (kbdq) then hit q->limit after a few dozen chars
+			 * of one interrupt burst — silently dropping the
+			 * tail of pasted console input.
+			 */
+			b = iallocb(128);
+			if(b != nil)
+				b->wp = b->rp = b->base;
+		}else
+			b = iallocb(len);
 		if(b == 0){
 			iunlock(q);
 			return 0;
