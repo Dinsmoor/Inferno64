@@ -1,0 +1,6 @@
+# Fetched / built by fetch-sqlite.sh - not vendored into the tree.
+sqlite3.c
+sqlite3.h
+sqlite3.o
+sqlite-amalg.zip
+sqlite-amalgamation-*/
