@@ -373,6 +373,8 @@ echo(Rune r, char *buf, int n)
 	}
 	if(consoleprint && screenputs != nil)
 		screenputs(buf, n);
+	else if(consoleprint && printq == nil && serwrite != nil)
+		serwrite(buf, n);	/* serial-console-only boards: typed chars would otherwise vanish */
 	if(printq)
 		qiwrite(printq, buf, n);
 }
