@@ -26,6 +26,20 @@ init()
 	sys->bind("#e", "/env", Sys->MREPL|Sys->MCREATE);
 	sys->bind("#p", "/prog", Sys->MREPL);
 	sys->bind("#d", "/fd", Sys->MREPL);
+	if(sys->bind("#i", "/dev", Sys->MAFTER) < 0)		# draw
+		sys->print("init: bind #i: %r\n");
+	if(sys->bind("#m", "/dev", Sys->MAFTER) < 0)		# pointer
+		sys->print("init: bind #m: %r\n");
+	if(sys->bind("#s", "/chan", Sys->MREPL|Sys->MCREATE) < 0)	# file2chan (wm makes /chan/wmrect)
+		sys->print("init: bind #s: %r\n");
+
+	# graphical session if there's a display; dies harmlessly if not
+	spawn wmstart();
+	# let wm's /dev/keyboard reader get in BEFORE the console sh
+	# blocks reading /dev/cons: a console read pending from before
+	# the keyboard opens steals the first GUI keystroke (the queue
+	# wakes the senior sleeper first)
+	sys->sleep(8000);
 
 	sh := load Sh "/dis/sh.dis";
 	if(sh == nil){
@@ -37,6 +51,18 @@ init()
 		sh->init(nil, "sh" :: nil);
 		sys->print("init: sh exited; restarting\n");
 	}
+}
+
+wmstart()
+{
+	# run wm under its own sh, like a user would
+	sys->sleep(300);	# let the console sh reach its prompt first
+	sh := load Sh "/dis/sh.dis";
+	if(sh == nil){
+		sys->print("init: wmstart: load sh: %r\n");
+		return;
+	}
+	sh->init(nil, "sh" :: "-c" :: "wm/wm" :: nil);
 }
 
 echoloop()

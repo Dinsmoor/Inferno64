@@ -108,6 +108,7 @@ main(void)
 	trapinit();
 	clockinit();
 	printinit();
+	quotefmtinstall();	/* %q: sh and the wm window protocol depend on it */
 	uartinit();
 	screeninit();	/* ramfb, if qemu was given -device ramfb */
 	procinit();

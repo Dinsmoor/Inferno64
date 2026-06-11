@@ -45,7 +45,7 @@ ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 nocache nodynld parse pgrp print proc qio qlock \
 	   random sysfile taslock xalloc \
-	   devcons devroot devenv devprog devpipe devdup devdraw devpointer
+	   devcons devroot devenv devprog devpipe devdup devdraw devpointer devsrv
 
 ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs
 ARCHS   := l
@@ -115,7 +115,12 @@ $(CONF).c: ../port/mkdevc $(CONF)
 
 # grouped target (&:) — one mkroot run produces both; without it -j runs
 # the recipe twice in parallel and interleaves the output
-$(CONF).root.h $(CONF).root.s &: $(CONF) ../port/mkroot data2s ../init/virtinit.dis
+# ROOTDEPS: every file the config bakes in, so a recompiled .dis or font
+# actually lands in the image (the config lists them as absolute-in-tree
+# paths; turn into real paths relative to ROOT)
+ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(CONF) 2>/dev/null)
+
+$(CONF).root.h $(CONF).root.s &: $(CONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
 	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/net $(ROOT)/prog
 	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(CONF)
 
