@@ -62,6 +62,74 @@ Pool*	mainmem = &table.pool[0];
 Pool*	heapmem = &table.pool[1];
 Pool*	imagmem = &table.pool[2];
 
+/*
+ * Free-tree integrity audit, ported from emu/port/alloc.c: every link in a
+ * free block's BST node / same-size ring must be nil, the block itself, or
+ * another block in the SAME pool.  Runs at entry+exit of each allocator op
+ * when poolparanoid is set, so the first failing audit brackets the stray
+ * write to a single interval.  Caller must hold p->l.
+ */
+int	poolparanoid = 1;
+
+int
+ptrinpool(Pool *p, void *a)
+{
+	Bhdr *b;
+	uchar *u;
+
+	u = a;
+	for(b = p->chain; b != nil; b = b->clink)
+		if(u >= (uchar*)b && u < (uchar*)B2LIMIT(b))
+			return 1;
+	return 0;
+}
+
+static char*
+_ppnode(Pool *p, Bhdr *b, char **fldp, Bhdr **badp)
+{
+	if(b->magic != MAGIC_F){ *fldp = "magic"; *badp = (Bhdr*)(uintptr)b->magic; return "non-free node in free tree"; }
+	if(b->parent != nil && !ptrinpool(p, b->parent)){ *fldp = "parent"; *badp = b->parent; return "stray free-tree pointer"; }
+	if(b->left   != nil && !ptrinpool(p, b->left))  { *fldp = "left";   *badp = b->left;   return "stray free-tree pointer"; }
+	if(b->right  != nil && !ptrinpool(p, b->right)) { *fldp = "right";  *badp = b->right;  return "stray free-tree pointer"; }
+	if(b->fwd != b && !ptrinpool(p, b->fwd))        { *fldp = "fwd";    *badp = b->fwd;    return "stray free-tree pointer"; }
+	if(b->prev != b && !ptrinpool(p, b->prev))      { *fldp = "prev";   *badp = b->prev;   return "stray free-tree pointer"; }
+	return nil;
+}
+
+void
+poolparanoidcheck(Pool *p, char *where)
+{
+	Bhdr *stack[128];
+	int sp, n;
+	Bhdr *b, *r, *bad;
+	char *fld, *msg;
+
+	if(!poolparanoid)
+		return;
+	sp = 0;
+	if(p->root != nil)
+		stack[sp++] = p->root;
+	while(sp > 0){
+		b = stack[--sp];
+		r = b; n = 0;
+		do {
+			msg = _ppnode(p, r, &fld, &bad);
+			if(msg != nil){
+				print("POOLPARANOID[%s]: %s -- pool %s free block %#p (size %lud) stray %s = %#p\n"
+				      "  magic=%#lux parent=%#p left=%#p right=%#p fwd=%#p prev=%#p\n",
+				      where, msg, p->name, r, (ulong)r->size, fld, bad,
+				      (ulong)r->magic, r->parent, r->left, r->right, r->fwd, r->prev);
+				panic("poolparanoid[%s]", where);
+			}
+			r = r->fwd;
+		} while(r != b && ++n < 100000 && ptrinpool(p, r));
+		if(b->left != nil && sp < nelem(stack))
+			stack[sp++] = b->left;
+		if(b->right != nil && sp < nelem(stack))
+			stack[sp++] = b->right;
+	}
+}
+
 static void _auditmemloc(char *, void *);
 void (*auditmemloc)(char *, void *) = _auditmemloc;
 static void _poolfault(void *, char *, ulong);
@@ -280,6 +348,7 @@ poolalloc(Pool *p, ulong asize)
 	size = (size + BHDRSIZE + p->quanta) & ~(p->quanta);
 
 	ilock(&p->l);
+	poolparanoidcheck(p, "alloc");
 	p->nalloc++;
 
 	t = p->root;
@@ -422,6 +491,7 @@ poolfree(Pool *p, void *v)
 	D2B(b, v);
 
 	ilock(&p->l);
+	poolparanoidcheck(p, "free");
 	p->nfree++;
 	p->cursize -= b->size;
 

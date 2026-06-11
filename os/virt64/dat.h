@@ -55,14 +55,15 @@ struct	FPenv
 };
 
 /*
- * This structure must agree with FPsave/FPrestore in l.S:
- * 32 q registers then fpcr, fpsr.
+ * FPsave/FPrestore in l.S operate on FPenv (status=fpsr, control=fpcr
+ * only).  Live q registers never cross a Dis timeslice boundary: they
+ * are caller-saved at the r->xec(r) call, and the trap stubs preserve
+ * q0-q31 across interrupts.  Saving the full register file into the
+ * 16-byte FPenv at the tail of Osenv is exactly the heap-scribble bug
+ * this port already hit once — don't reintroduce it.
  */
 struct	FPU
 {
-	uvlong	vregs[64];	/* q0-q31 */
-	u32int	fpcr;
-	u32int	fpsr;
 	FPenv	env;
 };
 

@@ -1,12 +1,15 @@
 implement Init;
 
 #
-# qemu -M virt (aarch64) first-boot init: bind the core devices,
-# then echo the console until there is a shell to run.
+# qemu -M virt (aarch64) init: bind the core devices, run the shell.
 #
 
 include "sys.m";
 	sys: Sys;
+
+include "draw.m";
+
+include "sh.m";
 
 Init: module
 {
@@ -22,13 +25,25 @@ init()
 	sys->bind("#c", "/dev", Sys->MREPL);
 	sys->bind("#e", "/env", Sys->MREPL|Sys->MCREATE);
 	sys->bind("#p", "/prog", Sys->MREPL);
+	sys->bind("#d", "/fd", Sys->MREPL);
 
-	cons := sys->open("/dev/cons", Sys->ORDWR);
-	if(cons == nil){
-		sys->print("init: open /dev/cons: %r\n");
+	sh := load Sh "/dis/sh.dis";
+	if(sh == nil){
+		sys->print("init: load /dis/sh.dis: %r\n");
+		echoloop();
 		return;
 	}
-	sys->fprint(cons, "console echo ready (no shell yet); type:\n");
+	for(;;){
+		sh->init(nil, "sh" :: nil);
+		sys->print("init: sh exited; restarting\n");
+	}
+}
+
+echoloop()
+{
+	cons := sys->open("/dev/cons", Sys->ORDWR);
+	if(cons == nil)
+		return;
 	buf := array[256] of byte;
 	for(;;){
 		n := sys->read(cons, buf, len buf);

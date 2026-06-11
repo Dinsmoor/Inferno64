@@ -65,6 +65,22 @@ root
 	/dev
 	/dis
 	/env
+	/fd
 	/net
 	/prog
+	/tmp
 	/osinit.dis
+	/dis/sh.dis
+	/dis/ls.dis
+	/dis/cat.dis
+	/dis/echo.dis
+	/dis/ps.dis
+	/dis/pwd.dis
+	/dis/lib/arg.dis
+	/dis/lib/bufio.dis
+	/dis/lib/env.dis
+	/dis/lib/filepat.dis
+	/dis/lib/workdir.dis
+	/dis/lib/string.dis
+	/dis/lib/readdir.dis
+	/dis/lib/daytime.dis

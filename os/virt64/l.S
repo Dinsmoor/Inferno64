@@ -316,55 +316,28 @@ _tas:
 	ret
 
 /*
- * FP state for dis.c prog switches: void FPsave(void*), void FPrestore(void*).
- * Layout must match struct FPU in dat.h.
+ * FP state for dis.c prog switches: void FPsave(FPenv*), void FPrestore(FPenv*).
+ * The buffer is Osenv.fpu — struct FPenv{ulong status, control}, 16 BYTES.
+ * Per-Dis-thread FP state is only fpsr/fpcr: live FP values sit in Dis
+ * frames in memory at the r->xec(r) call boundary (q regs caller-saved),
+ * and the trap stubs preserve q0-q31 across interrupts.  Saving the full
+ * register file here once overflowed FPenv at the tail of Osenv and
+ * scribbled the heap (stale free-tree parent corruption).
  */
 	.globl FPsave
 FPsave:
-	stp	q0, q1, [x0, #(0*16)]
-	stp	q2, q3, [x0, #(2*16)]
-	stp	q4, q5, [x0, #(4*16)]
-	stp	q6, q7, [x0, #(6*16)]
-	stp	q8, q9, [x0, #(8*16)]
-	stp	q10, q11, [x0, #(10*16)]
-	stp	q12, q13, [x0, #(12*16)]
-	stp	q14, q15, [x0, #(14*16)]
-	stp	q16, q17, [x0, #(16*16)]
-	stp	q18, q19, [x0, #(18*16)]
-	stp	q20, q21, [x0, #(20*16)]
-	stp	q22, q23, [x0, #(22*16)]
-	stp	q24, q25, [x0, #(24*16)]
-	stp	q26, q27, [x0, #(26*16)]
-	stp	q28, q29, [x0, #(28*16)]
-	stp	q30, q31, [x0, #(30*16)]
-	mrs	x1, fpcr
-	mrs	x2, fpsr
-	add	x0, x0, #(32*16)
-	stp	w1, w2, [x0]
+	mrs	x1, fpsr
+	mrs	x2, fpcr
+	str	x1, [x0, #0]	/* status */
+	str	x2, [x0, #8]	/* control */
 	ret
 
 	.globl FPrestore
 FPrestore:
-	ldp	q0, q1, [x0, #(0*16)]
-	ldp	q2, q3, [x0, #(2*16)]
-	ldp	q4, q5, [x0, #(4*16)]
-	ldp	q6, q7, [x0, #(6*16)]
-	ldp	q8, q9, [x0, #(8*16)]
-	ldp	q10, q11, [x0, #(10*16)]
-	ldp	q12, q13, [x0, #(12*16)]
-	ldp	q14, q15, [x0, #(14*16)]
-	ldp	q16, q17, [x0, #(16*16)]
-	ldp	q18, q19, [x0, #(18*16)]
-	ldp	q20, q21, [x0, #(20*16)]
-	ldp	q22, q23, [x0, #(22*16)]
-	ldp	q24, q25, [x0, #(24*16)]
-	ldp	q26, q27, [x0, #(26*16)]
-	ldp	q28, q29, [x0, #(28*16)]
-	ldp	q30, q31, [x0, #(30*16)]
-	add	x1, x0, #(32*16)
-	ldp	w2, w3, [x1]
+	ldr	x1, [x0, #0]
+	ldr	x2, [x0, #8]
+	msr	fpsr, x1
 	msr	fpcr, x2
-	msr	fpsr, x3
 	ret
 
 /*
