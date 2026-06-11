@@ -540,7 +540,8 @@ delgrp(Prog *p)
 					pg->child = cg;
 				}
 			}
-			free(g);
+			if(!(g->flags & Pkilled))	/* killgrp still holds it; defer its free to killgrp */
+				free(g);
 		}while((g = pg) != nil && g->head == nil);
 	}
 	return g;
@@ -593,6 +594,8 @@ killgrp(Prog *p, char *msg)
 	g->flags |= Pkilled;
 	if(waserror()) {
 		g->flags &= ~Pkilled;
+		if(g->head == nil)	/* emptied during the kill; delgrp deferred its free */
+			free(g);
 		free(pids);
 		nexterror();
 	}
@@ -602,7 +605,17 @@ killgrp(Prog *p, char *msg)
 			killprog(f, msg);
 	}
 	poperror();
+	/*
+	 * killing the last member frees the group in delgrp(); that free is
+	 * deferred while Pkilled is set, so g is still valid here. Clear the
+	 * guard, then free it ourselves if the kill emptied it. (Touching
+	 * g->flags after the loop without this was a use-after-free — the
+	 * same bug as emu/port/dis.c 8b6027f0, where the stray write landed
+	 * in a recycled free-tree block and rotted the heap.)
+	 */
 	g->flags &= ~Pkilled;
+	if(g->head == nil)
+		free(g);
 	free(pids);
 	return 1;
 }
