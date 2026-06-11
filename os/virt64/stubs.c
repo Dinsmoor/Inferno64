@@ -144,6 +144,18 @@ releasecompile(Module *m, int size, Modlink *ml)
 }
 
 /*
+ * /dev/random: overrides the weak hook in port/random.c — virtio-rng
+ * entropy when the device answers, else 0 so the (glacial) jitter
+ * pool takes over.  Without this, /dev/random readers (e.g. lib
+ * Random seeding the games' Rand) hang ~forever under qemu.
+ */
+int
+hwrandomread(void *buf, ulong n)
+{
+	return virtiorngread(buf, n);
+}
+
+/*
  * /dev/notquiterandom: virtio-rng when present (rng.c), else a weak
  * xorshift PRNG.  The fallback is NOT cryptographically secure; boot
  * with `-device virtio-rng-device` for real entropy.

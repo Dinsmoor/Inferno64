@@ -101,6 +101,30 @@ randominit(void)
 }
 
 /*
+ * arch hook: serve /dev/random from a hardware RNG when one exists.
+ * Returns how many bytes it filled; 0 means no (working) device and
+ * the clock-jitter pool below is the source.  The jitter pool yields
+ * a few BYTES per second, so on hardware (or qemu) with a real
+ * entropy device this hook is the difference between /dev/random
+ * working and readers hanging near-forever.
+ */
+#ifdef __GNUC__
+int __attribute__((weak))
+hwrandomread(void *p, ulong n)
+{
+	USED(p); USED(n);
+	return 0;
+}
+#else
+static int
+hwrandomread(void *p, ulong n)
+{
+	USED(p); USED(n);
+	return 0;
+}
+#endif
+
+/*
  *  consume random bytes from a circular buffer
  */
 ulong
@@ -110,6 +134,9 @@ randomread(void *xp, ulong n)
 	uchar *e, *p;
 
 	p = xp;
+
+	if(n > 0 && hwrandomread(p, n) == (int)n)
+		return n;
 
 	qlock(&rb);
 	if(waserror()){
