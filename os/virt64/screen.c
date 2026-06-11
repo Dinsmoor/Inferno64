@@ -62,6 +62,18 @@ screeninit(void)
 	screenputs = fbscreenputs;	/* console output mirrors to the framebuffer */
 }
 
+void
+screensize(int *w, int *h)
+{
+	if(gscreen == nil){
+		*w = 1024;
+		*h = 768;
+		return;
+	}
+	*w = Dx(gscreen->r);
+	*h = Dy(gscreen->r);
+}
+
 uchar*
 attachscreen(Rectangle *r, ulong *chan, int *d, int *width, int *softscreen)
 {

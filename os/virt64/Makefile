@@ -47,7 +47,7 @@ PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   random sysfile taslock xalloc \
 	   devcons devroot devenv devprog devpipe devdup devdraw devpointer
 
-ARCHC   := main trap clock uart rng ramfb screen stubs
+ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs
 ARCHS   := l
 
 # libmemdraw/libmemlayer file lists follow the libs' own mkfiles
@@ -119,7 +119,7 @@ $(ROOT)/libinterp/sysmod.h:
 
 # ---- compile rules ----
 
-HDRS := dat.h fns.h io.h mem.h ../port/portdat.h ../port/portfns.h ../port/lib.h
+HDRS := dat.h fns.h io.h mem.h virtio.h screen.h ../port/portdat.h ../port/portfns.h ../port/lib.h
 
 $(O)/%.o: %.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -163,9 +163,15 @@ $(KERNEL): $(OBJ) virt64.ld
 	$(LD) -T virt64.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
 	@echo "built $@"
 
+# modern virtio (force-legacy=false) is required by the input drivers;
+# rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
+QEMUDEVS := -global virtio-mmio.force-legacy=false \
+	    -device virtio-rng-device -device ramfb \
+	    -device virtio-keyboard-device -device virtio-tablet-device
+
 run: $(KERNEL)
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -nographic \
-		-device virtio-rng-device -kernel $(KERNEL)
+		$(QEMUDEVS) -kernel $(KERNEL)
 
 clean:
 	rm -rf $(O) $(KERNEL) $(CONF).c $(CONF).root.h $(CONF).root.s errstr.h version.h

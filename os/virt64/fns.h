@@ -27,6 +27,8 @@ void	microdelay(int);
 uvlong	psci_call(ulong, uvlong, uvlong, uvlong);
 uchar*	ramfbinit(int*, int*);
 void	screeninit(void);
+void	screensize(int*, int*);
+void	virtioinputinit(void);
 int	segflush(void*, ulong);
 extern void	(*screenputs)(char*, int);
 void	setpanic(void);

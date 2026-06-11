@@ -114,6 +114,7 @@ main(void)
 	links();
 	chandevreset();
 	virtiornginit();	/* optional: -device virtio-rng-device */
+	virtioinputinit();	/* optional: -device virtio-keyboard-device / virtio-tablet-device */
 
 	/* Dis JIT: one modest xalloc arena (see jitcode in comp-aarch64.c) */
 	cflag = 1;

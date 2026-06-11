@@ -80,6 +80,7 @@ root
 	/dis/pwd.dis
 	/dis/read.dis
 	/dis/xd.dis
+	/dis/bind.dis
 	/dis/lib/arg.dis
 	/dis/lib/bufio.dis
 	/dis/lib/env.dis
