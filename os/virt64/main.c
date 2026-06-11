@@ -23,6 +23,7 @@ extern int heap_pool_pcnt;
 extern int image_pool_pcnt;
 
 extern char end[];
+extern ulong boottime;	/* devcons.c: epoch seconds at boot; 0 = clock starts at 1970 */
 
 int
 segflush(void *p, ulong l)
@@ -107,6 +108,8 @@ main(void)
 	poolsizeinit();
 	trapinit();
 	clockinit();
+	/* PL031 RTC data register = epoch seconds; qemu -M virt always has one */
+	boottime = IOREG32(RTC_PHYS, 0x000);
 	printinit();
 	quotefmtinstall();	/* %q: sh and the wm window protocol depend on it */
 	uartinit();
