@@ -37,6 +37,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | handle errors / exceptions (and why it's two awkward layers) | [`ON_LIMBO_ERROR_HANDLING.md`](ON_LIMBO_ERROR_HANDLING.md) |
 | see small worked examples | [`ref/limbobyexample/`](ref/limbobyexample/) |
 | debug a *Limbo program* (`/prog`, exceptions, `disdump`) | [`ON_DEBUGGING.md`](ON_DEBUGGING.md) |
+| use or hack on the shell (`sh`, builtins, line editing) | [`ON_SHELL.md`](ON_SHELL.md) |
 
 ### …work on the VM / the port
 

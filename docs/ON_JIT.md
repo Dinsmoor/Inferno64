@@ -6,6 +6,15 @@ Inferno can run Dis bytecode in two modes: interpreted (the default, architectur
 
 This doc does not re-cover the Dis VM scheduler (see ON_EMU.md) or the Dis wire format (see ON_9P.md). It focuses on the compilation pipeline itself.
 
+> **Not the Plan 9 assembler.** `docs/ref/asm.pdf` ("A Manual for the Plan 9
+> assembler") points here, but the JIT does **not** go through any assembler: each
+> backend (`comp-aarch64.c`) emits already-encoded native instruction words directly
+> via its small encoder layer — there is no textual `.s` step. The Plan 9 assembler
+> that paper describes is the cross-assembler toolchain in `utils/` (`5a`/`8a`/`ka`/
+> `ia`/…) that assembles the hand-written `.s` startup code of the **native `os/`
+> kernels** (e.g. `os/*/l.s`). That toolchain is dormant in this hosted-emu fork; the
+> reading you want for *generating* native code at runtime is this doc.
+
 > **Read this first — two halves.** The aarch64 JIT is **implemented** (the
 > historical "Option B" was chosen). The sections up to "The aarch64 Decision" are
 > the **porting-guide background** (written against the ARM32 backend `comp-arm.c`

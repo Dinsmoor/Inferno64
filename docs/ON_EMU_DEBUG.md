@@ -305,6 +305,22 @@ under it; chase that one via the deterministic address with `/prog`/gdb instead.
 
 ---
 
+## Acid — for the native kernels, not the hosted emu
+
+Three reference papers here point at this doc — `docs/ref/acidpaper.pdf` ("Acid: A
+Debugger Built From A Language"), `acidtut.pdf` ("Native Kernel Debugging with
+Acid"), and `acid.pdf` (the reference manual). Acid is the Plan 9 source-level
+debugger; it still lives in the tree (`utils/acid`, library scripts under
+`lib/acid`, man page `man/10/acid`). But it is a debugger for **Plan 9 `a.out`
+binaries produced by the `utils/` cross-compilers** — i.e. the **native `os/`
+kernels** and their tools. This hosted-emu fork compiles the emulator with the host
+`gcc` to an ELF binary, so the tool that actually attaches to it is **host `gdb`**
+(everything above), not acid. Reach for acid only if you revive a native `os/` port
+and need to debug the bare-metal kernel the way `acidtut` describes; for the emu you
+build and run day-to-day, it does not apply.
+
+---
+
 ## Key files
 
 | File | Purpose |
