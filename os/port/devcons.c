@@ -38,6 +38,8 @@ static struct
 	int	scan;		/* true if reading raw scancodes */
 	int	x;		/* index into line */
 	char	line[1024];	/* current input line */
+	char	stolen;		/* byte a parked cons reader took in the open-keyboard race */
+	int	nstolen;
 
 	char	c;
 	int	count;
@@ -887,6 +889,7 @@ consread(Chan *c, void *buf, long n, vlong offset)
 	int l;
 	Osenv *o;
 	int ch, eol, i;
+	char chb;
 	char *p, tmp[128];
 	char *cbuf = buf;
 
@@ -905,22 +908,83 @@ consread(Chan *c, void *buf, long n, vlong offset)
 			qunlock(&kbd);
 			nexterror();
 		}
+		/* a /dev/keyboard client (a GUI) owns the input stream: a
+		 * console reader — cooked or rawon — must not steal
+		 * interleaved bytes from it.  Park until the keyboard is
+		 * closed again. */
+		if((ulong)c->qid.path == Qcons){
+			while(kbd.kbdr > 0){
+				qunlock(&kbd);
+				if(waserror()){
+					qlock(&kbd);	/* outer handler unlocks */
+					nexterror();
+				}
+				tsleep(&up->sleep, return0, 0, 250);
+				poperror();
+				qlock(&kbd);
+			}
+		}
 		if(kbd.raw || kbd.kbdr) {
 			if(qcanread(lineq))
 				n = qread(lineq, buf, n);
 			else {
 				/* read as much as possible */
-				do {
-					i = qread(kbdq, cbuf, n);
-					cbuf += i;
-					n -= i;
-				} while(n>0 && qcanread(kbdq));
+				if(kbd.nstolen && n > 0){
+					*cbuf++ = kbd.stolen;
+					n--;
+					kbd.nstolen = 0;
+				}
+				if(cbuf == (char*)buf)	/* nothing yet: block for input */
+					do {
+						i = qread(kbdq, cbuf, n);
+						if(kbd.nstolen && i < n){
+							/* a parked cons reader stole an
+							 * EARLIER byte while we slept:
+							 * it goes in front */
+							memmove(cbuf+1, cbuf, i);
+							*cbuf = kbd.stolen;
+							kbd.nstolen = 0;
+							i++;
+						}
+						cbuf += i;
+						n -= i;
+					} while(n>0 && qcanread(kbdq));
+				else if(n > 0 && qcanread(kbdq))
+					while(n > 0 && qcanread(kbdq)){
+						i = qread(kbdq, cbuf, n);
+						cbuf += i;
+						n -= i;
+					}
 				n = cbuf - (char*)buf;
 			}
 		} else {
 			while(!qcanread(lineq)) {
-				qread(kbdq, &kbd.line[kbd.x], 1);
-				ch = kbd.line[kbd.x];
+				/* don't hold the kbd qlock across the blocking
+				 * read: a sleeping cooked-mode console reader
+				 * would lock out /dev/keyboard opens and reads
+				 * (raw-mode GUIs hang at startup until a stray
+				 * console byte cycles the lock) */
+				qunlock(&kbd);
+				if(waserror()){
+					qlock(&kbd);	/* outer handler unlocks */
+					nexterror();
+				}
+				qread(kbdq, &chb, 1);
+				poperror();
+				qlock(&kbd);
+				if(kbd.raw || kbd.kbdr){
+					/* went raw while we slept: this byte
+					 * belongs to the raw readers; hand it
+					 * over AT THE HEAD (a queue write would
+					 * reorder it behind later input) */
+					kbd.stolen = chb;
+					kbd.nstolen = 1;
+					qunlock(&kbd);
+					poperror();
+					return 0;
+				}
+				ch = chb;
+				kbd.line[kbd.x] = ch;
 				eol = 0;
 				switch(ch){
 				case '\b':
