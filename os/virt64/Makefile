@@ -80,7 +80,7 @@ DRAWC     := alloc allocimagemix arith bezier border buildfont bytesperline \
 
 INTERPC := alt conv dec disops gc heap link load readmod runt raise stack \
 	   string validstk xec comp-aarch64 das-aarch64 draw tk geom loader \
-	   math raster3
+	   math raster3 keyring crypt ipint
 
 # libmath: the $Math builtin's engine.  fdlibm e_*/k_* export __ieee754_*
 # (no clash); the s_* files and pow10 export plain names, so KERNC below
@@ -94,6 +94,26 @@ MATHC   := blas dtoa fdim FPcontrol-Inferno gemm g_fmt gfltconv pow10 \
 	   k_tan s_asinh s_atan s_cbrt s_ceil s_copysign s_cos s_erf \
 	   s_expm1 s_fabs s_finite s_floor s_ilogb s_log1p s_nextafter \
 	   s_rint s_scalbn s_sin s_tan s_tanh
+
+# crypto: the $Keyring/$Crypt/$IPints engines (lists from the libs' own
+# mkfiles).  Minus libsec genrandom.c: stubs.c serves genrandom from
+# virtio-rng instead of its X9.17-over-DES3 PRNG.  The kernel-side
+# hooks libsec expects (truerand, _genrandomqlock, sysfatal, werrstr)
+# all exist in os/port already — native kernels always linked libsec.
+SECC    := des desmodes desECB desCBC des3ECB des3CBC aes blowfish idea \
+	   hmac md5 md5block md4 sha1 sha1block sha2 sha256block sha512block \
+	   sha1pickle md5pickle rc4 prng fastrand nfastrand \
+	   probably_prime smallprimetest genprime dsaprimes gensafeprime \
+	   genstrongprime rsagen rsafill rsaencrypt rsadecrypt rsaalloc \
+	   rsaprivtopub eggen egencrypt egdecrypt egalloc egprivtopub egsign \
+	   egverify dsagen dsaalloc dsaprivtopub dsasign dsaverify
+
+MPC     := mpaux mpfmt strtomp mptobe mptole betomp letomp mpadd mpsub \
+	   mpcmp mpfactorial mpmul mpleft mpright mpvecadd mpvecsub \
+	   mpvecdigmuladd mpveccmp mpdigdiv mpdiv mpexp mpmod mpextendedgcd \
+	   mpinvert mprand crt mptoi mptoui mptov mptouv
+
+KRC     := dsaalg egalg rsaalg
 
 # the whole Tk widget library (lists from libtk/mkfile + mkfile-std)
 TKC     := ebind grids image packr panel parse utils varbl windw xdata \
@@ -117,6 +137,7 @@ OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
 	   $(MEMDRAWC:%=$(O)/md_%.o) $(MEMLAYERC:%=$(O)/ml_%.o) \
 	   $(DRAWC:%=$(O)/dr_%.o) $(TKC:%=$(O)/tk_%.o) \
 	   $(MATHC:%=$(O)/ma_%.o) \
+	   $(SECC:%=$(O)/sec_%.o) $(MPC:%=$(O)/mp_%.o) $(KRC:%=$(O)/kr_%.o) \
 	   $(O)/$(CONF).o $(O)/$(CONF).root.o
 
 all: $(KERNEL)
@@ -128,7 +149,9 @@ $(O):
 
 GENH := $(GENCONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
 	$(ROOT)/libinterp/drawmod.h $(ROOT)/libinterp/tkmod.h $(ROOT)/libinterp/loadermod.h \
-	$(ROOT)/libinterp/mathmod.h $(ROOT)/libinterp/raster3mod.h
+	$(ROOT)/libinterp/mathmod.h $(ROOT)/libinterp/raster3mod.h \
+	$(ROOT)/libinterp/keyring.h $(ROOT)/libinterp/keyringif.h \
+	$(ROOT)/libinterp/cryptmod.h $(ROOT)/libinterp/ipintsmod.h
 
 # The full application set: the checked-in config lists only structure;
 # the generated config appends every file under these trees (the hosted
@@ -185,6 +208,18 @@ $(ROOT)/libinterp/mathmod.h:
 $(ROOT)/libinterp/raster3mod.h:
 	cd $(ROOT)/libinterp && $(LIMBO) -t Raster3 -I../module ../module/runt.m > raster3mod.h
 
+$(ROOT)/libinterp/keyring.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t Keyring -I../module keyringif.m > keyring.h
+
+$(ROOT)/libinterp/keyringif.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -a -I../module keyringif.m > keyringif.h
+
+$(ROOT)/libinterp/cryptmod.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t Crypt -I../module ../module/runt.m > cryptmod.h
+
+$(ROOT)/libinterp/ipintsmod.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t IPints -I../module ../module/ipints.m > ipintsmod.h
+
 # ---- compile rules ----
 
 HDRS := dat.h fns.h io.h mem.h virtio.h screen.h ../port/portdat.h ../port/portfns.h ../port/lib.h
@@ -227,6 +262,16 @@ $(O)/ma_%.o: $(ROOT)/libmath/%.c | $(O)
 
 $(O)/ma_%.o: $(ROOT)/libmath/fdlibm/%.c | $(O)
 	$(CC) $(CFLAGS) -I$(ROOT)/libmath -c -o $@ $<
+
+# libsec includes "os.h" from libmp/port (its mkfile does the same)
+$(O)/sec_%.o: $(ROOT)/libsec/port/%.c | $(O)
+	$(CC) $(CFLAGS) -I$(ROOT)/libmp/port -c -o $@ $<
+
+$(O)/mp_%.o: $(ROOT)/libmp/port/%.c | $(O)
+	$(CC) $(CFLAGS) -I$(ROOT)/libmp/port -c -o $@ $<
+
+$(O)/kr_%.o: $(ROOT)/libkeyring/%.c $(GENH) | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(O)/$(CONF).o: $(CONF).c $(GENCONF).root.h $(HDRS) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<

@@ -156,28 +156,34 @@ hwrandomread(void *buf, ulong n)
 }
 
 /*
- * /dev/notquiterandom: virtio-rng when present (rng.c), else a weak
- * xorshift PRNG.  The fallback is NOT cryptographically secure; boot
- * with `-device virtio-rng-device` for real entropy.
+ * /dev/notquiterandom + libsec's generator (signature per libsec.h —
+ * mprand calls through a void(*)(uchar*,int) pointer): virtio-rng when
+ * present (rng.c), else a weak xorshift PRNG.  The fallback is NOT
+ * cryptographically secure; boot with `-device virtio-rng-device`.
+ * Replaces libsec/port/genrandom.c (X9.17 over DES3) — real device
+ * entropy beats a PRNG seeded from truerand's jitter pool.
  */
-ulong
-genrandom(uchar *buf, ulong n)
+void
+genrandom(uchar *buf, int n)
 {
 	static uvlong state;
 	uvlong x;
-	ulong i;
-	int got;
+	int i, got;
 	uvlong rdcntvct(void);
 
+	if(n <= 0)
+		return;
 	got = virtiorngread(buf, n);
 	if(got >= n)
-		return n;
+		return;
+	if(got < 0)
+		got = 0;
 
 	if(state == 0){
 		/* one-time seed: device entropy if any came through, else the counter */
 		x = rdcntvct();
 		if(got > 0)
-			memmove(&x, buf, got > sizeof(x) ? sizeof(x) : got);
+			memmove(&x, buf, got > sizeof(x) ? (int)sizeof(x) : got);
 		state = x | 1;
 	}
 	x = state;
@@ -188,8 +194,9 @@ genrandom(uchar *buf, ulong n)
 		buf[i] = x ^ (x >> 32);
 	}
 	state = x;
-	return n;
 }
+
+/* (rand() for libsec's prng.c comes from devcons.c) */
 
 /*
  * access(2) for the in-kernel libdraw (subfontname.c probes font

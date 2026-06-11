@@ -23,6 +23,9 @@ mod
 	loader
 	math
 	raster3
+	keyring
+	crypt
+	ipints
 
 port
 	alarm
