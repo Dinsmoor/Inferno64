@@ -363,10 +363,10 @@ extern	double	ipow10(int);
 extern	int	putenv(char*, char*);
 extern	void	qsort(void*, long, long, int (*)(void*, void*));
 /*extern	int	setjmp(jmp_buf);*/
-extern	double	strtod(char*, char**);
+extern	double	strtod(const char*, char**);	/* const to match mathi.h (gcc checks; kencc didn't) */
 extern	long	strtol(char*, char**, int);
 extern	ulong	strtoul(char*, char**, int);
-extern	vlong	strtoll(char*, char**, int);
+extern	vlong	strtoll(const char*, char**, int);
 extern	uvlong	strtoull(char*, char**, int);
 extern	void	sysfatal(char*, ...);
 #pragma	varargck	argpos	sysfatal	1

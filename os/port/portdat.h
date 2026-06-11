@@ -123,11 +123,8 @@ struct Talarm
 	Proc*	list;
 };
 
-struct Alarms
-{
-	QLock;
-	Proc*	head;
-};
+/* struct Alarms deleted: unused, and its QLock+head collided with
+ * gcc -fplan9-extensions (no member shadowing, unlike kencc) */
 
 struct Rootdata
 {

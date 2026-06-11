@@ -35,6 +35,14 @@ struct Pool
 	void	(*move)(void*, void*);
 };
 
+/*
+ * The minimum block must hold Bhdr (with its 5-pointer free-tree node)
+ * plus Btail.  On LP64 that is 64 bytes, so quanta must be 63 or the
+ * split path creates 32-byte fragments that pooladd scribbles past.
+ * Same fix as emu/port/alloc.c.
+ */
+#define QUANTA	(sizeof(Bhdr)+sizeof(Btail) <= 32 ? 31 : 63)
+
 static
 struct
 {
@@ -44,9 +52,9 @@ struct
 } table = {
 	3,
 	{
-		{ "main",  0,	 4*1024*1024, 31,  128*1024, 15*256*1024 },
-		{ "heap",  1,	16*1024*1024, 31,  128*1024, 15*1024*1024 },
-		{ "image", 2,	 8*1024*1024, 31, 300*1024, 15*512*1024 },
+		{ "main",  0,	 4*1024*1024, QUANTA,  128*1024, 15*256*1024 },
+		{ "heap",  1,	16*1024*1024, QUANTA,  128*1024, 15*1024*1024 },
+		{ "image", 2,	 8*1024*1024, QUANTA, 300*1024, 15*512*1024 },
 	}
 };
 

@@ -7,12 +7,13 @@ strtodf(void *vp)
 }
 
 double
-strtod(char *s, char **end)
+strtod(const char *cs, char **end)
 {
 	double d;
-	char *ss;
+	char *s, *ss;
 	int c;
 
+	s = (char*)cs;
 	ss = s;
 	d = charstod(strtodf, &s);
 	/*
