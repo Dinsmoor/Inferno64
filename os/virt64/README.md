@@ -58,6 +58,43 @@ display): `DISPLAY=:3 qemu-system-aarch64 ... -display gtk -serial vc
   on every alloc/free; `make PARANOID=0` turns it off (development
   default is on).
 
+## SMP: investigated, deliberately not done
+
+PSCI is present and verified working: qemu -M virt (no EL3) emulates
+PSCI 1.1 firmware with the **hvc conduit**, so plain EL1 `hvc #0`
+reaches it (`psci_call` in l.S). The boot banner probes `PSCI_VERSION`,
+`archreboot()` uses `SYSTEM_RESET` (a `reboot` write to /dev/sysctl
+really reboots now) and `halt()` uses `SYSTEM_OFF`. Secondary CPUs
+would start via `CPU_ON` (0xC4000003, mpidr, entry-pa, ctxid), arriving
+at EL1, MMU off — same recipe 9front sys/src/9/arm64 uses.
+
+So bring-up is the easy part. The kernel stays UP because the payoff
+is near zero and the plumbing is not:
+
+- **The workload can't use it.** Every Limbo prog is multiplexed by the
+  Dis scheduler (`isched`/`vmachine()` in port/dis.c) inside one kernel
+  proc, and libinterp's heap/GC have no cross-CPU locking. A second CPU
+  could only run device kprocs, and this kernel's devices are a UART
+  and an entropy device.
+- **`m` and `up` are single globals** (dat.h; `MACHP(n)` only knows
+  CPU0). MP needs per-CPU Mach/Proc — tpidr_el1 (or a reserved x18)
+  plus `m`/`up` as accessor macros — mechanical, but it touches
+  everything that includes dat.h, i.e. all of port/ and libinterp/.
+- **No IPIs or interrupt routing.** GICv2 needs per-CPU GICC init,
+  SGIs for cross-CPU preemption, and ITARGETSR routing; intrenable()
+  has no concept of a target CPU.
+- **Lock discipline needs an MP audit.** `_tas` is ldxr/stxr with an
+  acquire-side dmb, but the release side and ilock's cross-CPU
+  semantics were only ever exercised UP here. (The hosted emu had
+  exactly this bug on aarch64 — unlock without a release barrier
+  corrupting the pool free tree — so treat it as expected, not
+  hypothetical.) The port scheduler itself is closer to ready: the
+  locked global runq + `canlock` in runproc() are inherited from
+  Plan 9's MP design.
+
+If Dis ever gets an MP execution model, start with per-CPU m/up and
+the lock audit; CPU_ON is the trivial last step.
+
 ## gcc-vs-kencc porting rules learned here
 
 - gcc has callee-saved registers; `Label` holds x19-x29 + d8-d15 and

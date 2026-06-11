@@ -23,6 +23,16 @@ enum {
 };
 
 /*
+ * PSCI 0.2+ function ids (hvc conduit on qemu -M virt; see psci_call in l.S)
+ */
+enum {
+	PSCI_VERSION		= 0x84000000,
+	PSCI_SYSTEM_OFF		= 0x84000008,
+	PSCI_SYSTEM_RESET	= 0x84000009,
+	PSCI_CPU_ON		= 0xC4000003,	/* SMP secondary bring-up (unused) */
+};
+
+/*
  * PL011 registers (byte offsets)
  */
 enum {

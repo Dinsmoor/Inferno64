@@ -66,6 +66,7 @@ halt(void)
 {
 	spllo();
 	print("cpu halted\n");
+	psci_call(PSCI_SYSTEM_OFF, 0, 0, 0);	/* qemu exits */
 	for(;;)
 		idlehands();
 }
@@ -121,7 +122,11 @@ main(void)
 	eve = strdup("inferno");
 
 	print("\nInferno %s\n", VERSION);
-	print("conf %s (%lud) jit %d\n\n", conffile, kerndate, cflag);
+	print("conf %s (%lud) jit %d\n", conffile, kerndate, cflag);
+	{
+		uvlong v = psci_call(PSCI_VERSION, 0, 0, 0);
+		print("psci %lld.%lld\n\n", v>>16, v&0xffff);
+	}
 	userinit();
 	schedinit();
 	panic("schedinit returned");
@@ -196,9 +201,10 @@ exit(int inpanic)
 void
 archreboot(void)
 {
-	/* PSCI SYSTEM_RESET via hvc would need EL2; use the watchdog-free
-	 * qemu way: just spin — the user kills qemu. */
-	print("(reboot: spinning)\n");
+	print("rebooting via psci\n");
+	psci_call(PSCI_SYSTEM_RESET, 0, 0, 0);
+	/* unreachable unless the conduit is missing */
+	print("(reboot: psci failed, spinning)\n");
 	for(;;)
 		idlehands();
 }

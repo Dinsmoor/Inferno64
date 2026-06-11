@@ -353,6 +353,18 @@ _tas:
 	ret
 
 /*
+ * uvlong psci_call(ulong fid, uvlong a1, uvlong a2, uvlong a3)
+ * qemu -M virt (no EL3) emulates PSCI firmware with the hvc conduit,
+ * so an EL1 hvc lands in qemu, not in a hypervisor we don't have.
+ * Used for VERSION/SYSTEM_RESET/SYSTEM_OFF; CPU_ON (0xC4000003) is the
+ * SMP entry point if that day comes (see README "SMP").
+ */
+	.globl psci_call
+psci_call:
+	hvc	#0
+	ret
+
+/*
  * FP state for dis.c prog switches: void FPsave(FPenv*), void FPrestore(FPenv*).
  * The buffer is Osenv.fpu — struct FPenv{ulong status, control}, 16 BYTES.
  * Per-Dis-thread FP state is only fpsr/fpcr: live FP values sit in Dis

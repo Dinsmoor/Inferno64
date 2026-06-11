@@ -24,6 +24,7 @@ void	links(void);
 void	microdelay(int);
 #define procsave(p)
 #define procrestore(p)
+uvlong	psci_call(ulong, uvlong, uvlong, uvlong);
 int	segflush(void*, ulong);
 extern void	(*screenputs)(char*, int);
 void	setpanic(void);
