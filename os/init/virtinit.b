@@ -33,6 +33,11 @@ init()
 	if(sys->bind("#s", "/chan", Sys->MREPL|Sys->MCREATE) < 0)	# file2chan (wm makes /chan/wmrect)
 		sys->print("init: bind #s: %r\n");
 
+	# the baked root (devroot) is read-only; give the system writable
+	# space where applications expect it (acme temp files, $home state)
+	memfsmount("/tmp");
+	memfsmount("/usr/inferno");
+
 	# graphical session if there's a display; dies harmlessly if not
 	spawn wmstart();
 	# let wm's /dev/keyboard reader get in BEFORE the console sh
@@ -50,6 +55,23 @@ init()
 	for(;;){
 		sh->init(nil, "sh" :: nil);
 		sys->print("init: sh exited; restarting\n");
+	}
+}
+
+# heap-backed writable fs over mntpt (capped so a runaway writer
+# can't eat the heap pool); memfs mounts itself and returns
+memfsmount(mntpt: string)
+{
+	memfs := load Command "/dis/memfs.dis";
+	if(memfs == nil){
+		sys->print("init: load memfs: %r\n");
+		return;
+	}
+	{
+		memfs->init(nil, "memfs" :: "-m" :: "67108864" :: mntpt :: nil);
+	} exception {
+	"*" =>
+		sys->print("init: memfs %s failed\n", mntpt);
 	}
 }
 

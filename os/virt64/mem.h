@@ -39,4 +39,4 @@
 #define KSTACK		16384			/* kernel stack size (gcc frames are fat) */
 
 /* boot defaults; confinit may someday read the DTB instead */
-#define MEMSIZE		(256*_M_)
+#define MEMSIZE		(512*_M_)

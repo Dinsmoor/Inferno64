@@ -5,31 +5,6 @@
 #include "fns.h"
 #include "../port/error.h"
 
-/*
- * no devmnt in the minimal configuration
- */
-void
-muxclose(Mnt *m)
-{
-	USED(m);
-}
-
-Chan*
-mntauth(Chan *c, char *spec)
-{
-	USED(c); USED(spec);
-	error(Enodev);
-	return nil;
-}
-
-long
-mntversion(Chan *c, char *v, int msize, int returnlen)
-{
-	USED(c); USED(v); USED(msize); USED(returnlen);
-	error(Enodev);
-	return 0;
-}
-
 /* (memcpy comes from libkern/memmove.c, which defines both) */
 
 #include "interp.h"
@@ -141,6 +116,30 @@ lockedcompile(Module *m, int size, Modlink *ml)
 	r = compile(m, size, ml);
 	poperror();
 	qunlock(&jitlock);
+	return r;
+}
+
+/*
+ * compile with the VM scheduler released, so other Dis procs keep
+ * running during the (CPU-bound) compile — $Loader's compilebg, used
+ * by wm/warmup.  Mirrors emu/port/dis.c releasecompile().
+ */
+int
+releasecompile(Module *m, int size, Modlink *ml)
+{
+	int r;
+
+	release();
+	if(waserror()){
+		qunlock(&jitlock);
+		acquire();
+		return 0;
+	}
+	qlock(&jitlock);
+	r = compile(m, size, ml);
+	qunlock(&jitlock);
+	poperror();
+	acquire();
 	return r;
 }
 

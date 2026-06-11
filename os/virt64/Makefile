@@ -9,6 +9,9 @@ MAKEFLAGS += -rR
 
 ROOT    := ../..
 CONF    := virt64
+# the config actually fed to mkdevc/mkroot: the checked-in $(CONF) plus
+# the generated full-application root list (see the $(GENCONF) rule)
+GENCONF := $(CONF).gen
 
 # limbo (and the prebuilt .dis baked into the root, see README "Building the
 # image") come from a HOSTED build: `make all` at some inferno-os repo root.
@@ -45,7 +48,7 @@ ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 nocache nodynld parse pgrp print proc qio qlock \
 	   random sysfile taslock xalloc \
-	   devcons devroot devenv devprog devpipe devdup devdraw devpointer devsrv
+	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv
 
 ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs
 ARCHS   := l
@@ -76,7 +79,7 @@ DRAWC     := alloc allocimagemix arith bezier border buildfont bytesperline \
 # the emu links libdraw as an ARCHIVE so those members are never pulled)
 
 INTERPC := alt conv dec disops gc heap link load readmod runt raise stack \
-	   string validstk xec comp-aarch64 das-aarch64 draw tk geom
+	   string validstk xec comp-aarch64 das-aarch64 draw tk geom loader
 
 # the whole Tk widget library (lists from libtk/mkfile + mkfile-std)
 TKC     := ebind grids image packr panel parse utils varbl windw xdata \
@@ -107,22 +110,33 @@ $(O):
 
 # ---- generated files ----
 
-GENH := $(CONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
-	$(ROOT)/libinterp/drawmod.h $(ROOT)/libinterp/tkmod.h
+GENH := $(GENCONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
+	$(ROOT)/libinterp/drawmod.h $(ROOT)/libinterp/tkmod.h $(ROOT)/libinterp/loadermod.h
 
-$(CONF).c: ../port/mkdevc $(CONF)
-	AWK=awk sh ../port/mkdevc $(CONF) > $@
+# The full application set: the checked-in config lists only structure;
+# the generated config appends every file under these trees (the hosted
+# build's dis/ plus the checked-in data trees), so the image carries the
+# whole system.  Regenerated every run, but the file is only touched when
+# the list changes, so the root isn't rebaked needlessly.
+ROOTTREES := dis fonts icons lib module man locale
+
+$(GENCONF): $(CONF) force
+	@{ cat $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
+	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; echo "regenerated $@"; fi
+
+$(CONF).c: ../port/mkdevc $(GENCONF)
+	AWK=awk sh ../port/mkdevc $(GENCONF) > $@
 
 # grouped target (&:) — one mkroot run produces both; without it -j runs
 # the recipe twice in parallel and interleaves the output
 # ROOTDEPS: every file the config bakes in, so a recompiled .dis or font
 # actually lands in the image (the config lists them as absolute-in-tree
 # paths; turn into real paths relative to ROOT)
-ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(CONF) 2>/dev/null)
+ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(GENCONF) 2>/dev/null)
 
-$(CONF).root.h $(CONF).root.s &: $(CONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
-	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/net $(ROOT)/prog
-	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(CONF)
+$(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
+	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
+	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(GENCONF)
 
 ../init/virtinit.dis: ../init/virtinit.b
 	$(LIMBO) -I$(ROOT)/module -o $@ $<
@@ -144,6 +158,9 @@ $(ROOT)/libinterp/drawmod.h:
 
 $(ROOT)/libinterp/tkmod.h:
 	cd $(ROOT)/libinterp && $(LIMBO) -t Tk -I../module ../module/runt.m > tkmod.h
+
+$(ROOT)/libinterp/loadermod.h:
+	cd $(ROOT)/libinterp && $(LIMBO) -t Loader -I../module ../module/runt.m > loadermod.h
 
 # ---- compile rules ----
 
@@ -182,10 +199,10 @@ $(O)/tk_%.o: $(ROOT)/libtk/%.c | $(O)
 $(O)/kern_%.o: $(ROOT)/libkern/%.c | $(O)
 	$(CC) $(CFLAGS) -I$(ROOT)/libkern -c -o $@ $<
 
-$(O)/$(CONF).o: $(CONF).c $(CONF).root.h $(HDRS) | $(O)
+$(O)/$(CONF).o: $(CONF).c $(GENCONF).root.h $(HDRS) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(O)/$(CONF).root.o: $(CONF).root.s | $(O)
+$(O)/$(CONF).root.o: $(GENCONF).root.s | $(O)
 	$(AS) $(ASFLAGS) -c -o $@ $<
 
 # ---- link ----
@@ -201,10 +218,11 @@ QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-keyboard-device -device virtio-tablet-device
 
 run: $(KERNEL)
-	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -nographic \
+	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
 		$(QEMUDEVS) -kernel $(KERNEL)
 
 clean:
-	rm -rf $(O) $(KERNEL) $(CONF).c $(CONF).root.h $(CONF).root.s errstr.h version.h
+	rm -rf $(O) $(KERNEL) $(CONF).c $(GENCONF) $(GENCONF).root.h $(GENCONF).root.s \
+		$(CONF).root.h $(CONF).root.s errstr.h version.h
 
 .PHONY: all run clean force

@@ -1,24 +1,33 @@
 #!/bin/sh
-# data2s name < binary > asm   (GNU as flavor, for the gcc-built native kernel)
-# Emits ${name}code (bytes) and ${name}len (int), matching what mkroot's
-# generated C externs expect.
+# data2s name [srcfile] < binary > asm   (GNU as flavor, for the gcc-built
+# native kernel).  Emits ${name}code (bytes) and ${name}len (int), matching
+# what mkroot's generated C externs expect.
+# mkroot passes srcfile so the bytes go in by .incbin reference: the full
+# application root is tens of MB, which as .byte text would be ~6x that
+# and minutes of assembly.  stdin (.byte lines) remains as a fallback.
 name="$1"
-tmp="${TMPDIR:-/tmp}/data2s.$$"
-trap 'rm -f "$tmp"' 0
-cat > "$tmp"
-size=$(wc -c < "$tmp" | tr -d ' ')
+src="$2"
 printf '\t.section .rodata\n'
 printf '\t.balign 8\n'
 printf '\t.globl %scode\n' "$name"
 printf '%scode:\n' "$name"
-od -An -v -tx1 "$tmp" | awk '{
-	line = "\t.byte "
-	for(i = 1; i <= NF; i++){
-		if(i > 1) line = line ", "
-		line = line "0x" $i
-	}
-	if(NF > 0) print line
-}'
+if [ -n "$src" ] && [ -f "$src" ]; then
+	size=$(wc -c < "$src" | tr -d ' ')
+	printf '\t.incbin "%s"\n' "$src"
+else
+	tmp="${TMPDIR:-/tmp}/data2s.$$"
+	trap 'rm -f "$tmp"' 0
+	cat > "$tmp"
+	size=$(wc -c < "$tmp" | tr -d ' ')
+	od -An -v -tx1 "$tmp" | awk '{
+		line = "\t.byte "
+		for(i = 1; i <= NF; i++){
+			if(i > 1) line = line ", "
+			line = line "0x" $i
+		}
+		if(NF > 0) print line
+	}'
+fi
 printf '\t.balign 4\n'
 printf '\t.globl %slen\n' "$name"
 printf '%slen:\t.int %s\n' "$name" "$size"

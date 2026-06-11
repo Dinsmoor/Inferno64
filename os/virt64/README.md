@@ -9,7 +9,7 @@ interactive Inferno shell on the PL011 serial console.
 ```sh
 cd os/virt64
 make            # → ivirt64.elf (this IS the image: one self-contained ELF)
-make run        # qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -kernel ivirt64.elf -nographic
+make run        # qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -kernel ivirt64.elf -nographic
 make PARANOID=0 # faster kernel: skip the pool free-tree audit on every alloc/free
 make clean      # also removes the generated virt64.c / *.root.* / errstr.h / version.h
 ```
@@ -34,15 +34,21 @@ filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.
 
 ### How the image is assembled
 
-The config file `virt64` (same format as the classic os ports) drives
-two awk generators from `os/port/`:
+The config file `virt64` (same format as the classic os ports) lists
+the devices, builtin modules and the *structure* of the root; the
+Makefile generates `virt64.gen` from it by appending every file under
+`dis/ fonts/ icons/ lib/ module/ man/ locale/` (ROOTTREES) — the full
+hosted-build application set, ~5800 files / ~40MB. Two awk generators
+from `os/port/` then consume `virt64.gen`:
 
-- `mkdevc virt64 > virt64.c` — turns the `dev`/`link`/`code`/`init`
+- `mkdevc virt64.gen > virt64.c` — turns the `dev`/`mod`/`code`/`init`
   sections into the device table, conf strings and `virtinit()` glue.
-- `mkroot virt64 > virt64.root.{h,s}` — walks the `root` section and
-  bakes every listed path into assembly via `data2s`; directories
-  become empty mountpoints, files are embedded byte-for-byte. This is
-  the root filesystem the kernel serves through devroot.
+- `mkroot virt64.gen` — walks the `root` section and bakes every path
+  into `virt64.gen.root.{h,s}`; directories become empty mountpoints,
+  files are embedded byte-for-byte (by `.incbin` reference — see
+  `data2s`; as `.byte` text the root would be ~6x its size and minutes
+  of assembly). This is the root filesystem the kernel serves through
+  devroot.
 
 `../init/virtinit.b` is the init module (compiled with the hosted
 `limbo` at build time); it sets up the namespace and execs
@@ -55,19 +61,18 @@ Everything under the repo-root `dis/` tree is **gitignored** build
 output of the hosted build. A fresh clone has no `dis/sh.dis` to bake,
 and this Makefile does not build them. Populate them by running the
 hosted build (`make all` at the repo root, see docs/ON_BUILDING.md) —
-or copy the handful of needed files from another built tree. The
-`root` section of `virt64` is the authoritative list of what must
-exist.
+or `rsync -a --exclude='*.sbl'` the `dis/` tree from another built
+checkout. Whatever is under the ROOTTREES is what gets baked.
 
 ### Adding a file to the baked-in root
 
-1. Make sure the file exists under the repo root at the path you want
-   it to have inside Inferno (e.g. a new tool: build it hosted so
-   `dis/foo.dis` exists).
-2. Add that path to the `root` section of the `virt64` config file.
-3. `make` — mkroot regenerates `virt64.root.s` and the file appears in
-   the booted system. Growing the image is fine; it all lives in the
-   256MB of guest RAM.
+Drop it under one of the ROOTTREES (`dis/ fonts/ icons/ lib/ module/
+man/ locale/`) at the path you want inside Inferno and `make` — the
+generated root list picks it up, and a recompiled `.dis` is re-baked
+automatically (the root rule depends on every baked file). Only a
+file *outside* those trees needs a line in the `root` section of the
+`virt64` config. Growing the image is fine; it all lives in the
+512MB of guest RAM.
 
 ### Build knobs
 
@@ -78,10 +83,8 @@ it recompiles alloc.c without a `make clean`. `HOSTBIN` as above.
 ### Running it
 
 - Headless console in the terminal: `make run` (C-a x quits).
-- As a window on an X display (e.g. the shared VNC display):
-  `DISPLAY=:3 qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256
-  -kernel ivirt64.elf -device virtio-rng-device -display gtk -serial vc
-  -monitor none`.
+- As a window on an X display: see "Graphical session" below for the
+  full recipe (ramfb + virtio input devices).
 - Scripted/CI: `-display none -serial tcp:127.0.0.1:PORT,server=on,wait=on`
   and drive the console over the socket (use `wait=on`: the kernel
   boots faster than a client can connect, so `wait=off` loses the
@@ -93,7 +96,7 @@ With a display the kernel boots straight into a wm desktop (toolbar
 with start menu, Tk shell windows, working mouse + keyboard):
 
 ```sh
-DISPLAY=:3 qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 \
+DISPLAY=:3 qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 \
     -kernel ivirt64.elf \
     -global virtio-mmio.force-legacy=false \
     -device virtio-rng-device -device ramfb \
@@ -113,12 +116,18 @@ The pieces, all in this directory:
   required (input devices are modern-only, and the flag flips every
   transport, so rng speaks modern too).
 - Kernel links libmemdraw/libmemlayer (devdraw's rasterizer), full
-  libdraw + libtk + the Draw/Tk builtin modules (clients of devdraw via
-  the lib* shims in port/discall.c, same architecture as emu).
-- The root bakes the wm closure: wm/wm + toolbar + wm/sh, their
-  /dis/lib dependencies, /fonts/{pelm,misc,lucm} and /icons/tk.
-- virtinit binds #i/#m/#s and spawns `wm/wm` under its own sh; the
-  serial console sh starts a few seconds later (see below).
+  libdraw + libtk + the Draw/Tk/Loader builtin modules (clients of
+  devdraw via the lib* shims in port/discall.c, same architecture as
+  emu).
+- The root bakes the whole application set (see "How the image is
+  assembled"), so /lib/wmsetup runs at toolbar start: plumber, the
+  wm/warmup background-JIT splash, and the full start menu
+  (Shell/Acme/Edit/Charon/Manual/Files + Games/Misc/System) all work.
+- virtinit binds #i/#m/#s, mounts a heap-backed `memfs` over /tmp and
+  /usr/inferno (devroot is read-only; acme et al. need writable temp
+  and $home space — this is also why devmnt is in the config), and
+  spawns `wm/wm` under its own sh; the serial console sh starts a few
+  seconds later (see below).
 
 Two hard-won lessons baked into the code:
 
@@ -135,8 +144,7 @@ Two hard-won lessons baked into the code:
 
 The serial console remains on the qemu `vc` tab; while a GUI owns
 /dev/keyboard the console sh parks (it resumes if the keyboard is
-closed).  `/lib/wmsetup` does not exist in the baked root, so the
-toolbar logs one harmless complaint and builds its default menu.
+closed).
 
 ## Hardware (qemu -M virt)
 
