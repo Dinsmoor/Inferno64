@@ -26,7 +26,8 @@ struct Netlog {
 	int	iponlyset;
 
 	QLock;
-	Rendez;
+	/* named: an unnamed Rendez re-embeds Lock and gcc rejects the duplicate */
+	Rendez r;
 };
 
 typedef struct Netlogflag {
@@ -156,7 +157,7 @@ netlogread(Fs *f, void *a, ulong, long n)
 		else
 			unlock(f->alog);
 
-		sleep(f->alog, netlogready, f);
+		sleep(&f->alog->r, netlogready, f);
 	}
 
 	qunlock(f->alog);
@@ -259,5 +260,5 @@ netlog(Fs *f, int mask, char *fmt, ...)
 	}
 	unlock(f->alog);
 
-	wakeup(f->alog);
+	wakeup(&f->alog->r);
 }

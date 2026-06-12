@@ -38,7 +38,7 @@ virtiornginit(void)
 	d = virtioprobe(4, 0);
 	if(d == nil)
 		return;
-	if(virtiodevinit(d) < 0){
+	if(virtiodevinit(d, 0) < 0){
 		free(d);
 		return;
 	}

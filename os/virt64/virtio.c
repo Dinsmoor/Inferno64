@@ -85,7 +85,7 @@ virtioprobe(int devid, int nth)
 }
 
 int
-virtiodevinit(Vdev *d)
+virtiodevinit(Vdev *d, u32int accept0)
 {
 	REG(d, Vstatus) = 0;			/* reset */
 	while(REG(d, Vstatus) != 0)
@@ -99,9 +99,15 @@ virtiodevinit(Vdev *d)
 		REG(d, Vstatus) = Sfailed;
 		return -1;
 	}
-	/* accept VERSION_1 and nothing else: every driver here is that simple */
+	/*
+	 * accept VERSION_1 plus whatever subset of accept0 (device-class
+	 * feature bits 0-31, e.g. virtio-net F_MAC) the device offers;
+	 * the negotiated word-0 bits land in d->feat0 for the driver.
+	 */
+	REG(d, Vdevfeatsel) = 0;
+	d->feat0 = REG(d, Vdevfeat) & accept0;
 	REG(d, Vdrvfeatsel) = 0;
-	REG(d, Vdrvfeat) = 0;
+	REG(d, Vdrvfeat) = d->feat0;
 	REG(d, Vdrvfeatsel) = 1;
 	REG(d, Vdrvfeat) = Fversion1;
 

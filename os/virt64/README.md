@@ -152,6 +152,36 @@ The serial console remains on the qemu `vc` tab; while a GUI owns
 /dev/keyboard the console sh parks (it resumes if the keyboard is
 closed).
 
+## Networking
+
+The kernel links the native Plan 9-derived TCP/IP stack (`os/ip`: tcp,
+udp, icmp, icmp6, ipifc + ether/loopback media) behind `#I` (devip),
+with `#l` (devether, simplified from os/pc — no ISA/PCI probing) over a
+virtio-net driver (ethervirtio.c) on the modern virtio-mmio transport.
+The transport negotiates the device-class feature word for the driver
+(`virtiodevinit(d, accept0)`; ethervirtio accepts F_MAC and reads the
+MAC out of config space).
+
+`make run` attaches qemu user-mode networking (slirp): the guest is
+10.0.2.15/24, the host is reachable as the gateway 10.0.2.2, DNS at
+10.0.2.3. There is no DHCP client wired up; configure statically from
+the shell:
+
+	bind -a '#l' /net
+	bind -a '#I' /net
+	echo bind ether /net/ether0 > /net/ipifc/clone
+	echo add 10.0.2.15 255.255.255.0 > /net/ipifc/0/ctl
+	echo add 0 0 10.0.2.2 > /net/iproute
+
+then e.g. `ip/ping -n 3 10.0.2.2`, or fetch a page from an HTTP server
+on the host: `webgrab -o /tmp/x http://10.0.2.2:8000/` (slirp answers
+guest connections to 10.0.2.2 from the host loopback). `netstat` reads
+the conversation directories.
+
+Skipped on purpose: bootp/dhcp (static or userspace config), il, gre,
+esp, igmp, ipmux, ppp. Name resolution is userspace's job (ndb/cs +
+ndb/dns, as on hosted emu) and needs an ndb pointing dns at 10.0.2.3.
+
 ## Hardware (qemu -M virt)
 
 | device | where |

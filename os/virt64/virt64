@@ -9,8 +9,20 @@ dev
 	draw
 	pointer
 	srv
+	ether
+	ip
 
 ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+link
+	ethervirtio
+	ethermedium
+	loopbackmedium
 
 lib
 	interp

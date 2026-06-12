@@ -55,12 +55,13 @@ struct Vdev {
 	int	slot;
 	int	devid;
 	int	irq;
+	u32int	feat0;		/* negotiated device-class features (word 0) */
 	void	(*intr)(Vdev*);	/* called with InterruptStatus already acked */
 	void	*aux;
 };
 
 Vdev*	virtioprobe(int devid, int nth);
-int	virtiodevinit(Vdev*);
+int	virtiodevinit(Vdev*, u32int accept0);
 Vqueue*	virtioqalloc(Vdev*, int qidx, int num);
 void	virtioready(Vdev*);
 void	virtionotify(Vdev*, int qidx);

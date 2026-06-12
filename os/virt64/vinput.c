@@ -198,7 +198,7 @@ vinputsetup(Vinput *in, Vdev *d)
 	Vqueue *q;
 	int i;
 
-	if(virtiodevinit(d) < 0)
+	if(virtiodevinit(d, 0) < 0)
 		return -1;
 
 	/* does it do absolute axes?  then it's the tablet */

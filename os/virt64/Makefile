@@ -46,11 +46,19 @@ CFLAGS  := -O1 -g -static -ffreestanding -fno-builtin -fno-pic -fno-pie \
 ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
-	   inferno latin1 nocache nodynld parse pgrp print proc qio qlock \
-	   random sysfile taslock xalloc \
+	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
+	   qio qlock random sysfile taslock xalloc \
 	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv
 
-ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs
+ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs \
+	   devether ethervirtio
+
+# the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
+# loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/
+# dhcp (static or userspace config), il/gre/esp/rudp/igmp/ipmux/ppp.
+IPC     := devip arp ip ipaux ipifc iproute iprouter ipv6 netlog \
+	   nullmedium pktmedium ethermedium loopbackmedium plan9 ptclbsum \
+	   icmp icmp6 tcp udp
 ARCHS   := l
 
 # libmemdraw/libmemlayer file lists follow the libs' own mkfiles
@@ -133,6 +141,7 @@ KERNC   := abort abs atol charstod cistrcmp cistrncmp cistrstr cleanname \
 	   frexp-aarch64 nan-aarch64
 
 OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
+	   $(IPC:%=$(O)/ip_%.o) \
 	   $(INTERPC:%=$(O)/interp_%.o) $(KERNC:%=$(O)/kern_%.o) \
 	   $(MEMDRAWC:%=$(O)/md_%.o) $(MEMLAYERC:%=$(O)/ml_%.o) \
 	   $(DRAWC:%=$(O)/dr_%.o) $(TKC:%=$(O)/tk_%.o) \
@@ -222,7 +231,8 @@ $(ROOT)/libinterp/ipintsmod.h:
 
 # ---- compile rules ----
 
-HDRS := dat.h fns.h io.h mem.h virtio.h screen.h ../port/portdat.h ../port/portfns.h ../port/lib.h
+HDRS := dat.h fns.h io.h mem.h virtio.h screen.h etherif.h \
+	../port/portdat.h ../port/portfns.h ../port/lib.h ../port/netif.h ../ip/ip.h
 
 $(O)/%.o: %.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -238,6 +248,9 @@ $(O)/paranoid.stamp: force | $(O)
 	@[ "`cat $@ 2>/dev/null`" = "$(PARANOID)" ] || echo $(PARANOID) > $@
 force: ;
 $(O)/port_alloc.o: $(O)/paranoid.stamp
+
+$(O)/ip_%.o: ../ip/%.c $(HDRS) | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(O)/interp_%.o: $(ROOT)/libinterp/%.c $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -287,9 +300,12 @@ $(KERNEL): $(OBJ) virt64.ld
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
+# user-mode net (slirp): guest 10.0.2.15, gateway/host 10.0.2.2, dns 10.0.2.3
+# (see README "Networking" for the in-guest configuration).
 QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-rng-device -device ramfb \
-	    -device virtio-keyboard-device -device virtio-tablet-device
+	    -device virtio-keyboard-device -device virtio-tablet-device \
+	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
 
 run: $(KERNEL)
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
