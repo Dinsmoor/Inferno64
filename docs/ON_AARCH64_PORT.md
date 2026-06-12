@@ -14,75 +14,32 @@ This document covers the AArch64 (ARM64, ARMv8-A) architecture at the depth need
 
 AArch64 has 31 general-purpose registers (no r0–r15 as in AArch32) plus dedicated special-purpose registers. All registers are 64 bits wide.
 
-### General-Purpose Registers
+### General-Purpose Registers (AAPCS64 roles)
 
-| 64-bit | 32-bit | ABI Role | Saved by |
-|--------|--------|----------|----------|
-| `x0`   | `w0`   | Argument 1 / return value | Caller |
-| `x1`   | `w1`   | Argument 2 / return value (pair) | Caller |
-| `x2`   | `w2`   | Argument 3 | Caller |
-| `x3`   | `w3`   | Argument 4 | Caller |
-| `x4`   | `w4`   | Argument 5 | Caller |
-| `x5`   | `w5`   | Argument 6 | Caller |
-| `x6`   | `w6`   | Argument 7 | Caller |
-| `x7`   | `w7`   | Argument 8 | Caller |
-| `x8`   | `w8`   | Indirect result register (large structs); syscall number | Caller |
-| `x9`   | `w9`   | Temporary | Caller |
-| `x10`  | `w10`  | Temporary | Caller |
-| `x11`  | `w11`  | Temporary | Caller |
-| `x12`  | `w12`  | Temporary | Caller |
-| `x13`  | `w13`  | Temporary | Caller |
-| `x14`  | `w14`  | Temporary | Caller |
-| `x15`  | `w15`  | Temporary | Caller |
-| `x16`  | `w16`  | Intra-procedure-call scratch (IP0); used by PLT/veneers | Caller |
-| `x17`  | `w17`  | Intra-procedure-call scratch (IP1); used by PLT/veneers | Caller |
-| `x18`  | `w18`  | Platform register (reserved on some OSes — avoid) | Varies |
-| `x19`  | `w19`  | Callee-saved | **Callee** |
-| `x20`  | `w20`  | Callee-saved | **Callee** |
-| `x21`  | `w21`  | Callee-saved | **Callee** |
-| `x22`  | `w22`  | Callee-saved | **Callee** |
-| `x23`  | `w23`  | Callee-saved | **Callee** |
-| `x24`  | `w24`  | Callee-saved | **Callee** |
-| `x25`  | `w25`  | Callee-saved | **Callee** |
-| `x26`  | `w26`  | Callee-saved | **Callee** |
-| `x27`  | `w27`  | Callee-saved | **Callee** |
-| `x28`  | `w28`  | Callee-saved | **Callee** |
-| `x29`  | `w29`  | **Frame pointer (FP)** | **Callee** |
-| `x30`  | `w30`  | **Link register (LR)** — return address | Caller |
+| Range | Role | Saved by |
+|---|---|---|
+| `x0`–`x7` | arguments / return values (`x0`, pair `x0:x1`) | caller |
+| `x8` | indirect-result pointer (large structs); syscall number | caller |
+| `x9`–`x15` | temporaries | caller |
+| `x16`/`x17` | intra-procedure-call scratch (IP0/IP1) — PLT/veneers may clobber | caller |
+| `x18` | platform register — reserved on some OSes, avoid | varies |
+| `x19`–`x28` | callee-saved — the registers to pin long-lived VM state in | **callee** |
+| `x29` | frame pointer | **callee** |
+| `x30` | link register (return address) | caller |
 
-**Special registers** (not general-purpose):
-
-| Name      | Description |
-|-----------|-------------|
-| `sp`      | Stack pointer (64-bit, must be 16-byte aligned at public interfaces) |
-| `pc`      | Program counter (not directly readable/writable in most instructions) |
-| `xzr`/`wzr` | Zero register: reads always return 0, writes are discarded |
-| `nzcv`    | Condition flags register (N, Z, C, V — see Condition Flags section) |
-
-**Important**: Writing to a `w` (32-bit) form of a register **zero-extends** into the upper 32 bits of the `x` register. There is no sign-extension on register write.
+Special: `sp` (16-byte aligned at public interfaces), `xzr`/`wzr` (zero
+register), `nzcv` (condition flags). **Writing a `w` (32-bit) register
+zero-extends into the upper half of the `x` register — there is no
+sign-extension on register write.** This is why the JIT can use `w`-register
+ops for Dis words and `x`-register ops for pointers on the same register file.
 
 ### SIMD / Floating-Point Registers
 
-AArch64 has 32 × 128-bit SIMD/FP registers. Each has multiple views:
-
-| Name | Width | Description |
-|------|-------|-------------|
-| `v0`–`v31` | 128-bit | Full SIMD vector register |
-| `q0`–`q31` | 128-bit | Alias for full register |
-| `d0`–`d31` | 64-bit  | Double-precision FP / lower 64 bits |
-| `s0`–`s31` | 32-bit  | Single-precision FP / lower 32 bits |
-| `h0`–`h31` | 16-bit  | Half-precision FP / lower 16 bits |
-| `b0`–`b31` | 8-bit   | Byte / lower 8 bits |
-
-**ABI roles for SIMD/FP registers**:
-
-| Range    | Role | Saved by |
-|----------|------|----------|
-| `v0`–`v7`  | FP/SIMD arguments and return values | Caller |
-| `v8`–`v15` | Callee-saved (but only the lower 64 bits — `d8`–`d15`) | **Callee** |
-| `v16`–`v31` | Temporaries | Caller |
-
-Note: callee-save for `v8`–`v15` only preserves the bottom 64 bits. The upper 64 bits may be clobbered.
+32 × 128-bit registers, viewed as `v` (128) / `d` (64, double) / `s` (32) /
+`h`/`b`. ABI: `v0`–`v7` arguments+returns (caller-saved), `v8`–`v15`
+callee-saved **but only the low 64 bits (`d8`–`d15`)**, `v16`–`v31`
+temporaries. The JIT's scalar-double FP uses caller-saved `d` registers only,
+so FP state never needs saving across its punts.
 
 ### VM Register Allocation Strategy
 
@@ -102,337 +59,68 @@ x21   = RMP   (Dis module data pointer; callee-saved)
 x24   = RLR2  (link save inside macros, e.g. macmcal; callee-saved)
 ```
 
-(An earlier version of this section listed the **ARM32** scheme — `x5`=RREG,
-`x8`=RMP, `x9`=RFP — which is `comp-arm.c`, not the aarch64 backend. The map above
-is the real `comp-aarch64.c`; see `ON_DIS_ARCH.md` / `ON_JIT.md`.)
-
-For an interpreted (non-JIT) loop pinning state in C code, prefer `x19`–`x28` since they are callee-saved:
-
-```c
-// Recommended pinned-register strategy for interpreter loop:
-// x19 = program counter (Inst* PC)
-// x20 = frame pointer (uchar* FP)
-// x21 = module pointer (uchar* MP)
-// x22 = instruction count (int IC)
-// x23 = pointer to REG struct or Prog
-```
-
-Using `register` keyword with GCC:
-```c
-register Inst* my_pc asm("x19");
-register uchar* my_fp asm("x20");
-```
+The map lives at the top of `comp-aarch64.c`; `ON_JIT.md` is the codegen
+reference. The callee-saved choice is what makes `punt()` cheap: the pinned
+Dis state survives the `bl` into the interpreter's C without spills.
 
 ---
 
 ## Calling Convention (AAPCS64)
 
-### Parameter Passing
+- **Arguments:** first 8 integer/pointer args in `x0`–`x7`, first 8 FP args in
+  `v0`–`v7`, the rest on the stack; large structs by reference in `x8`.
+- **Returns:** `x0` (integer/pointer), `x0:x1` (128-bit), `d0`/`s0` (FP);
+  large struct written through `x8`.
+- **Stack:** grows down; `sp` must be **16-byte aligned at every `bl`/`blr`**.
+- **Frame record:** `stp x29, x30, [sp,#-N]!; mov x29, sp` builds a 16-byte
+  `{caller-FP, return-address}` record; stack walkers follow
+  `x29 → [x29] → …` to unwind. Callee-saved registers a function uses are
+  saved in its own frame (`stp x19,x20,[sp,#16]` …) and restored before `ret`.
 
-- First 8 integer/pointer arguments: `x0`–`x7` (in order).
-- First 8 FP/SIMD arguments: `v0`–`v7`.
-- Additional arguments: pushed onto the stack right-to-left (lowest-numbered extra arg is closest to `sp`).
-- Large structs: caller allocates memory, passes address in `x8`.
-
-### Return Values
-
-- Single integer/pointer: `x0`.
-- 128-bit integer: `x0` (low) and `x1` (high).
-- Single FP: `s0` or `d0`.
-- Large struct: written to address in `x8`; `x8` is returned in `x0`.
-
-### Stack Alignment
-
-The stack pointer must be **16-byte aligned** at any `bl` or `blr` instruction boundary (i.e., when calling a public function). Within a leaf function, alignment can be relaxed but must be restored before any `bl`. The stack grows **downward** (full-descending).
-
-### Function Prologue/Epilogue Pattern
-
-**Standard prologue** (saves FP and LR, allocates frame):
-
-```asm
-// Minimal: leaf function using only caller-saved registers
-// No prologue needed if no calls are made and sp alignment is maintained.
-
-// Non-leaf function:
-stp     x29, x30, [sp, #-N]!    // allocate N bytes (multiple of 16), save FP+LR
-mov     x29, sp                  // set frame pointer
-
-// Save callee-saved registers used by this function:
-stp     x19, x20, [sp, #16]
-stp     x21, x22, [sp, #32]
-// ... etc.
-```
-
-**Standard epilogue**:
-
-```asm
-ldp     x19, x20, [sp, #16]
-ldp     x21, x22, [sp, #32]
-ldp     x29, x30, [sp], #N      // restore FP+LR, deallocate frame
-ret                              // branch to x30
-```
-
-**With pointer authentication (PAC, ARMv8.3+)**:
-
-```asm
-// Prologue: sign LR before saving
-pacibsp                          // sign x30 with SP as context using key IB
-stp     x29, x30, [sp, #-16]!
-mov     x29, sp
-// Epilogue:
-ldp     x29, x30, [sp], #16
-autibsp                          // authenticate x30
-ret
-```
-
-**STP/LDP addressing modes**:
-
-```asm
-stp x1, x2, [sp, #-16]!    // pre-index: subtract 16 from sp, then store
-stp x1, x2, [sp, #8]       // signed offset: store at sp+8, sp unchanged
-ldp x1, x2, [sp], #16      // post-index: load from sp, then add 16 to sp
-```
-
-### Frame Record Layout
-
-The frame chain is a linked list of frame records on the stack. Each record occupies 16 bytes:
-
-```
-[sp + 0]:  previous FP (x29 of caller)
-[sp + 8]:  return address (LR = x30 of caller)
-x29 points to [sp+0] of the current frame
-```
-
-Stack walkers follow `x29 → [x29] → [x29]` to unwind.
+The two AAPCS64 facts that have actually drawn blood here: the 16-byte `sp`
+alignment rule, and **callee-saved means the JIT must save them too** —
+`comvec` is reached by an ordinary C call, so its prologue saves
+`x19/x20/x21/x24` and every path back to C restores them (see ON_JIT.md
+"Root causes").
 
 ---
 
-## Instruction Set
+## Instruction Set — what the encoder layer needs
 
-AArch64 uses a **fixed-width 32-bit instruction encoding** (unlike Thumb-2's variable width). Instructions must be 4-byte aligned.
+Every AArch64 instruction is a **fixed-width 32-bit word**, 4-byte aligned.
+The full ISA is the ARM ARM's job; `comp-aarch64.c`'s encoder layer
+(`addx`/`ldr`/`b_`/… emitters) is the in-tree ground truth, each emitter
+validated bit-exact against `objdump` (see ON_JIT.md). The facts that shape
+codegen:
 
-### Data Processing — Integer
+**Immediates are not arbitrary.** Three encoding classes:
+1. **12-bit unsigned, optionally `lsl #12`** — `add`/`sub`/`cmp` (0–4095, or
+   that shifted).
+2. **Logical immediates** — only replicated-rotated bitmask patterns are
+   encodable for `and`/`orr`/`eor`; arbitrary masks must go through a register.
+3. **Wide immediates** — 16 bits at shift 0/16/32/48 for `movz`/`movk`/`movn`;
+   an arbitrary 64-bit constant is up to four instructions
+   (`movz` + 3×`movk`), which is what the JIT's `con()` emits.
 
-```asm
-// Arithmetic (immediate or register)
-add  x0, x1, x2          // x0 = x1 + x2
-add  x0, x1, #imm        // x0 = x1 + imm (12-bit, optionally shifted by 12)
-adds x0, x1, x2          // same, sets NZCV flags
-sub  x0, x1, x2          // x0 = x1 - x2
-subs x0, x1, x2          // same, sets NZCV flags (CMP is alias: subs xzr, ...)
-mul  x0, x1, x2          // x0 = x1 * x2 (low 64 bits)
-umulh x0, x1, x2         // x0 = (x1 * x2) >> 64  (unsigned high multiply)
-smulh x0, x1, x2         // signed high multiply
-udiv x0, x1, x2          // unsigned divide
-sdiv x0, x1, x2          // signed divide
-msub x0, x1, x2, x3      // x0 = x3 - (x1 * x2)  (multiply-subtract; MNEG uses xzr)
-madd x0, x1, x2, x3      // x0 = x3 + (x1 * x2)
+**Branch and literal ranges** (what forces veneers or register branches):
 
-// Aliases
-cmp  x1, x2              // subs xzr, x1, x2  (sets flags)
-cmn  x1, x2              // adds xzr, x1, x2  (compare negative)
-neg  x0, x1              // sub x0, xzr, x1
-negs x0, x1              // subs x0, xzr, x1 (sets flags)
+| Form | Range |
+|---|---|
+| `b`, `bl` | ±128 MB |
+| `b.cond`, `cbz`/`cbnz`, `ldr` (literal) | ±1 MB |
+| `tbz`/`tbnz` | ±32 KB |
+| `adr` | ±1 MB |
+| `adrp` (+ `:lo12:` add) | ±4 GB, page-granular |
 
-// Shifts and rotations
-lsl  x0, x1, #n          // logical shift left
-lsr  x0, x1, #n          // logical shift right (zero fill)
-asr  x0, x1, #n          // arithmetic shift right (sign fill)
-ror  x0, x1, #n          // rotate right
-lsl  x0, x1, x2          // variable shift (register)
-lsr  x0, x1, x2
-asr  x0, x1, x2
+**Flags and conditional ops.** Only `S`-suffixed instructions set NZCV
+(`cmp` = `subs xzr,…`, `cmn` = `adds xzr,…`, `tst` = `ands xzr,…`); `csel`/
+`cset` give branchless selects. The JIT's H-sentinel test is a `cmn`
+(compare-negative) because H is a small negative constant.
 
-// Bitwise
-and  x0, x1, x2
-orr  x0, x1, x2
-eor  x0, x1, x2
-bic  x0, x1, x2          // bit clear: x0 = x1 & ~x2
-orn  x0, x1, x2          // x0 = x1 | ~x2
-eon  x0, x1, x2          // x0 = x1 ^ ~x2
-
-// Aliases
-tst  x1, x2              // ands xzr, x1, x2  (test bits, sets flags)
-mvn  x0, x1              // orn x0, xzr, x1   (bitwise NOT)
-mov  x0, x1              // orr x0, xzr, x1   (move register)
-mov  x0, #imm            // movz or movn depending on value
-
-// Bit manipulation
-ubfx x0, x1, #lsb, #width  // unsigned bit field extract
-sbfx x0, x1, #lsb, #width  // signed bit field extract
-bfi  x0, x1, #lsb, #width  // bit field insert
-clz  x0, x1                 // count leading zeros
-cls  x0, x1                 // count leading sign bits
-rbit x0, x1                 // reverse bits
-rev  x0, x1                 // reverse bytes (64-bit)
-rev32 x0, x1                // reverse bytes within each 32-bit word
-
-// Sign/zero extension
-sxtb x0, w1              // sign-extend byte to 64 bits
-sxth x0, w1              // sign-extend halfword
-sxtw x0, w1              // sign-extend word (32-bit) to 64 bits
-uxtb w0, w1              // zero-extend byte to 32 bits
-uxth w0, w1              // zero-extend halfword to 32 bits
-```
-
-### Data Processing — Immediate Constants
-
-AArch64 immediates are not arbitrary. There are three encoding classes:
-
-1. **12-bit unsigned + optional 12-bit left shift**: Used in `add`/`sub`/`cmp`. Range 0–4095, or 0–(4095 << 12).
-2. **Logical immediates**: Specific bitmask patterns (any rotation of a sequence of 1-bits) for `and`/`orr`/`eor`.
-3. **Wide immediates**: 16-bit values with optional shifts of 0/16/32/48 bits, for `movz`/`movn`/`movk`.
-
-To load an arbitrary 64-bit constant, use the assembler pseudo-instruction `ldr x0, =value` (PC-relative load from literal pool), or build it with `movz`/`movk`:
-
-```asm
-movz x0, #0x1234, lsl #48    // load 0x1234_0000_0000_0000
-movk x0, #0x5678, lsl #32    // keep other bits, insert 0x5678
-movk x0, #0x9abc, lsl #16
-movk x0, #0xdef0
-```
-
-### Memory Access
-
-**Load/Store addressing modes**:
-
-```asm
-// Base register only
-ldr  x0, [x1]              // load 64-bit from address in x1
-ldrb w0, [x1]              // load byte, zero-extend to 32 bits
-ldrh w0, [x1]              // load halfword, zero-extend
-ldrsb x0, [x1]             // load byte, sign-extend to 64 bits
-ldrsh x0, [x1]             // load halfword, sign-extend to 64 bits
-ldrsw x0, [x1]             // load word (32-bit), sign-extend to 64 bits
-str  x0, [x1]              // store 64-bit
-strb w0, [x1]              // store byte
-strh w0, [x1]              // store halfword
-
-// Immediate offset (signed, scaled)
-ldr  x0, [x1, #8]          // load from x1+8
-str  x0, [x1, #-16]        // store to x1-16 (negative allowed)
-
-// Register offset (with optional shift)
-ldr  x0, [x1, x2]          // load from x1+x2
-ldr  x0, [x1, x2, lsl #3]  // load from x1 + (x2 << 3)  — scale by element size
-ldr  x0, [x1, w2, sxtw]    // load from x1 + sign_extend_32(w2)
-ldr  x0, [x1, w2, uxtw #3] // load from x1 + (zero_extend(w2) << 3)
-
-// Pre-index (update base before access)
-ldr  x0, [x1, #8]!         // x1 += 8; load from x1
-str  x0, [sp, #-16]!       // sp -= 16; store to sp  (standard push pattern)
-
-// Post-index (update base after access)
-ldr  x0, [x1], #8          // load from x1; x1 += 8  (standard pop pattern)
-
-// PC-relative (literals)
-ldr  x0, label             // load value at label (within ±1MB)
-adr  x0, label             // load address of label (within ±1MB)
-adrp x0, label             // load page-aligned address of label (within ±4GB)
-// adrp + add for full address:
-adrp x0, symbol
-add  x0, x0, :lo12:symbol
-
-// Pair access (two registers simultaneously)
-ldp  x0, x1, [x2]          // x0 = [x2], x1 = [x2+8]
-stp  x0, x1, [x2, #16]     // [x2+16]=x0, [x2+24]=x1
-ldp  x0, x1, [x2], #16     // post-index pair
-stp  x0, x1, [sp, #-16]!   // pre-index pair (common prologue pattern)
-```
-
-### Branch Instructions
-
-```asm
-// Unconditional
-b    label                  // PC-relative branch (±128MB)
-bl   label                  // branch with link (sets x30=PC+4)
-br   x0                     // branch to register
-blr  x0                     // branch with link to register
-ret                         // return: branch to x30
-ret  x0                     // return to x0 (non-standard use)
-
-// Conditional branch (on NZCV flags)
-b.eq label    // equal (Z=1)
-b.ne label    // not equal (Z=0)
-b.cs label    // carry set / unsigned ≥ (C=1)  alias: b.hs
-b.cc label    // carry clear / unsigned < (C=0) alias: b.lo
-b.mi label    // minus / negative (N=1)
-b.pl label    // plus / non-negative (N=0)
-b.vs label    // overflow (V=1)
-b.vc label    // no overflow (V=0)
-b.hi label    // unsigned > (C=1 && Z=0)
-b.ls label    // unsigned ≤ (C=0 || Z=1)
-b.ge label    // signed ≥ (N=V)
-b.lt label    // signed < (N≠V)
-b.gt label    // signed > (Z=0 && N=V)
-b.le label    // signed ≤ (Z=1 || N≠V)
-b.al label    // always (same as b)
-
-// Compare-and-branch (no flag setting, compact — avoids cmp+b pair)
-cbz  x0, label   // branch if x0 == 0
-cbnz x0, label   // branch if x0 != 0
-cbz  w0, label   // same for 32-bit
-
-// Test-and-branch (tests a single bit)
-tbz  x0, #n, label    // branch if bit n of x0 is zero
-tbnz x0, #n, label    // branch if bit n of x0 is non-zero
-// TBZ/TBNZ range: ±32KB. Useful for flag testing without CMP.
-```
-
-### Condition Flags and Conditional Instructions
-
-Instructions that **set flags** end in `S` (e.g., `adds`, `subs`, `ands`). `cmp` = `subs xzr, ...`; `cmn` = `adds xzr, ...`; `tst` = `ands xzr, ...`.
-
-**Conditional select instructions** (no branching required):
-
-```asm
-csel  x0, x1, x2, cond   // x0 = (cond true) ? x1 : x2
-cset  x0, cond            // x0 = (cond true) ? 1 : 0
-csetm x0, cond            // x0 = (cond true) ? ~0 : 0  (all 1s or all 0s)
-csinc x0, x1, x2, cond   // x0 = (cond true) ? x1 : x2+1
-csinv x0, x1, x2, cond   // x0 = (cond true) ? x1 : ~x2
-csneg x0, x1, x2, cond   // x0 = (cond true) ? x1 : -x2
-cinc  x0, x1, cond        // csinc x0, x1, x1, !cond  (increment if cond)
-cinv  x0, x1, cond        // csinv x0, x1, x1, !cond
-cneg  x0, x1, cond        // csneg x0, x1, x1, !cond
-```
-
-**Conditional compare** (chain comparisons without branching):
-
-```asm
-ccmp  x0, x1, #flags, cond  // if cond: CMP x0,x1; else: NZCV = flags
-ccmn  x0, x1, #flags, cond  // if cond: CMN x0,x1; else: NZCV = flags
-```
-
-### System Instructions
-
-```asm
-nop                          // no operation
-wfe                          // wait for event (spin-lock sleep primitive)
-wfi                          // wait for interrupt (EL1+ only in practice)
-sev                          // send event (wake WFE on other cores)
-sevl                         // send event local
-yield                        // hint: this thread can be preempted
-isb                          // instruction sync barrier (flush pipeline, refetch)
-dsb  sy                      // data sync barrier (all memory ops complete before)
-dsb  ish                     // inner-shareable domain (typical in user space)
-dsb  ishld                   // load-only DSB
-dsb  ishst                   // store-only DSB
-dmb  ish                     // data memory barrier (ordering, no completion wait)
-dmb  ishld
-dmb  ishst
-svc  #0                      // supervisor call (Linux syscall)
-brk  #imm                    // breakpoint (SIGTRAP on Linux)
-hlt  #imm                    // halt (debug)
-
-// System register access
-mrs  x0, nzcv                // read condition flags
-msr  nzcv, x0               // write condition flags
-mrs  x0, tpidr_el0           // read thread pointer (TLS base)
-mrs  x0, ctr_el0             // read cache type register (cache line sizes)
-```
-
----
+**Width discipline.** `w`-register forms operate on and zero-extend to 32
+bits; sign-extension is explicit (`sxtw` etc.). Loads pick the width *and*
+the extension: `ldr w0` zero-extends, `ldrsw x0` sign-extends a 32-bit load —
+choosing wrong silently corrupts the high half of a Dis pointer slot.
 
 ## Addressing Modes Summary
 
@@ -669,6 +357,12 @@ mprotect(buf, size, PROT_READ | PROT_EXEC);
 
 **Never map RWX simultaneously** if avoidable — SELinux, seccomp, and W^X policies may reject it, and it's a security risk. Use the write→flush→mprotect(RX) pattern.
 
+In-tree state: the JIT generates into a single low (<2 GB) arena that
+`segflush-aarch64.c` leaves RWX (`mprotect` RWX on the flushed range) so the
+32-bit WORD jump tables can hold native addresses and recompiles can patch in
+place. Moving to the write→RX or dual-mapping pattern above is the hardening
+direction if a host policy ever rejects RWX.
+
 **Dual mapping** (write one mapping, execute another — for streaming JIT):
 ```c
 // Create anonymous fd
@@ -685,107 +379,15 @@ void* rx = mmap(NULL, size, PROT_READ|PROT_EXEC,  MAP_SHARED, fd, 0);
 
 ---
 
-## GNU Assembler Syntax
+## GNU Assembler Notes
 
-Inferno uses GNU `as` (GAS) for all assembly files. AArch64 assembly in this codebase uses AT&T conventions as extended by GAS.
-
-### File Directives
-
-```asm
-.file   "foo.S"
-.arch   armv8-a                  // minimum required architecture
-.arch_extension crc              // enable specific extension (crc, crypto, lse, etc.)
-.cpu    generic+lse              // alternate: specify CPU with extensions
-.text                            // switch to .text section
-.data                            // switch to .data section
-.bss                             // switch to .bss section
-.section .rodata                 // read-only data
-
-.global my_func                  // export symbol
-.type   my_func, %function       // declare as function (for stack unwinding)
-.size   my_func, . - my_func     // size of function
-
-.align  4                        // align to 2^4 = 16 bytes
-.balign 16                       // align to 16 bytes (synonym, clearer)
-```
-
-### Instruction Syntax
-
-GAS uses **destination-first** for most instructions (same as ARM documentation):
-
-```asm
-add  x0, x1, x2          // x0 = x1 + x2  (dest, src1, src2)
-ldr  x0, [x1, #8]        // x0 = *(x1+8)
-str  x0, [x1, #8]        // *(x1+8) = x0
-```
-
-### Labels and Symbols
-
-```asm
-my_label:                 // define label
-    b    my_label         // branch to label
-
-1:                        // numeric local label
-    b    1b               // branch to previous "1:" label
-    b    1f               // branch to next "1:" label
-
-.Llocal:                  // local label (not exported)
-```
-
-### Assembly for .S Files with CPP
-
-Inferno `.S` files are run through the C preprocessor. Use `#include`, `#define`, `#ifdef`, etc. The `$(AS)` variable in mkfiles uses `gcc -c` which handles preprocessing automatically.
-
-### Inline Assembly in C
-
-Used throughout `emu/Linux/os.c` and `libinterp/comp-aarch64.c`:
-
-```c
-// Basic form: asm("instruction" : outputs : inputs : clobbers);
-
-// Read a system register:
-uint64_t val;
-asm("mrs %0, tpidr_el0" : "=r"(val));
-
-// Memory barrier:
-asm("dmb ish" ::: "memory");   // "memory" clobber prevents reordering in compiler
-
-// ISB (pipeline flush):
-asm("isb" ::: "memory");
-
-// Atomic: test-and-set (returns old value)
-int test_and_set(volatile int* p) {
-    int old, tmp;
-    asm volatile(
-        "1:\n\t"
-        "ldaxr  %w0, [%2]\n\t"
-        "cbnz   %w0, 2f\n\t"
-        "stlxr  %w1, %w3, [%2]\n\t"
-        "cbnz   %w1, 1b\n\t"
-        "2:\n\t"
-        : "=&r"(old), "=&r"(tmp)
-        : "r"(p), "r"(1)
-        : "memory"
-    );
-    return old;
-}
-```
-
-**GCC inline asm constraints for AArch64**:
-
-| Constraint | Meaning |
-|------------|---------|
-| `r`        | Any general-purpose register |
-| `w`        | SIMD/FP register |
-| `m`        | Memory address |
-| `i`        | Immediate integer |
-| `=r`       | Output in any GPR |
-| `=&r`      | Early-clobber output (written before all inputs read) |
-| `+r`       | Read-write GPR |
-| `"memory"` | Clobber: prevents compiler reordering memory accesses around this asm |
-| `"cc"`     | Clobber: this asm may change condition flags |
-
-Specific register constraints: `"{x0}"`, `"{w8}"`, etc. (force a specific register).
+The hand-written `.S` files (`asm-aarch64.S`, `aarch64-tas.S`,
+`lib9/*-Linux-aarch64.S`) use GNU `as`: destination-first operand order, the
+usual `.text`/`.global name`/`.type name, %function` skeleton, and `.S` files
+run through cpp first (so `#include`/`#ifdef` work). Full directive reference:
+the binutils AArch64 docs. Inline asm in C follows standard GCC extended-asm
+syntax; the only places this tree uses it are the cache-maintenance and
+`tpidr_el0`/`ctr_el0` reads shown in this file.
 
 ---
 
@@ -888,83 +490,17 @@ asm("mrs %0, tpidr_el0" : "=r"(tp));
 
 ---
 
-## VM Dispatch Techniques
+## VM Dispatch
 
-### Switch Dispatch (Baseline)
-
-```c
-for (;;) {
-    switch (R.PC->op) {
-    case IADDW: /* ... */ break;
-    case ISUBW: /* ... */ break;
-    // ...
-    }
-    R.PC++;
-}
-```
-
-Compilers typically generate a jump table for this. On AArch64, `BR X0` (indirect branch) is used — one indirect branch per opcode. Branch predictors on ARM cores may have simpler indirect-branch pattern matching than recent Intel, meaning the predicted target (the same opcode handler next time) is less likely to be cached.
-
-### Direct Threading (Computed Goto — GCC Extension)
-
-The fastest interpreted dispatch technique on AArch64. Eliminates the switch-table indirection by ending each handler with a direct jump to the next handler:
-
-```c
-static void* dispatch_table[] = {
-    [INOP]   = &&do_nop,
-    [IADDW]  = &&do_addw,
-    [ISUBW]  = &&do_subw,
-    // ...
-};
-
-#define DISPATCH() \
-    goto *dispatch_table[(R.PC++)->op]
-
-DISPATCH();   // start
-
-do_addw:
-    *(WORD*)R.d = *(WORD*)R.s + *(WORD*)R.m;
-    DISPATCH();
-
-do_subw:
-    *(WORD*)R.d = *(WORD*)R.s - *(WORD*)R.m;
-    DISPATCH();
-// ...
-```
-
-GCC generates `BR Xn` at each dispatch point, targeting the handler's address loaded from the table. On AArch64, this allows the branch predictor to speculate the target based on the specific dispatch site — each `DISPATCH()` expansion becomes a different indirect branch instruction, giving the predictor more context.
-
-**Pinning the dispatch table**: Keeping `dispatch_table`'s address in a callee-saved register (`x19`–`x28`) reduces memory loads per dispatch:
-
-```c
-// In C, hint to keep dispatch_table ptr in a register:
-register void** dtable asm("x23") = dispatch_table;
-#define DISPATCH() goto *dtable[(R.PC++)->op]
-```
-
-### Tail-Call Threading (C23 / Clang musttail)
-
-Each opcode handler is a separate function; each calls the next via tail call. Requires TCO (tail-call optimization) — GCC and clang on AArch64 support this for `__attribute__((musttail))` in C23 or `[[clang::musttail]]`:
-
-```c
-typedef void (*Handler)(Prog* p);
-void do_addw(Prog* p) {
-    *(WORD*)p->R.d = *(WORD*)p->R.s + *(WORD*)p->R.m;
-    [[clang::musttail]] return dispatch_table[p->R.PC->op](p);
-}
-```
-
-Advantage: handler code is better isolatable for the compiler. Disadvantage: function call overhead if TCO fails; harder to keep VM state in registers.
-
-### JIT (Native Code Generation)
-
-See `libinterp/comp-aarch64.c`. The JIT translates Dis instructions to AArch64 machine code at load time. Key considerations:
-
-1. **Instruction encoding**: All AArch64 instructions are 32-bit. Generate them by building 32-bit integers from field specifications or use a code generation library.
-2. **PC-relative addressing**: Literals and labels must be within ±1MB for `LDR`/`ADR`, ±4GB for `ADRP`. For larger ranges, use a register as base.
-3. **Time-slice check**: The PQUANTA counter must be decremented and checked. Insert a `SUBS` + `B.LE trampoline` every N instructions or per-basic-block.
-4. **Cache flush**: Call `flush_icache(start, end)` after generating each module's native code (before first execution).
-5. **Relocation**: Forward branches to not-yet-generated code need patching. Keep a list of fixup locations.
+The interpreter uses the portable switch dispatch in `libinterp/xec.c` (the
+compiler builds a jump table; each iteration is one indirect `br`). The
+performance path on this arch is not a cleverer interpreter loop but the JIT
+(`comp-aarch64.c` — see ON_JIT.md), which removes dispatch entirely for the
+compiled ops and `punt()`s the rest. If interpreter dispatch ever becomes the
+bottleneck at `cflag==0`, computed-goto direct threading (a GCC extension:
+per-handler `goto *table[op]`) is the standard next step — it gives the
+branch predictor one indirect branch site per handler instead of one for the
+whole loop.
 
 ---
 
@@ -1025,41 +561,19 @@ Critical for Dis VM code that assumes C type widths:
 
 ## Linux Syscall ABI
 
-For bare-assembly usage (not typical in emu, but relevant for native kernel work):
-
-```asm
-// Arguments: x0–x7 (up to 8)
-// Syscall number: w8
-// Invoke: svc #0
-// Return value: x0 (negative errno on error)
-// Clobbered by kernel: x0–x18, cc
-
-// Example: write(fd=1, buf, len)
-mov  w8, #64            // __NR_write = 64 on AArch64
-mov  x0, #1             // fd = 1 (stdout)
-ldr  x1, =buf           // buffer address
-mov  x2, #13            // length
-svc  #0
-```
-
-Common AArch64 Linux syscall numbers:
-```
-read=63  write=64  openat=56  close=57  mmap=222  mprotect=226
-munmap=215  brk=214  clone=220  exit=93  exit_group=94
-futex=98  nanosleep=101  getpid=172  kill=129  sigaltstack=132
-rt_sigaction=134  rt_sigprocmask=135  rt_sigreturn=139
-```
-
-Full table: `include/uapi/asm-generic/unistd.h` in the Linux kernel source.
+emu calls libc, never `svc` directly, so this only matters when reading
+kernel-adjacent disassembly or strace: arguments in `x0`–`x7`, syscall number
+in `w8`, `svc #0`, result (or negative errno) in `x0`; numbers are the
+asm-generic table (`include/uapi/asm-generic/unistd.h`) — AArch64 has no
+legacy numbering.
 
 ---
 
 ## Porting Checklist for the Dis VM
 
-**Status: the aarch64 port is complete and working** — `emu` builds, the full test
-suite is 178/178 under both the interpreter and `-c1` (JIT), and the LP64 Dis ABI
-runs the committed XMAGIC8 `.dis` tree. The checklist below is therefore a
-historical record; only the optional LSE item remains open.
+This is what a Dis VM port to a new architecture must cover. On aarch64 every
+item is in place — `emu` builds and the full `tests/dis` suite passes under
+both the interpreter and the JIT — except the optional LSE fast path.
 
 - [x] `mkfiles/mkfile-Linux-aarch64` — compiler flags (`-march=armv8-a`, include paths, defines)
 - [x] `emu/Linux/mkfile-aarch64` — `ARCHFILES` listing arch-specific .o files
@@ -1082,24 +596,10 @@ historical record; only the optional LSE item remains open.
 ---
 
 Sources:
-- [AArch64 Procedure Call Standard (AAPCS64) — Tuna Cici, Medium](https://medium.com/@tunacici7/aarch64-procedure-call-standard-aapcs64-abi-calling-conventions-machine-registers-a2c762540278)
-- [AAPCS64 PDF — c9x.me](https://c9x.me/compile/bib/abi-arm64.pdf)
-- [NZCV Condition Flags — ARM Developer](https://developer.arm.com/documentation/ddi0601/latest/AArch64-Registers/NZCV--Condition-Flags)
-- [AArch64 Barriers — The Old New Thing](https://devblogs.microsoft.com/oldnewthing/20220812-00/?p=106968)
-- [AArch64 Atomic Access — The Old New Thing](https://devblogs.microsoft.com/oldnewthing/20220811-00/?p=106963)
-- [AArch64 Prologues and Epilogues — The Old New Thing](https://devblogs.microsoft.com/oldnewthing/20220824-00/?p=107043)
-- [AArch64 Manipulating Flags — The Old New Thing](https://devblogs.microsoft.com/oldnewthing/20220818-00/?p=107005)
+- [Arm Architecture Reference Manual (the ARM ARM)](https://developer.arm.com/documentation/ddi0487/latest) — the ground truth for encodings, the memory model, and PSTATE
+- [AAPCS64 — Procedure Call Standard for the Arm 64-bit Architecture](https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst)
 - [Caches and Self-Modifying Code: implementing clear-cache — ARM Community](https://developer.arm.com/community/arm-community-blogs/b/architectures-and-processors-blog/posts/caches-self-modifying-code-implementing-clear-cache)
-- [ARM64 One-Way Barriers (LDAR/STLR) — ElseWhere](https://duetorun.com/blog/20231007/a64-oneway-barrier/)
-- [ARM64 Exclusive Load/Store — ElseWhere](https://duetorun.com/blog/20231007/a64-load-store-exclusive/)
-- [Large System Extensions Intro — ARM Learning Paths](https://learn.arm.com/learning-paths/servers-and-cloud-computing/lse/intro/)
-- [Thread Pointer/ID Register TPIDR_EL0 — blog.iret.xyz](https://blog.iret.xyz/posts/thread-pointer-aarch64/)
-- [All About Thread-Local Storage — MaskRay](https://maskray.me/blog/2021-02-14-all-about-thread-local-storage)
-- [linux/arch/arm64/include/uapi/asm/sigcontext.h — torvalds/linux](https://github.com/torvalds/linux/blob/master/arch/arm64/include/uapi/asm/sigcontext.h)
-- [AArch64 Notes — johannst.github.io](https://johannst.github.io/notes/arch/arm64.html)
 - [GNU Assembler AArch64 Directives — sourceware.org](https://sourceware.org/binutils/docs/as/AArch64-Directives.html)
 - [GCC AArch64 Options — gcc.gnu.org](https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html)
+- [linux/arch/arm64/include/uapi/asm/sigcontext.h — torvalds/linux](https://github.com/torvalds/linux/blob/master/arch/arm64/include/uapi/asm/sigcontext.h)
 - [Enabling PAC and BTI on AArch64 for Linux — ARM Community](https://developer.arm.com/community/arm-community-blogs/b/architectures-and-processors-blog/posts/enabling-pac-and-bti-on-aarch64)
-- [VM Dispatch Experiments — Peter Liniker](https://pliniker.github.io/post/dispatchers/)
-- [How to JIT — Eli Bendersky](https://eli.thegreenplace.net/2013/11/05/how-to-jit-an-introduction)
-- [ARM Trusted Firmware spinlock.S](https://github.com/ARM-software/arm-trusted-firmware/blob/master/lib/locks/exclusive/aarch64/spinlock.S)

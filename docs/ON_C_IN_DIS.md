@@ -280,10 +280,10 @@ Where the port stands: both ABIs build and run the full system — toolchain,
 scan-line word width and the exception-unwind `NOPC` sentinel, in "Fixes"
 below; see ON_GRAPHICS.md for the stack itself). The recurring bug shape of
 the port is "this codegen/analysis path still assumes 4-byte pointers"; the
-five root-cause classes — call-frame temp, array-literal element-address temp,
-pointer comparison opcodes, optimizer liveness sizes, and the indexed-element
-address node type (the `Oindex`→`Oindx` rewrite) — are each detailed below,
-and the whole class is audited (see "The pointer-width `tint` bug class").
+root-cause classes — pointer-width temporaries (call frames, materialised
+element addresses), pointer comparison opcodes, and the optimizer's notion of
+slot width — are detailed below, and the whole class is audited (see "The
+pointer-width `tint` bug class").
 Remaining gaps are listed in "Deferred LP64 items"; the one open *runtime* bug
 is the idle-Charon heap corruption, also below. `tests/dis/` is the standing
 regression net (see ON_TESTING.md).
@@ -400,11 +400,17 @@ the rule the code now follows:
 ### JIT compiler — `libinterp/comp-aarch64.c` is a working LP64 JIT, off by default
 - **What:** `comp-aarch64.c` is a from-scratch LP64 AArch64 Dis JIT. It has a bit-exact,
   assembler-verified A64 encoder layer; LP64-correct 4-byte (Ldw/Stw, W-regs) vs 8-byte
-  (Ldp/Stp, X-regs) memory access per field; and natively compiles the hot integer/control
-  path (moves, word/byte/long arithmetic, shifts, mul, conversions, **conditional branches +
-  IJMP**, LEN*, IIND*, MOVM/HEADM, and **IMCALL** via `commcall`/`macmcal`). The rest is
-  punted (ICALL, IRET, IFRAME/IMFRAME, IGOTO/ICASE/ICASEC — tables relocated first, FP,
-  news, div/mod, sends). Code is generated into a low (<2GB) executable mmap arena so the
+  (Ldp/Stp, X-regs) memory access per field; and natively compiles the hot path:
+  moves, word/byte/64-bit arithmetic and logic, shifts, mul, integer conversions,
+  **scalar-double FP** (arithmetic, the six FP compare-branches, int↔real
+  conversions), **conditional branches + IJMP**, LEN*, IIND*, MOVM/HEADM, and
+  **IMCALL** via `commcall`/`macmcal`. Everything else is punted to the
+  interpreter per-op: calls/returns/frames (ICALL/IRET/IFRAME/IMFRAME),
+  GOTO/CASE/CASEC (jump tables relocated in pass 0 first), channel and process
+  ops (SEND/RECV/ALT/SPAWN), refcounted pointer/list moves, allocation/slice/
+  string ops, and div/mod/fixed-point. The authoritative inventory is the
+  `comp()` switch itself; ON_JIT.md is the codegen reference. Code is
+  generated into a low (<2GB) executable mmap arena so the
   32-bit WORD jump tables can hold native addresses, matching the interpreter's
   `(Inst*)t[0]` reads.
 - **Default behaviour is unchanged:** `cflag==0` (the default) never calls `compile()`,
@@ -535,49 +541,28 @@ by **one new constant**:
 **limbo (compiler) changes — pointer-width temporaries, comparisons, and
 analysis (each of these is a real crash class, not a tidy-up):**
 - `ecom.c` `callcom()`: the call-frame-pointer temp (`IFRAME`/`IMFRAME` dst,
-  `ICALL`/`IMCALL` src) was `talloc(&frame, tint, …)` — a 4-byte slot holding an
-  8-byte frame pointer. `idoffsets` packs by each decl's own `ty->align/size`, so the
-  4-byte slot overlapped the adjacent pointer local; storing the 8-byte frame pointer
-  clobbered the neighbour's low word (`0xaaaa0000aaaa`-style). Now `talloc(&frame,
-  tbig, …)`: `tbig` is 8 bytes / 8-aligned with `isptr=0`, so the GC does not trace
-  it — matching the original 32-bit intent where `tint` was exactly pointer width and
-  untraced. (`tany` would be wrong: `isptr=1` would make the GC trace a non-heap
-  frame pointer.) This was the bug that blocked list+format-print.
-- `ecom.c` `arraycom()` (array literal initialisation `array[] of {…}`): the temp
-  holding the indexed element **address** (`Oindx` result, dereferenced via an
-  `Oind` fake node) was `talloc(&tmp, tint, …)` — same 4-byte-pointer overlap. Now
-  `tbig`. General rule learned: **any temp that receives an address-producing op
-  (`ILEA`/`IND*`/`Oindx`/`Oadr`) must be pointer-width.** `eacom()` was already
-  correct (it `talloc`s with the node's own `ty`); the dead `LDT` branch at ~1290 and
-  the genuine int temps (`ri` range counter, `n` length, `which` alt index, the
-  `Oinc`/`Oinds` arithmetic scratch) correctly stay `tint`.
-- `gen.c` `genbra()`: pointer comparisons (`p == q`, `p == nil`) were compiled to the
-  column-0 word ops `IBEQW`/`IBNEW`, which only test the low 32 bits of an LP64
-  pointer. `opind[]` leaves pointer kinds (Tref/Tchan/Tarray/Tlist/Tmodule/Tpoly/Tany)
-  at the default column 0; `genbra` now redirects those (when `opind==0 &&
-  tattr.isptr && IBY2PTR==IBY2LG`) to the `Tbig` column, giving the 8-byte `IBEQL`/
-  `IBNEL`. `Tstring` keeps its own column (`IBEQC`, content compare) and numeric kinds
-  keep theirs; only comparisons reach `genbra` and pointers only use `Oeq`/`Oneq`,
-  both of which have valid long-compare opcodes. (`genop` is **not** changed: pointer
-  types legitimately use column 0 there for `Oindx`→`IINDX`, `Olen`→`ILENA`.)
-- `optim.c` operand-size enum: `P` (pointer), `A` (array), `C` (string) were `4`. The
-  optimizer's use-def/liveness analysis uses these to decide how many bytes each
-  operand touches (`finddec(off, size, …)`); with `P=4` a pointer store marked only 4
-  bytes, so the high 4 bytes of a pointer slot looked dead and another decl was
-  coalesced over them (`0xffffffff0000xxxx` / duplicated-half corruption). Now
-  `P=A=C=IBY2PTR`. `X` (fixed, a scaled int) correctly stays 4.
-- `ecom.c` `rewrite()` `case Oindex` (~line 258): `a[i]` is rewritten to
-  `Oind(Oindx(a,i))`; the inner `Oindx` node computes the **address** of the indexed
-  element, and its type was hardcoded to `tint`. When that address has to be
-  materialised into a temp (e.g. `a[k] = b[i]`, or any `0(elemaddr(fp))` indirect
-  addressing — `IND*` writes the element address to the `m` operand), the temp was
-  4-byte; on LP64 the 8-byte element address overran the adjacent temp (two
-  element-address temps ended up 4 bytes apart and the second clobbered the first's
-  low word). Now `tbig` (8-byte, 8-aligned, `isptr=0` — an interior pointer the GC
-  must not trace). This was the `Readdir`/`mergesort` `array of ref Dir` crash. The
-  general pattern across all five fixes: **anything that holds or computes a pointer/
-  address — a temp, a comparison, the optimizer's notion of a slot's width — has to be
-  pointer-width (IBY2PTR), and `tint` (IBY2WD) was the recurring 32-bit-ism.**
+  `ICALL`/`IMCALL` src) must be pointer-width and **untraced** (`tptr`; `tany`
+  would wrongly make the GC trace a non-heap frame pointer). A `tint` temp here
+  overlaps the adjacent local — `idoffsets` packs by each decl's own size — and
+  the stored 8-byte frame pointer clobbers its neighbour's low word.
+- `ecom.c` `arraycom()`, `arraydefault()`, and `rewrite()` `case Oindex`: the
+  rule is **any temp that receives an address-producing op
+  (`ILEA`/`IND*`/`Oindx`/`Oadr`) must be pointer-width** — `a[i]` rewrites to
+  `Oind(Oindx(a,i))` and the materialised element address otherwise overruns
+  its 4-byte slot. (`eacom()` is already correct — it `talloc`s with the node's
+  own type; genuine int temps — range counters, lengths, alt indices,
+  `Oinc`/`Oinds` scratch — correctly stay `tint`.)
+- `gen.c` `genbra()`: pointer comparisons (`p == q`, `p == nil`) must compile
+  to the 8-byte `IBEQL`/`IBNEL` column, not the word ops that compare only the
+  low 32 bits; `genbra` redirects pointer kinds there (when `opind==0 &&
+  tattr.isptr && IBY2PTR==IBY2LG`). `Tstring` keeps `IBEQC` (content compare),
+  and `genop` is untouched — column 0 is legitimate there (`Oindx`→`IINDX`,
+  `Olen`→`ILENA`).
+- `optim.c` operand-size enum: `P` (pointer), `A` (array), `C` (string) are
+  `IBY2PTR`, not 4 — the use-def/liveness analysis uses these as each
+  operand's width, and a 4-byte `P` makes the high half of a pointer slot look
+  dead, so another decl gets coalesced over it (`0xffffffff0000xxxx`
+  duplicated-half corruption). `X` (fixed-point, a scaled int) stays 4.
 
 **VM (interpreter/loader) changes:**
 - `xec.c`: `Stmp`/`Dtmp` macros use `IBY2PTR`; `OP(lea)` stores a full pointer

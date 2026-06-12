@@ -25,30 +25,10 @@ pointer here.
 
 ## Recently landed (move detail into the subsystem doc, then drop)
 
-- [x] **Portability generalization + cross-ABI canaries** — `tests/lp64` →
-      `tests/dis` (the suite was never LP64-specific; check-cell grammar is now
-      `dis/<conf>/<runmode>`); the native-kernel make machinery hoisted into
-      `os/native.mk` (arch files like `os/aarch64/Makefile` are ~10 lines);
-      `tests/kernel` is board-agnostic (`HWTARG=` + per-board
-      `os/boards/<board>/qemu.json`, check cell `kernel/<board>`); and
-      executable 32-bit/big-endian canaries: `tests/cunit/cross.sh arm|m68k`
-      cross-builds the portable C libs (Plan 9 object letters `*.5`/`*.2`, no
-      collision with host `*.o`) and runs the cunit sections under qemu-user
-      (`cunit/<objtype>` check cells). Detail: `tests/cunit/README.md`.
-- [x] **Native aarch64 kernel: full service parity + board factoring** — boots
-      qemu -M virt to the complete wm desktop with JIT, crypto builtins,
-      networking (os/ip + virtio-net, ndb/cs+dns work out of the box),
-      persistent storage (devsd + virtio-blk + kfs), kernel TLS (devtls +
-      freestanding mbedTLS, Mozilla CA bundle baked), import/export verified
-      both directions against hosted emu. Build factored into `os/aarch64/`
-      (arch core) + `os/drivers/` + `os/boards/<board>/`:
-      `make HWTARG=virt64 USERSPACE=full|headless`. Detail:
-      `os/boards/virt64/README.md`; porting taxonomy: `ON_PORTING.md`.
-- [x] **Modern TLS via mbedTLS** — DONE on master: vendored mbedTLS 3.6.2
-      (`libmbedtls/`), the `#T` devtls device (`emu/port/devtls.c`, TLS 1.2/1.3),
-      `dial->pushtls`/`dialtls`, and Charon's https path rewired off SSL3. Detail:
-      `ON_NETWORK.md` §"Modern TLS". Was the old "Charon HTTPS via mbedTLS"
-      active item.
+_Empty — landed work whose detail has been moved: portability generalization +
+cross-ABI canaries → `tests/cunit/README.md` + `ON_TESTING.md`; native aarch64
+kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
+`ON_NETWORK.md`._
 
 ## Parked / deferred
 

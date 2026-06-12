@@ -233,6 +233,7 @@ ByteSource
 Lex->TokenSource.gettoks()        # HTML tokeniser (handles charset conversion)
     ↓
 Build->ItemSource.getitems()      # tag-action table → Item list + Docinfo
+    │       ←─ Csseng cascade     # computed CSS properties per element (Cssctx)
     ↓
 Layout->layout(f, bs, linkclick)  # line-breaking, float placement, table layout
     ↓
@@ -253,6 +254,18 @@ Tokenises raw bytes into `Token` values with `tag` (one of ~90 `T*` consts) and 
 ### Build (`build.b`)
 
 An `ItemSource` wraps a `TokenSource` and maps tags to Items. It maintains a `Pstate` (parsing state) stack for nested formatting, and builds `Docinfo`, `Form`, `Table`, and `Anchor` lists alongside the item list. Tables use a two-pass algorithm described by RFC 1942 (min/max width per column, then distribute).
+
+This is also where CSS lands. `build.b` loads the `CSS` parser and `Csseng`
+cascade engine at init (both optional — if either module is missing, CSS is
+simply disabled) and keeps all per-document CSS state in a `Cssctx`: the
+document's AUTHOR-origin `Engine`, an open-element stack of `Elem` nodes for
+selector matching, and a pending list of form fields whose stylesheet had not
+been seen when they were built. `<style>` blocks and `<link rel=stylesheet>`
+sheets are parsed and added to the engine as they stream in; as each element
+opens, the cascade computes its `Props` and `build.b` translates them onto its
+font/colour/box state (the engine itself is pure computation — see the
+`csseng.b` row in the source table). A sheet that arrives after styled form
+fields triggers their re-resolution rather than a full re-layout.
 
 ### Layout (`layout.b`)
 
@@ -456,7 +469,7 @@ Key options and defaults:
 | `helpurl` | `file://localhost/services/webget/help.html` | |
 | `httpproxy` | (empty) | `host:port` URL |
 | `noproxydoms` | (empty) | semicolon/comma-separated |
-| `usessl` | `v3` | `v2`, `v3`, or both (default SSLV3) |
+| `usessl` | `v3` | vestigial — drives only the legacy `ssl3` path; live HTTPS uses `Dial->pushtls` regardless |
 | `charset` | `utf-8` | default when the document declares no charset |
 | `defaultwidth` | 640 | pixels |
 | `defaultheight` | 480 | main panel height |
@@ -548,7 +561,8 @@ Set `config.dbgfile` to redirect debug output to a file instead of stdout.
 
 - **Table layout** uses RFC 1942 min/max width algorithm; results differ from modern browsers on edge cases.
 - **Window resize** forces a full document reload (no reflow).
-- **Frameset frames** are fetched one at a time, not in parallel.
+- **Frameset frames** are fetched one at a time, not in parallel (see the
+  roadmap's "Parallel sub-resource loading").
 - **`Window.open()`** silently replaces the current document instead of opening a new window.
 - **`document.onunload`** is never raised.
 - **`document.applets`/`document.embeds`** are always empty (no Java).

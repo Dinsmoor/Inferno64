@@ -254,7 +254,7 @@ These three symbols exist in `emu/Linux/asm-aarch64.o`:
 
 - **`FPsave(ptr)`** / **`FPrestore(ptr)`** — save/restore the hardware FP register state. ARM32: saves 28-byte FP environment. AArch64: must save all 32 × 64-bit FP registers = 256 bytes (using `stp` pairs).
 
-These are called by JIT-generated code for modules that use floating point. With `SOFTFP=1` (line 14 of comp-arm.c), FP operations are punted to the interpreter and these are not called. AArch64 JIT would need to decide soft vs hard FP.
+These are called by JIT-generated code for modules that use floating point. With `SOFTFP=1` (line 14 of comp-arm.c), FP operations are punted to the interpreter and these are not called. The aarch64 back-end uses hard FP — scalar-double arithmetic, compares, and conversions are emitted natively (see "Native floating point" below).
 
 ## Build System Integration
 
@@ -327,14 +327,14 @@ The only `-c1` caveat is `$Loader` reflection, which is mutually exclusive with
 compilation by design (see below); it is TAP-skipped, not a codegen bug. This
 section is the durable reference for the implementation.
 
-## What was solved (and how)
+## The design pillars (and how to extend them)
 
 - **Verified encoder layer.** Every A64 instruction emitter (`movz/movk`, add/sub/
   logical/mul/shift register+immediate forms, `ldr/str` scaled + `ldur/stur` unscaled +
-  register-offset, `b/b.cond/br/blr/ret`, `cmn` for the H-test) was validated bit-exact
+  register-offset, `b/b.cond/br/blr/ret`, `cmn` for the H-test) is validated bit-exact
   against `aarch64-linux-gnu-objdump` in a standalone harness *before* use. This is the
-  single most important quality lever and exactly what the old WIP lacked — develop new
-  encoders the same way (emit to a buffer, `objdump -D -b binary -m aarch64`, diff).
+  single most important quality lever — develop new encoders the same way (emit to a
+  buffer, `objdump -D -b binary -m aarch64`, diff).
 - **LP64 width discipline.** `mem()` takes a width pseudo-op: `Ldw/Stw` = 4-byte (W-reg,
   int/word fields), `Ldp/Stp` = 8-byte (X-reg, pointer/big/real fields), `Ldb/Stb` =
   byte, `Lea` = address. The crux is per-field: pointer fields of REG/Frame/Modlink and
@@ -369,7 +369,7 @@ section is the durable reference for the implementation.
   reschedule (decrement `R.IC`, on `<=0` save FP/PC and `ret` to `R.xpc`) so compiled
   loops don't starve the cooperative scheduler.
 
-## Current status — WORKING (sh + full battery under `-c1`)
+## Status
 
 The aarch64 LP64 JIT is functional. `emu -c1` runs the Emuinit bootstrap, **sh**
 (pipes, globbing, control flow), and the full headless test battery natively.
@@ -390,7 +390,7 @@ W/B/L), shifts, MUL, LEN*, IIND*, MOVM/HEADM, **conditional branches + IJMP**
 (table dst slots relocated first by `comgoto`/`comcase`/`comcasel`/`comcasec`), allocation,
 list/string/pointer ops, div/mod, sends, single-precision CVT (ICVTRF/ICVTFR/ICVTWS/ICVTSW).
 
-### Native floating point (scalar double) — DONE
+### Native floating point (scalar double)
 The whole double-precision FP path is native (no longer SOFTFP-punted): `IADDF`/`ISUBF`/
 `IMULF`/`IDIVF` (`arithf` + `faddd`/`fsubd`/`fmuld`/`fdivd`), `INEGF`, the int/big↔real
 conversions `ICVTWF`/`ICVTLF` (`scvtfwd`/`scvtfxd`) and `ICVTFW`/`ICVTFL` (`cvtfi`), and all
@@ -428,7 +428,7 @@ a worthwhile enhancement and was not done. Instead `50_loader` detects a compile
 (ifetch yields no instructions for an otherwise-valid module) and TAP-skips the round-trip,
 so the suite is honest in both modes rather than reporting a spurious failure.
 
-## Root causes found and fixed (the hard part)
+## Root causes (the hard bugs, kept as rules)
 
 1. **`cmnix` (`cmn xn,#1`, the is-H test) encoded the wrong register.** The base constant
    was `0xB100043F` whose Rn field is **1**, so `cmnix(rn)` ORed `rn` onto an already-set
@@ -468,7 +468,7 @@ so the suite is honest in both modes rather than reporting a spurious failure.
 - **`patchex`** scales exception-table PCs by `sizeof(u32)` (handler() uses native byte
   offsets for compiled modules).
 
-## Debugging recipe used
+## Debugging recipe
 
 - `gdb -batch`, `break badop` / `break frame` / `break nullity`/`bounds`, then inspect
   `R.PC` vs the arena bounds `0x20000000–0x24000000` to tell native-vs-Dis.

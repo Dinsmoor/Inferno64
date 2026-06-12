@@ -12,7 +12,7 @@ Also in this release is some kick-ass userspace improvements.
 Something to be noted, another project (also named Inferno64) is inferior as it
 uses an ILP64 ABI model instead of an LP64 one, which means the size of an int
 in Limbo (the supposedly super-portable language compiled into Dis bytecode
-and run in a VM) is dependant on your platform. This means not only that the Dis
+and run in a VM) is dependent on your platform. This means not only that the Dis
 bytecode is incompatible (between 32 and 64 bit pointer archs we know this),
 the source Limbo itself is incompatible, and gives undefined behavior.
 That inferior project is:  https://github.com/caerwynj/inferno64 

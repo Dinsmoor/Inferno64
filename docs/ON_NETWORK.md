@@ -282,10 +282,11 @@ Resolution order inside `dns.b` (the important part for hosted Inferno):
    The shipped defaults make recursion work without editing ndb; replace them
    with a site resolver if you prefer.
 
-> **LP64 note:** the `$Srv` builtin path was historically broken on 64-bit by a
-> stale, 32-bit-ABI `emu/Linux/srv.h`/`srvm.h` (wrong frame offsets → a truncated
-> `String*` argument → wild-address fault in `Srv_iph2a`, observed as a "DNS
-> hang"). Fixed by regenerating those headers per-ABI; see ON_C_IN_DIS.md.
+> **LP64 note:** the `$Srv` builtin's generated headers
+> (`emu/Linux/srv.h`/`srvm.h`) encode ABI-specific frame offsets; if they go
+> stale across a 32↔64-bit switch, the symptom is a wild-address fault inside
+> `Srv_iph2a` that looks like a "DNS hang". The hazard and the clean-rebuild
+> rule live in ON_C_IN_DIS.md ("stale generated module headers").
 
 `webgrab` (an HTTP `curl` substitute, below) and `dial` of any `net!host!svc`
 both depend on this path via `cs`.
