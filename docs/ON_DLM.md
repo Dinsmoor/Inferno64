@@ -21,6 +21,10 @@ See also: [ON_DIS.md](ON_DIS.md) (why C kernels exist at all),
 [ON_EMU.md](ON_EMU.md) (hosted emu = a userspace process),
 [ON_C_IN_DIS.md](ON_C_IN_DIS.md) (the LP64 story that the 32-bit format
 collides with), [ON_AARCH64_PORT.md](ON_AARCH64_PORT.md).
+**If what you actually want is to use a third-party C library at runtime with
+crash isolation, you do not want DLM at all** — see
+[ON_C_AT_RUNTIME.md](ON_C_AT_RUNTIME.md) (out-of-process native service over
+Styx), which is the established Inferno idiom for that.
 
 ---
 

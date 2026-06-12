@@ -1,0 +1,4 @@
+# Build artifacts and download staging (sqlite3.c/.h are vendored - see NOTICE).
+sqlite3.o
+sqlite-amalg.zip
+sqlite-amalgamation-*/

@@ -1,0 +1,3 @@
+# sqlite3.o is produced by fetch-sqlite.sh (the SQLite amalgamation,
+# compiled with the plain host cc - NOT the Inferno toolchain).
+SYSLIBS=./sqlite3.o -lpthread -lm -ldl

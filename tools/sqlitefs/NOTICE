@@ -1,0 +1,22 @@
+Vendored third-party source
+===========================
+
+sqlite3.c, sqlite3.h - the SQLite amalgamation.
+
+    Version:   3.46.1  (SQLITE_VERSION "3.46.1")
+    Source:    https://sqlite.org/2024/sqlite-amalgamation-3460100.zip
+    sha256:    sqlite3.c  6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83
+               sqlite3.h  89b62c671c5964e137409ce034941b7b05a3af2c9875aba41f47f9483d0c2515
+
+License: SQLite is in the PUBLIC DOMAIN (https://sqlite.org/copyright.html).
+No restrictions; vendored verbatim, unmodified.
+
+These two files are committed into the tree so the build is self-contained.
+build-sqlite.sh compiles them into sqlite3.o with the host cc (NOT the Inferno
+toolchain); it also re-downloads the amalgamation if the vendored source is
+ever removed.  To update SQLite, bump the version in build-sqlite.sh, re-run it,
+and refresh the version/sha lines above.
+
+Everything else in this directory (sqlitefs.c, the mkfiles) is part of Inferno
+and covered by the tree's usual terms; see the worked-example writeup in
+docs/ON_C_AT_RUNTIME.md.

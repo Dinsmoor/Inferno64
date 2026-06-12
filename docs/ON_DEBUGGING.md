@@ -287,6 +287,53 @@ opaque. Compile with `-g` during development.
 
 ---
 
+## Profiling (prof / cprof / mprof)
+
+Inferno ships three line-level Limbo profilers, all driven by one kernel device and
+one library module. They answer different questions:
+
+| Tool | Kind | Question | Source |
+|---|---|---|---|
+| `prof`  | **time** (statistical) | "why is this slow?" — % of samples per source line | `appl/cmd/prof.b` |
+| `cprof` | **coverage** | "which lines ran?" — `+`/`-`/`?` per line, accumulable across runs | `appl/cmd/cprof.b` |
+| `mprof` | **memory** | "what allocates?" — bytes live + high-water per line | `appl/cmd/mprof.b` |
+
+Each has a Tk GUI sibling under `appl/wm/` (`wm/prof`, `wm/cprof`, `wm/mprof`) that
+colours the source by hotness/coverage. All six share the library module
+`module/profile.m` / `appl/lib/profile.b`, which is the only thing that talks to the
+kernel.
+
+**How it works.** The kernel half is the profile device **`#P`** (`emu/port/devprof.c`,
+and `os/port/devprof.c` for native), which the library binds onto `/prof`
+(`profile.b`: `bind("#P", "/prof", MREPL|MCREATE)`). `prof` samples the currently
+executing Dis instruction from a kernel timer; `cprof` swaps in an
+instruction-counting Dis execute routine (the same mechanism the debugger uses);
+`mprof` tags each heap allocation/free with the source line that caused it. None of
+these profile **C/kernel** code — they are Limbo-source-line tools only.
+
+```sh
+prof wm/polyhedra                 # time-profile a command, stats on exit
+prof -m Polyhedra -m Polyfill cmd # restrict to named modules
+prof -s rate cmd                  # finer sampling (slower, more accurate)
+cprof -m Zeros zeros 1024 2880    # coverage; -r accumulates into <mod>.prf across runs
+mprof -b -m Polyhedra             # begin memory profiling a module...
+wm/polyhedra &                    #   ...run the target, then:
+mprof                             #   dump current/high-water bytes per line
+mprof -c                          # cease, discarding kernel stats
+```
+
+`prof` flags: `-bflnv`, `-m modname` (repeatable), `-s rate`, then the command. The
+output columns are *line · value · source*: percent-of-samples for `prof`,
+`+`/`-`/`?` (ran / didn't / partial) for `cprof`, live-bytes + high-water for
+`mprof`.
+
+Manuals: `prof(1)`, `cprof(1)`, `mprof(1)` (commands), `prof(2)` (the `Profile`
+module interface), `prof(3)` (the `#P` device). The historical `wm-*(1)` pages
+referenced by the old "Limbo profilers in Inferno" note (`docs/ref/lprof.pdf`) were
+never written; the GUI tools document themselves via the same options.
+
+---
+
 ## Adding Diagnostic Prints
 
 ```limbo
@@ -395,6 +442,9 @@ Or read `/prog/PID/wait` for child exit events.
 | `module/debug.m` / `appl/lib/debug.b` | Debug module interface / implementation (wraps `/prog`) |
 | `appl/lib/exception.b` | exception helper (`getexc`, `setexcmode`) |
 | `appl/cmd/disdump.b` | Dis disassembler |
+| `module/profile.m` / `appl/lib/profile.b` | profiler library (binds `#P` → `/prof`) |
+| `appl/cmd/{prof,cprof,mprof}.b` / `appl/wm/{prof,cprof,mprof}.b` | the three profilers + Tk GUIs |
+| `emu/port/devprof.c` / `os/port/devprof.c` | `#P` profile device (hosted / native) |
 | `emu/port/devprog.c` | `/prog` filesystem kernel implementation |
 | `os/port/devprog.c` | `/prog` for native kernels |
 | `limbo/lex.c` | compiler diagnostic funnel (C1 `showsrc` lives here) |

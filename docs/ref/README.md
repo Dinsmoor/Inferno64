@@ -23,7 +23,7 @@ paper has a living, fork-specific counterpart, the **"see"** column points at th
 ### Overview
 | paper | what it is | see |
 |---|---|---|
-| [`bltj.pdf`](bltj.pdf) | "The Inferno Operating System" — the Bell Labs Technical Journal overview paper | [`ON_EMU.md`](../ON_EMU.md) |
+| [`bltj.pdf`](bltj.pdf) | "The Inferno Operating System" — the Bell Labs Technical Journal whole-system overview (interfaces, security, a worked Limbo example) | [`README.md`](../README.md) (the doc front door), [`ON_EMU.md`](../ON_EMU.md) |
 
 ### The Dis virtual machine
 | paper | what it is | see |
@@ -38,7 +38,7 @@ paper has a living, fork-specific counterpart, the **"see"** column points at th
 | [`addendum.pdf`](addendum.pdf) ([`.html`](addendum.html)) | Addendum to the Limbo reference (later language additions) | [`ON_LIMBO.md`](../ON_LIMBO.md) |
 | [`descent.pdf`](descent.pdf) ([`.html`](descent.html)) | "A Descent into Limbo" — gentle tutorial introduction | [`ON_LIMBO.md`](../ON_LIMBO.md), [`limbobyexample/`](limbobyexample/) |
 | [`tk.pdf`](tk.pdf) | "An Overview of Limbo/Tk" — the Tk GUI toolkit | [`ON_GRAPHICS.md`](../ON_GRAPHICS.md) |
-| [`lprof.pdf`](lprof.pdf) | "Limbo profilers in Inferno" | [`ON_DEBUGGING.md`](../ON_DEBUGGING.md) |
+| [`lprof.pdf`](lprof.pdf) | "Limbo profilers in Inferno" — `prof`/`cprof`/`mprof` + Tk GUIs | [`ON_DEBUGGING.md`](../ON_DEBUGGING.md) (§ Profiling) |
 | — | (modern worked examples) | [`limbobyexample/`](limbobyexample/) |
 
 ### Styx / distributed
@@ -50,13 +50,13 @@ paper has a living, fork-specific counterpart, the **"see"** column points at th
 ### Tools & the Plan 9 toolchain
 | paper | what it is | see |
 |---|---|---|
-| [`sh.pdf`](sh.pdf) | "The Inferno Shell" | — |
+| [`sh.pdf`](sh.pdf) | "The Inferno Shell" — the shell language design | [`ON_SHELL.md`](../ON_SHELL.md) |
 | [`mk.pdf`](mk.pdf) | "Maintaining Files on Plan 9 with Mk" — the `mk` build tool | [`ON_BUILDING.md`](../ON_BUILDING.md) (we use `make`) |
 | [`compiler.pdf`](compiler.pdf) | "Plan 9 C Compilers" — the dialect/toolchain Inferno's C is written in | [`ON_C_IN_INFERNO.md`](../ON_C_IN_INFERNO.md) |
-| [`asm.pdf`](asm.pdf) | "A Manual for the Plan 9 Assembler" | [`ON_JIT.md`](../ON_JIT.md) |
-| [`acidpaper.pdf`](acidpaper.pdf) | "Acid: A Debugger Built From A Language" | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) |
-| [`acidtut.pdf`](acidtut.pdf) | "Native Kernel Debugging with Acid" — tutorial | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) |
-| [`acid.pdf`](acid.pdf) | "Acid Reference Manual" | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) |
+| [`asm.pdf`](asm.pdf) | "A Manual for the Plan 9 Assembler" — the `utils/` cross-assembler that builds the native `os/` kernels' `.s` code (dormant in this hosted fork; the JIT uses no assembler) | [`ON_JIT.md`](../ON_JIT.md) |
+| [`acidpaper.pdf`](acidpaper.pdf) | "Acid: A Debugger Built From A Language" — the Plan 9 debugger (`utils/acid`), for native `os/` binaries; the hosted emu uses `gdb` | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) (§ Acid) |
+| [`acidtut.pdf`](acidtut.pdf) | "Native Kernel Debugging with Acid" — tutorial (native kernels only) | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) (§ Acid) |
+| [`acid.pdf`](acid.pdf) | "Acid Reference Manual" (native kernels only) | [`ON_EMU_DEBUG.md`](../ON_EMU_DEBUG.md) (§ Acid) |
 | [`acme.pdf`](acme.pdf) | "Acme: A User Interface for Programmers" — the Acme editor | — |
 
 ### Porting, building, development

@@ -37,6 +37,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | handle errors / exceptions (and why it's two awkward layers) | [`ON_LIMBO_ERROR_HANDLING.md`](ON_LIMBO_ERROR_HANDLING.md) |
 | see small worked examples | [`ref/limbobyexample/`](ref/limbobyexample/) |
 | debug a *Limbo program* (`/prog`, exceptions, `disdump`) | [`ON_DEBUGGING.md`](ON_DEBUGGING.md) |
+| use or hack on the shell (`sh`, builtins, line editing) | [`ON_SHELL.md`](ON_SHELL.md) |
 
 ### …work on the VM / the port
 
@@ -72,4 +73,5 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | debug or prevent heap corruption | [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails) |
 | vendor a new external C library | [`ON_C_IN_INFERNO.md`](ON_C_IN_INFERNO.md) → [`ON_STB.md`](ON_STB.md) (worked example) |
 | understand why you *can't* load native C modules at runtime | [`ON_DLM.md`](ON_DLM.md) |
+| use someone else's C library at runtime (out-of-process, crash-isolated) | [`ON_C_AT_RUNTIME.md`](ON_C_AT_RUNTIME.md) (sqlite worked example) |
 | build, pick a profile, run emu directly, catch heap bugs | [`ON_BUILDING.md`](ON_BUILDING.md) |
