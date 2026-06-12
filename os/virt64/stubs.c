@@ -199,6 +199,25 @@ genrandom(uchar *buf, int n)
 /* (rand() for libsec's prng.c comes from devcons.c) */
 
 /*
+ * plan9.ini-style config variables (devsd reads sdXXpart= hints):
+ * no boot loader hands us any, so there are none.
+ */
+char*
+getconf(char *name)
+{
+	USED(name);
+	return nil;
+}
+
+/* PCMCIA: devsd's hot-config path wants it; no such bus here */
+int
+pcmspecial(char *idstr, ISAConf *isa)
+{
+	USED(idstr); USED(isa);
+	return -1;
+}
+
+/*
  * access(2) for the in-kernel libdraw (subfontname.c probes font
  * files with it): a kernel has no syscalls, so probe via kopen.
  */

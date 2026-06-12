@@ -38,6 +38,19 @@ struct ISAConf {
 	char	opt[NISAOPT][ISAOPTLEN];
 };
 
+/* devsd's hot-config plumbing wants these complete (we never hot-config) */
+typedef struct Devport Devport;
+struct Devport {
+	ulong	port;
+	int	size;
+};
+struct DevConf {
+	ulong	intnum;			/* interrupt number */
+	char	*type;			/* card type, malloced */
+	int	nports;			/* Number of ports */
+	Devport	*ports;			/* The ports themselves */
+};
+
 /*
  * FPenv.status
  */

@@ -48,10 +48,10 @@ ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
-	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv
+	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd
 
 ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs \
-	   devether ethervirtio
+	   devether ethervirtio sdvirtio
 
 # the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
 # loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/
@@ -184,7 +184,7 @@ $(CONF).c: ../port/mkdevc $(GENCONF)
 ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(GENCONF) 2>/dev/null)
 
 $(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
-	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
+	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
 	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(GENCONF)
 
 ../init/virtinit.dis: ../init/virtinit.b
@@ -307,9 +307,16 @@ QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-keyboard-device -device virtio-tablet-device \
 	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
 
+# optional persistent disk: make run DISK=/path/to/raw.img
+# (create with: truncate -s 64M img; in the guest see README "Persistent storage")
+ifneq ($(DISK),)
+QEMUDISK := -drive if=none,file=$(DISK),format=raw,id=hd0 \
+	    -device virtio-blk-device,drive=hd0
+endif
+
 run: $(KERNEL)
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
-		$(QEMUDEVS) -kernel $(KERNEL)
+		$(QEMUDEVS) $(QEMUDISK) -kernel $(KERNEL)
 
 clean:
 	rm -rf $(O) $(KERNEL) $(CONF).c $(GENCONF) $(GENCONF).root.h $(GENCONF).root.s \

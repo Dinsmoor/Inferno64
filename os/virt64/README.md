@@ -182,6 +182,31 @@ Skipped on purpose: bootp/dhcp (static or userspace config), il, gre,
 esp, igmp, ipmux, ppp. Name resolution is userspace's job (ndb/cs +
 ndb/dns, as on hosted emu) and needs an ndb pointing dns at 10.0.2.3.
 
+## Persistent storage
+
+`#S` is the portable devsd (os/port/devsd.c) over sdvirtio.c, a
+virtio-blk driver on the same modern virtio-mmio transport (three-
+descriptor request chains, one in flight per disk, interrupt
+completion).  Give qemu a raw image:
+
+	truncate -s 64M disk.img
+	make run DISK=disk.img
+
+and in the guest the disk is /dev/sd00 (ctl/data/raw) after
+`bind -a '#S' /dev`.  Filesystems are userspace Styx servers, as
+everywhere in Inferno — kfs(4) turns the disk into a real writable
+Inferno fs:
+
+	bind -a '#S' /dev
+	mount -c {disk/kfs -r /dev/sd00/data} /n/kfs   # first time: ream
+	mount -c {disk/kfs /dev/sd00/data} /n/kfs      # thereafter
+
+Verified: a file written under /n/kfs survives a full qemu restart.
+devsd partitions (`part name start end` into /dev/sd00/ctl) work as in
+Plan 9 if you want more than the whole-disk `data` partition; the raw
+SCSI interface returns I/O errors by design (virtio-blk speaks no
+SCSI).
+
 ## Hardware (qemu -M virt)
 
 | device | where |

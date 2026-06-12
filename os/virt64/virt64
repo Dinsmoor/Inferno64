@@ -11,6 +11,10 @@ dev
 	srv
 	ether
 	ip
+	sd
+
+misc
+	sdvirtio
 
 ip
 	tcp
@@ -91,6 +95,8 @@ root
 	/fd
 	/mnt
 	/n
+	/n/disk
+	/n/kfs
 	/net
 	/prog
 	/tmp
