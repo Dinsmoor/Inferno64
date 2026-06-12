@@ -39,8 +39,8 @@ SRC: con
 	"\treturn s;\n" +
 	"}\n";
 
-SRCPATH:	con "/tests/lp64/_build/selfhost_gen.b";
-DISPATH:	con "/tests/lp64/_build/selfhost_gen.dis";
+SRCPATH:	con "/tests/dis/_build/selfhost_gen.b";
+DISPATH:	con "/tests/dis/_build/selfhost_gen.dis";
 
 writefile(path, data: string): string
 {
@@ -85,7 +85,7 @@ init(nil: ref Draw->Context, nil: list of string)
 		return;
 	}
 
-	args := "limbo" :: "-I" :: "/module" :: "-I" :: "/tests/lp64/lib"
+	args := "limbo" :: "-I" :: "/module" :: "-I" :: "/tests/dis/lib"
 		:: "-o" :: DISPATH :: SRCPATH :: nil;
 	err = runlimbo(args);
 	t->ok(err == nil, "in-emu limbo compiled the module");

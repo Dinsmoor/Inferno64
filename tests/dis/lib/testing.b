@@ -3,7 +3,7 @@ implement Testing;
 #
 # Minimal TAP-style assertion helper for the LP64 headless test suites.
 # Each test program loads its own instance, so the pass/fail counters are
-# per-program.  Output is consumed by tests/lp64/run.sh.
+# per-program.  Output is consumed by tests/dis/run.sh.
 #
 include "sys.m";
 include "testing.m";

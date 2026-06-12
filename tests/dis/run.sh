@@ -1,14 +1,14 @@
 #!/bin/bash
 #
-# LP64 headless test-suite runner for the Inferno Dis VM + Limbo.
+# Headless test-suite runner for the Inferno Dis VM + Limbo.
 #
-# Compiles every Limbo test program under tests/lp64/suites/ with the host
-# `limbo` (the C compiler that produces the XMAGIC8 LP64 .dis tree), then runs
+# Compiles every Limbo test program under tests/dis/suites/ with the host
+# `limbo` (the C compiler that produces the .dis tree), then runs
 # each under `emu-g` and aggregates the TAP (ok/not ok) output.
 #
-# Usage:  tests/lp64/run.sh [suite-glob]
-#   e.g.  tests/lp64/run.sh            # all suites
-#         tests/lp64/run.sh concur     # only suites/concur*.b
+# Usage:  tests/dis/run.sh [suite-glob]
+#   e.g.  tests/dis/run.sh            # all suites
+#         tests/dis/run.sh concur     # only suites/concur*.b
 #
 set -u
 
@@ -23,7 +23,7 @@ case "$(uname -m)" in aarch64|arm64) ARCH=aarch64;; x86_64|amd64) ARCH=amd64;; *
 EMU="${EMU:-$ROOT/Linux/$ARCH/bin/emu-g}"
 EMUFLAGS="${EMUFLAGS:-}"
 LIMBO="${LIMBO:-$ROOT/Linux/$ARCH/bin/limbo}"
-BUILD="$ROOT/tests/lp64/_build"        # inferno path: /tests/lp64/_build
+BUILD="$ROOT/tests/dis/_build"        # inferno path: /tests/dis/_build
 TIMEOUT=${TIMEOUT:-60}
 
 [ -x "$EMU" ]   || { echo "missing emu-g ($EMU) - run 'make all' first" >&2; exit 2; }
@@ -33,12 +33,12 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/lib"
 
 compile() {  # src.b -> out.dis ; echoes errors, returns limbo rc
-	"$LIMBO" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
+	"$LIMBO" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/dis/lib" -o "$2" "$1" 2>&1
 }
 
 # Build the shared helpers first; suites load them by absolute inferno path
-# (/tests/lp64/_build/lib/NAME.dis).  testing.b must exist; others are optional.
-for libsrc in "$ROOT"/tests/lp64/lib/*.b; do
+# (/tests/dis/_build/lib/NAME.dis).  testing.b must exist; others are optional.
+for libsrc in "$ROOT"/tests/dis/lib/*.b; do
 	[ -e "$libsrc" ] || continue
 	libbase=$(basename "$libsrc" .b)
 	if ! out=$(compile "$libsrc" "$BUILD/lib/$libbase.dis"); then
@@ -54,7 +54,7 @@ total_ok=0 total_notok=0 total_err=0 suites=0
 printf '%-28s %6s %6s %6s\n' "SUITE" "ok" "FAIL" "err"
 printf '%-28s %6s %6s %6s\n' "-----" "--" "----" "---"
 
-for src in "$ROOT"/tests/lp64/suites/*.b; do
+for src in "$ROOT"/tests/dis/suites/*.b; do
 	[ -e "$src" ] || continue
 	base=$(basename "$src" .b)
 	if [ -n "$glob" ] && [[ "$base" != *"$glob"* ]]; then
@@ -73,7 +73,7 @@ for src in "$ROOT"/tests/lp64/suites/*.b; do
 	# Run under emu; emu root is the repo root so /tests/... maps here.
 	# $EMUFLAGS (run-mode) is intentionally unquoted so "-c1 -B" word-splits.
 	# shellcheck disable=SC2086
-	log=$(timeout "$TIMEOUT" "$EMU" $EMUFLAGS -r"$ROOT" /dis/sh.dis -c "/tests/lp64/_build/$base.dis" 2>&1)
+	log=$(timeout "$TIMEOUT" "$EMU" $EMUFLAGS -r"$ROOT" /dis/sh.dis -c "/tests/dis/_build/$base.dis" 2>&1)
 	rc=$?
 
 	nok=$(printf '%s\n' "$log" | grep -c '^ok ')

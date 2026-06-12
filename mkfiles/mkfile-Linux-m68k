@@ -1,0 +1,32 @@
+TARGMODEL=	Posix
+TARGSHTYPE=	sh
+CPUS=		m68k
+
+# Plan 9 object letter (2 = 68020): cross-built objects coexist with the
+# build host's *.o in the same source dirs.  This target exists as the
+# BIG-ENDIAN canary (tests/cunit/cross.sh): the portable C libs must
+# stay correct when byte order flips, and nothing else in the tree is BE.
+O=		2
+OS=		2
+
+AR=		m68k-linux-gnu-ar
+ARFLAGS=	ruvs
+
+AS=		m68k-linux-gnu-gcc -c
+ASFLAGS=
+
+CC=		m68k-linux-gnu-gcc -c
+CFLAGS=		-g -O\
+		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
+		-I$ROOT/Linux/m68k/include\
+		-I$ROOT/include\
+		-DLINUX_M68K
+
+ANSICPP=
+LD=		m68k-linux-gnu-gcc
+LDFLAGS=
+
+SYSLIBS=
+
+YACC=		iyacc
+YFLAGS=		-d

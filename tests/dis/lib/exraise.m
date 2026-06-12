@@ -1,6 +1,6 @@
 Exraise: module
 {
-	PATH:	con "/tests/lp64/_build/lib/exraise.dis";
+	PATH:	con "/tests/dis/_build/lib/exraise.dis";
 
 	# raise a string exception (no handler here) so it unwinds across the
 	# module-call boundary back into the caller — the path that broke on LP64

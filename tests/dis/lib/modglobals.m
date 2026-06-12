@@ -1,6 +1,6 @@
 ModGlobals: module
 {
-	PATH:	con "/tests/lp64/_build/lib/modglobals.dis";
+	PATH:	con "/tests/dis/_build/lib/modglobals.dis";
 
 	Thing: adt {
 		tag:   int;

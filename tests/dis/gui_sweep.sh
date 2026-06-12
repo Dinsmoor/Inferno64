@@ -3,7 +3,7 @@
 # LP64 GUI sweep: compile every Limbo GUI application, then launch each one
 # headless and watch for VM-level crashes.
 #
-# Why this exists: the TAP suites in tests/lp64/suites exercise the Dis VM and
+# Why this exists: the TAP suites in tests/dis/suites exercise the Dis VM and
 # the language, but never open a window.  The LP64 port's GUI-only bugs (e.g.
 # the imported-global Modlink.MP truncation that crashed acme and charon on
 # launch -- see suites/80_modglobal.b) only surface when a real graphical app
@@ -21,7 +21,7 @@
 # environment noise (no /tmp, no plumber, no network) is ignored on purpose --
 # we are hunting C-level VM crashes, which is where the LP64 bugs live.
 #
-# Usage:  tests/lp64/gui_sweep.sh [-c|-l] [name-glob]
+# Usage:  tests/dis/gui_sweep.sh [-c|-l] [name-glob]
 #   -c          compile phase only
 #   -l          launch phase only
 #   name-glob   restrict to apps whose basename matches (e.g. acme, charon)
@@ -36,7 +36,7 @@ cd "$ROOT" || exit 2
 EMU_G="$ROOT/Linux/aarch64/bin/emu-g"      # headless build (compile checks)
 EMU="$ROOT/Linux/aarch64/bin/emu"          # graphical build (launch checks)
 LIMBO="$ROOT/Linux/aarch64/bin/limbo"
-BUILD="$ROOT/tests/lp64/_build/gui"
+BUILD="$ROOT/tests/dis/_build/gui"
 DISP=":${DISPLAY_NUM:-99}"
 GEOM=${GEOM:-1024x768}
 LAUNCH_SECS=${LAUNCH_SECS:-5}

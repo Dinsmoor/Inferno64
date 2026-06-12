@@ -1,9 +1,10 @@
-# LP64 headless test suite
+# Dis VM headless test suite
 
-A repeatable, headless regression suite for the **LP64 Dis VM + Limbo** port
-(`IBY2PTR=8`). It exercises the Dis virtual machine and the Limbo language
-end-to-end through `emu-g` (the graphics-less emulator), with no display
-required. Every test is a self-contained Limbo program that emits
+A repeatable, headless regression suite for the **Dis VM + Limbo**, independent
+of the host ABI (born during the LP64 port, hence some suites' focus; the
+assertions are equally meaningful on a 32-bit or big-endian host). It
+exercises the Dis virtual machine and the Limbo language end-to-end through
+`emu-g` (the graphics-less emulator), with no display required. Every test is a self-contained Limbo program that emits
 [TAP](https://testanything.org/)-style `ok` / `not ok` lines via a shared
 `Testing` helper; the host harness compiles each program with the C `limbo`,
 runs it under `emu-g`, and aggregates the results.
@@ -12,9 +13,9 @@ runs it under `emu-g`, and aggregates the results.
 
 ```sh
 make all                 # build Linux/<arch>/bin/{emu-g,limbo} first
-tests/lp64/run.sh        # run every suite
-tests/lp64/run.sh crypto # run only suites whose name contains "crypto"
-TIMEOUT=120 tests/lp64/run.sh   # override the per-suite timeout (default 60s)
+tests/dis/run.sh        # run every suite
+tests/dis/run.sh crypto # run only suites whose name contains "crypto"
+TIMEOUT=120 tests/dis/run.sh   # override the per-suite timeout (default 60s)
 ```
 
 The runner exits non-zero if any assertion fails (`FAIL`) or any suite crashes

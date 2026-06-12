@@ -115,12 +115,16 @@ for i in $(seq 0 $((N-1))); do
 	IFS=/ read -r suite conf rm <<<"$cell"
 	case "$suite" in
 	cunit)
-		if "$MAKE" $MFLAGS test_all_unit; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
+		# bare `cunit` = host ABI via make; `cunit/<objtype>` = the
+		# cross-ABI canary (32-bit/big-endian libs under qemu-user)
+		if [ -n "$conf" ]; then
+			if bash "$ROOT/tests/cunit/cross.sh" "$conf"; then set_v "$i" PASS; else set_v "$i" FAIL; fi
+		elif "$MAKE" $MFLAGS test_all_unit; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
 	jitperf)
 		if "$MAKE" $MFLAGS test_jitperf; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
 	kernel)
-		if bash "$ROOT/tests/kernel/run.sh"; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
-	lp64|web)
+		if HWTARG="${conf:-virt64}" bash "$ROOT/tests/kernel/run.sh"; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
+	dis|web)
 		emubin="$BIN/$conf"
 		if [ ! -x "$emubin" ]; then set_v "$i" FAIL "binary $conf missing"; continue; fi
 		if EMU="$emubin" EMUFLAGS="$(runflag "$rm")" bash "$ROOT/tests/$suite/run.sh"; then

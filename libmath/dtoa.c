@@ -44,12 +44,20 @@ typedef int Long;
 #define word0(x) ((FPdbleword*)&x)->hi
 #define word1(x) ((FPdbleword*)&x)->lo
 #else
-#ifdef __LITTLE_ENDIAN
-#define word0(x) ((ULong *)&x)[1]
-#define word1(x) ((ULong *)&x)[0]
-#else
+/*
+ * Byte order of the two 32-bit halves of a double.  Do NOT test
+ * `#ifdef __LITTLE_ENDIAN' here: glibc's <endian.h> defines both
+ * __LITTLE_ENDIAN and __BIG_ENDIAN as constants on EVERY arch (they
+ * are the values __BYTE_ORDER is compared against), so that ifdef is
+ * always true and big-endian targets silently get the halves swapped.
+ * Use the compiler's own predefine instead.
+ */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define word0(x) ((ULong *)&x)[0]
 #define word1(x) ((ULong *)&x)[1]
+#else
+#define word0(x) ((ULong *)&x)[1]
+#define word1(x) ((ULong *)&x)[0]
 #endif
 #endif
 

@@ -1,5 +1,9 @@
-# object files, libraries, etc
+# object files, libraries, etc (incl. cross-canary object letter 5=arm)
 *.[8qkv5967o]
+# 68020 cross-canary objects, scoped to the C libs: bitmap subfont files
+# elsewhere in the tree (fonts/**.2) legitimately end in .2
+/lib*/**/*.2
+/utils/**/*.2
 *.obj
 [8qkv965o].out
 [8qkv965o].emu*
@@ -7,6 +11,9 @@ obj.out
 obj.map
 vc*.pdb
 *.a
+
+# python bytecode (test harnesses)
+__pycache__/
 
 # yacc artifacts
 y.output

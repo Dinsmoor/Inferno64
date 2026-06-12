@@ -25,8 +25,8 @@
 #   CLEAN  - the app exited 0, or stayed alive to RUN_SECS with no fault.
 #
 # Usage:
-#   tests/lp64/scenario.sh [app.dis]            # default /dis/acme/acme.dis
-#   DEPTH=16 tests/lp64/scenario.sh /dis/wm/clock.dis
+#   tests/dis/scenario.sh [app.dis]            # default /dis/acme/acme.dis
+#   DEPTH=16 tests/dis/scenario.sh /dis/wm/clock.dis
 #
 # Env knobs (all optional):
 #   DEPTH=24            X colour depth (the acme bug is 24-bit only)
@@ -75,7 +75,7 @@ BUSY_JIFFIES=$(( HZ * SHOT_INTERVAL * FREEZE_SAMPLES / 2 ))
 
 appbase=$(basename "$APP" .dis)
 ts=$(date +%Y%m%d-%H%M%S)
-ART="$ROOT/tests/lp64/_build/scenarios/${ts}_${appbase}_d${DEPTH}"
+ART="$ROOT/tests/dis/_build/scenarios/${ts}_${appbase}_d${DEPTH}"
 mkdir -p "$ART"
 EMULOG="$ART/emu.log"
 

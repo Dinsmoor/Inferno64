@@ -8,8 +8,8 @@
 # engine are pure computation, so they get a deterministic headless oracle here.
 # Visual rendering of the fixtures is exercised separately under a live emu.
 #
-# It reuses the TAP helper from the sibling LP64 suite (tests/lp64/lib/testing)
-# rather than duplicating it; the helper's module PATH is /tests/lp64/_build/...
+# It reuses the TAP helper from the sibling LP64 suite (tests/dis/lib/testing)
+# rather than duplicating it; the helper's module PATH is /tests/dis/_build/...
 # so we build it to that canonical location.
 #
 # Usage:  tests/web/run.sh [suite-glob]
@@ -25,7 +25,7 @@ EMU="${EMU:-$ROOT/Linux/$ARCH/bin/emu-g}"
 EMUFLAGS="${EMUFLAGS:-}"
 LIMBO="${LIMBO:-$ROOT/Linux/$ARCH/bin/limbo}"
 BUILD="$ROOT/tests/web/_build"
-TAPLIB="$ROOT/tests/lp64/_build/lib/testing.dis"   # PATH con baked into testing.m
+TAPLIB="$ROOT/tests/dis/_build/lib/testing.dis"   # PATH con baked into testing.m
 TIMEOUT="${TIMEOUT:-60}"
 
 [ -x "$EMU" ]   || { echo "missing emu-g ($EMU) - run 'make all' first" >&2; exit 2; }
@@ -38,7 +38,7 @@ mkdir -p "$BUILD" "$(dirname "$TAPLIB")"
 compile() {  # src.b -> out.dis ; echoes errors, returns limbo rc
 	# appl/charon first so Charon's url.m (with Parsedurl) wins over module/url.m
 	# for suites that pull common.m; the only file present in both trees.
-	"$LIMBO" -I "$ROOT/appl/charon" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/lp64/lib" -o "$2" "$1" 2>&1
+	"$LIMBO" -I "$ROOT/appl/charon" -I "$ROOT/module" -I "$ROOT/appl/lib" -I "$ROOT/tests/dis/lib" -o "$2" "$1" 2>&1
 }
 
 # Charon modules the suites load by their installed PATH (/dis/charon/*.dis).
@@ -51,8 +51,8 @@ for dep in csseng; do
 done
 
 # shared TAP helper (rebuild if missing or stale)
-if [ ! -f "$TAPLIB" ] || [ "$ROOT/tests/lp64/lib/testing.b" -nt "$TAPLIB" ]; then
-	if ! out=$(compile "$ROOT/tests/lp64/lib/testing.b" "$TAPLIB"); then
+if [ ! -f "$TAPLIB" ] || [ "$ROOT/tests/dis/lib/testing.b" -nt "$TAPLIB" ]; then
+	if ! out=$(compile "$ROOT/tests/dis/lib/testing.b" "$TAPLIB"); then
 		echo "FATAL: testing.b failed to compile:" >&2; echo "$out" >&2; exit 2
 	fi
 fi

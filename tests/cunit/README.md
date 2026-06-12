@@ -26,6 +26,32 @@ did — never hardcode a compiler, `-m32/-m64`, or platform define in a test.
 Run for another ABI with e.g. `make test_lib9_unit OBJTYPE=386` (that arch's
 tree must be built first).
 
+### The cross-ABI canaries (`cross.sh`)
+
+Every developer machine here is 64-bit little-endian, so the 32-bit ABI and
+big-endian byte order would rot invisibly without an executable check.
+`cross.sh` is that check: it cross-builds the portable libs (`lib9 libbio
+libmp libsec libmath`) for a foreign `OBJTYPE` with that arch's mkfile
+toolchain and runs the cunit sections under qemu-user:
+
+    tests/cunit/cross.sh arm        # ILP32 little-endian (gcc-arm-linux-gnueabihf)
+    tests/cunit/cross.sh m68k       # ILP32 BIG-endian (gcc-m68k-linux-gnu)
+
+Cross objects take the arch's Plan 9 object letter (`*.5` arm, `*.2` 68020),
+so they coexist with the host's `*.o` in the same source dirs — no clean/nuke
+dance and no stale-ABI contamination in either direction.  Wired as the
+`cunit/<objtype>` cells in the `make check` manifests.  libinterp/libdraw
+stay host-only: their builds want per-ABI generated module headers, which
+must not be regenerated for a foreign ABI in a live tree.
+
+Byte-order quirk to know when writing endian-sensitive code: never test
+`#ifdef __LITTLE_ENDIAN` — glibc's `<endian.h>` defines it as a constant on
+*every* arch (it's a value `__BYTE_ORDER` is compared against), so the ifdef
+is always true and big-endian silently takes the little-endian path.  Use
+the compiler predefine `__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__` instead
+(see `libmath/dtoa.c`).  Test binaries run under a 60-second timeout, so an
+endianness bug that makes code loop shows up as a FAIL, not a wedged run.
+
 Assertions must not assume a width that varies between ABIs (see the header
 comment in `cunit.h`):
 - `vlong`/`uvlong` are 64-bit on **both** ABIs — assert their full 64-bit
@@ -70,7 +96,7 @@ just that object. Example: `operand`/`disw`/`canontod` were moved from
 `libinterp/load.c` into `libinterp/disops.c` (declared in `interp.h`), which is
 pure code motion — emu still builds and links unchanged — and is now covered by
 `libinterp/disops`. Functions that genuinely need a live heap/module/display
-runtime stay covered by the integration suites (`tests/lp64`, `gui_sweep.sh`).
+runtime stay covered by the integration suites (`tests/dis`, `gui_sweep.sh`).
 
 ## Coverage
 

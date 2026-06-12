@@ -17,6 +17,15 @@ The levels stack: 2 underlies both 1-on-a-new-arch and 3; 3 is the proving
 ground for 4 (bring drivers up under qemu where you can, on hardware only
 where you must).
 
+**Foreign ABIs don't have to rot while you wait.** Every dev machine here is
+64-bit little-endian, so the tree carries executable canaries:
+`tests/cunit/cross.sh arm` (ILP32) and `tests/cunit/cross.sh m68k`
+(big-endian) cross-build the portable C libs with that arch's
+`mkfiles/mkfile-Linux-<objtype>` and run the cunit sections under qemu-user
+— wired as `cunit/<objtype>` cells in the `make check` manifests. A kind-1
+or kind-2 port to a 32-bit or BE target starts from libs that are already
+known-good there (see `tests/cunit/README.md`).
+
 ---
 
 # Part I: porting emu to a new host (Linux/aarch64, as built)

@@ -28,7 +28,7 @@ Re: import regex;
 Msg, Attr: import plumbmsg;
 Rule, Pattern: import plumbing;
 
-BUILD: con "/tests/lp64/_build";
+BUILD: con "/tests/dis/_build";
 
 PlumbTest: module
 {

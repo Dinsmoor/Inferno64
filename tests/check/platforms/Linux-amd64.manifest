@@ -10,17 +10,19 @@
 
 # ---- build matrix ----
 build  emu                require
-build  emu-g              require    headless build the lp64/web suites run under
+build  emu-g              require    headless build the dis/web suites run under
 build  emu/release        require    release link-check: DISPTRCHECK off must still build
 build  emu-wrt            todo       wince/wrt config unmaintained
 
 # ---- test matrix ----
 test   cunit              require
-test   lp64/emu-g/interp  require    interpreter is the portable reference path
-test   lp64/emu-g/jit     skip       comp-amd64.c unverified under LP64
+test   cunit/arm          require    ILP32 canary (qemu-user; tests/cunit/cross.sh arm)
+test   cunit/m68k         require    big-endian canary (qemu-user; tests/cunit/cross.sh m68k)
+test   dis/emu-g/interp  require    interpreter is the portable reference path
+test   dis/emu-g/jit     skip       comp-amd64.c unverified under LP64
 test   web/emu-g/interp   require
-test   jitperf            skip       needs a trusted JIT; revisit with lp64/.../jit
-test   kernel             skip       aarch64-only image; qemu TCG cross-boot untested here
+test   jitperf            skip       needs a trusted JIT; revisit with dis/.../jit
+test   kernel/virt64      skip       aarch64 image; qemu TCG cross-boot untested here
 
 # ---- docs ----
 doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage

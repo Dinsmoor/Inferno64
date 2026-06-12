@@ -18,6 +18,9 @@
 # Env (set by the Makefile, with sane defaults):
 #   ROOT     repo root
 #   OBJDIR   <SYSTARG>/<OBJTYPE>  (e.g. Linux/aarch64, Linux/386)
+#   RUN      executor prefix for the test binaries — empty for native,
+#            "qemu-arm -L /usr/arm-linux-gnueabihf" etc. for a cross
+#            OBJDIR (see cross.sh)
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -70,9 +73,12 @@ for section in "$@"; do
 		if ! $CC $CFLAGS -o "$bin" "$src" "$SCRIPT_DIR/shim.c" $libs 2>"$out/$base.cc.log"; then
 			echo "  CCERR $base"; sed 's/^/    /' "$out/$base.cc.log"; rc=1; continue
 		fi
-		if "$bin" >"$out/$base.run.log" 2>&1; then
+		# timeout: a unit test that loops is a FAIL, not a wedged gate
+		if timeout 60 ${RUN:-} "$bin" >"$out/$base.run.log" 2>&1; then
 			echo "  PASS  $(tail -1 "$out/$base.run.log")"
 		else
+			s=$?
+			[ "$s" = 124 ] && echo "(timeout: killed after 60s)" >>"$out/$base.run.log"
 			echo "  FAIL  $base"; sed 's/^/    /' "$out/$base.run.log"; rc=1
 		fi
 	done

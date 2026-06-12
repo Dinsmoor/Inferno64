@@ -2,25 +2,28 @@ TARGMODEL=	Posix
 TARGSHTYPE=	sh
 CPUS=		arm
 
-O=		o
-OS=		o
+# Plan 9 object letter (5 = arm): cross-built objects coexist with the
+# build host's *.o in the same source dirs (tests/cunit/cross.sh builds
+# the portable C libs with this file as the ILP32 little-endian canary)
+O=		5
+OS=		5
 
-AR=		ar
+AR=		arm-linux-gnueabihf-ar
 ARFLAGS=	ruvs
 
-AS=		arm-gcc -c 
+AS=		arm-linux-gnueabihf-gcc -c
 ASFLAGS=
 
-CC=		arm-gcc -c 
-CFLAGS=		-O\
+CC=		arm-linux-gnueabihf-gcc -c
+CFLAGS=		-g -O\
 		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
 		-I$ROOT/Linux/arm/include\
 		-I$ROOT/include\
 		-DLINUX_ARM
 
 ANSICPP=
-LD=		arm-gcc 
-LDFLAGS=	
+LD=		arm-linux-gnueabihf-gcc
+LDFLAGS=
 
 SYSLIBS=
 

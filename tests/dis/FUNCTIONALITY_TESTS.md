@@ -3,8 +3,8 @@
 Living record of exercising Inferno OS **graphically and interactively** on the
 dual-ABI LP64 port, feature by feature, fixing crashes/hangs as they surface.
 
-- Harness: `tests/lp64/scenario.sh` (headless deterministic GUI runner, JSON
-  verdict) and `tests/lp64/gui_sweep.sh` (compile + launch sweep). Diagnosis
+- Harness: `tests/dis/scenario.sh` (headless deterministic GUI runner, JSON
+  verdict) and `tests/dis/gui_sweep.sh` (compile + launch sweep). Diagnosis
   loop + host setup: the `inferno-autonomy` skill.
 - Branch: `lp64-fault-observability`. **Fixes** are isolated, cherry-pickable
   commits (destined for master); observability/harness tooling stays on-branch.
@@ -32,15 +32,15 @@ Status legend: ✅ pass · ❌ fail (bug) · 🔧 fix in progress · ⏳ not yet
 | plumber | ✅ | **was failing for non-"inferno" users; fixed** (BUG-2). Desktop plumber now runs (2 procs) with all ports (`/chan/plumb.{edit,web,view,dir,man,auplay,input}`) |
 | crypto / keyring | 🟡 | headless cunit + 20_crypto pass; GUI tools untested |
 
-(The headless TAP suites in `tests/lp64/suites/` already cover VM/lang/concur/
-crypto/styx/loader — see `tests/lp64/README.md`. This document is about the
+(The headless TAP suites in `tests/dis/suites/` already cover VM/lang/concur/
+crypto/styx/loader — see `tests/dis/README.md`. This document is about the
 **graphical/interactive** surface those suites never touch.)
 
 ## Findings / bugs
 
 ### BUG-1 — acme crashes at 24-bit (LP64 heap corruption)  🔧
 - **Symptom:** acme over VNC at 24-bit depth crashes/freezes; 16-bit is clean.
-- **Repro (on demand):** `ASLR=on DEPTH=24 tests/lp64/scenario.sh /dis/acme/acme.dis`
+- **Repro (on demand):** `ASLR=on DEPTH=24 tests/dis/scenario.sh /dis/acme/acme.dis`
   → CRASH on first attempt, `EMUCRASH` core dropped. (ASLR-off masks it.)
 - **Pinned (gdb MCP on the core):** SIGSEGV in `dopoolalloc` walking the pool
   free-tree on a non-canonical link `x3=0xf900067ff80106a0` (garbage high 16
@@ -134,7 +134,7 @@ works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
 - **Verified end-to-end:** `srv->iph2a("example.com")` returns the real
   IPv4+IPv6 address list; the actual `ndb/dns -r` server + `ndb/dnsquery`
   resolves `example.com` and `google.com` headlessly. Full suite still green
-  (tests/lp64 178/178, gui_sweep 22/22, 10_concur 11/11).
+  (tests/dis 178/178, gui_sweep 22/22, 10_concur 11/11).
 - **Note on the scheduler work:** the earlier "VM-token deadlock" diagnosis was a
   red herring — the idle/zombie state after the crash was misread as a live
   deadlock. The `addrun()` `Wakeup(irend)` change (commit `18a0a75b` / master
@@ -143,7 +143,7 @@ works), not basic editing. `scripts/headless_vnc.sh`'s full desktop starts it.
   DNS fix** and fixes no confirmed bug — flagged for review/possible revert.
 - Network/srv primitives independently proven: TCP+UDP dial (`dialtest`),
   connected-UDP DNS to 8.8.8.8 (`udptest`), headers-mode UDP (`hdrudp`),
-  `file2chan` round-trip (`f2cecho`). Repro/test progs in `tests/lp64/_build/`.
+  `file2chan` round-trip (`f2cecho`). Repro/test progs in `tests/dis/_build/`.
 
 ## Method notes
 

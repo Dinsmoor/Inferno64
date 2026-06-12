@@ -14,7 +14,7 @@ bench is split to match:
 1. **Logic suites (`suites/*.b`)** — CSS parsing and the cascade/selector
    engine are *pure computation*, so they run headless under `emu-g` and emit
    [TAP](https://testanything.org/) (`ok` / `not ok`), exactly like
-   `tests/lp64`. No display, fully deterministic. This is the primary oracle.
+   `tests/dis`. No display, fully deterministic. This is the primary oracle.
 2. **Visual fixtures (`fixtures/`)** — HTML/CSS served to a live `emu` (via
    `file://` for pure rendering, or a local HTTP server for transport
    features). Judged with a screenshot/eyeball on the shared VNC desktop.
@@ -29,8 +29,8 @@ tests/web/run.sh cssparse # only suites/*cssparse*.b
 TIMEOUT=120 tests/web/run.sh
 ```
 
-The runner reuses the TAP helper from `tests/lp64/lib/testing` (building it to
-its canonical `/tests/lp64/_build/lib/testing.dis` if needed) rather than
+The runner reuses the TAP helper from `tests/dis/lib/testing` (building it to
+its canonical `/tests/dis/_build/lib/testing.dis` if needed) rather than
 duplicating it. Exit status is nonzero if any suite has a `not ok` or errors.
 
 ## Layout

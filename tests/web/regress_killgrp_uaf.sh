@@ -10,11 +10,11 @@
 # the fence). probe_mbounce.html just meta-refresh-bounces, firing killgrp on
 # every navigation. PASS = it bounces clean under the fence for the window.
 #
-# Reuses tests/lp64/scenario.sh (headless Xvfb + crash detection). Exit codes are
+# Reuses tests/dis/scenario.sh (headless Xvfb + crash detection). Exit codes are
 # scenario.sh's: 0 CLEAN(pass), 4 CRASH(UAF regressed), 3 HANG, 2 setup error.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 export LIMBRULFENCEMEMSIZE=128
 RUN_SECS=${RUN_SECS:-30} ASLR=${ASLR:-off} \
-	exec "$ROOT/tests/lp64/scenario.sh" \
+	exec "$ROOT/tests/dis/scenario.sh" \
 		'charon file:///tests/web/fixtures/probe_mbounce.html'

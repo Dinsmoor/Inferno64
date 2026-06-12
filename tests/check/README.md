@@ -30,10 +30,12 @@ CHECK  CELL  STATUS  [NOTE...]
 - **CELL grammar**
   - `build  <conf>[/release]` — conf = `emu` | `emu-g` | `emu-wrt`; `/release`
     link-checks the no-instrumentation build
-  - `test   cunit` — dual-ABI C library unit tests
-  - `test   {lp64,web}/<conf>/<runmode>` — runmode = `interp` | `jit` | `jitB`
+  - `test   cunit[/<objtype>]` — C library unit tests; with `/<objtype>` the
+    cross-ABI canary (`tests/cunit/cross.sh`): `arm` = ILP32, `m68k` = big-endian,
+    cross-built and run under qemu-user
+  - `test   {dis,web}/<conf>/<runmode>` — runmode = `interp` | `jit` | `jitB`
   - `test   jitperf` — self-contained `c0`/`c1`/`c1B` bench + bit-equivalence
-  - `test   kernel` — native-kernel end-to-end under qemu -M virt (`tests/kernel`)
+  - `test   kernel/<board>` — native-kernel end-to-end under the board's qemu profile (`tests/kernel`, `os/boards/<board>/qemu.json`)
   - `doc    <name>`
 
 The matrix is identical across platforms; only the **trust** (the STATUS)
@@ -45,7 +47,7 @@ visible.
 ## Adding a platform / cell
 
 Drop a `platforms/<SYSTARG>-<OBJTYPE>.manifest`. The driver dispatches test cells
-to the existing suite runners (`tests/{cunit,lp64,web,jitperf}`), driving
-`tests/lp64/run.sh` and `tests/web/run.sh` via their `EMU` / `EMUFLAGS` env
+to the existing suite runners (`tests/{cunit,dis,web,jitperf}`), driving
+`tests/dis/run.sh` and `tests/web/run.sh` via their `EMU` / `EMUFLAGS` env
 overrides to pick the binary and run-mode. The `doc man-coverage` cell is a
 scoped `todo` (man-page-per-`/dis`-command, then per-flag) with no checker yet.

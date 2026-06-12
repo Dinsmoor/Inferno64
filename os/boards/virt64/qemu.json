@@ -1,0 +1,14 @@
+{
+  "_comment": "qemu test profile for tests/kernel — how to boot this board headlessly. Boards with no qemu model omit this file and the suite skips them.",
+  "arch": "aarch64",
+  "qemu": "qemu-system-aarch64",
+  "machine": ["-M", "virt", "-cpu", "cortex-a53", "-m", "512",
+              "-global", "virtio-mmio.force-legacy=false",
+              "-device", "virtio-rng-device"],
+  "netdev_device": "virtio-net-device",
+  "blk_device": "virtio-blk-device",
+  "gui_devices": ["-device", "ramfb",
+                  "-device", "virtio-keyboard-device",
+                  "-device", "virtio-tablet-device"],
+  "bootsecs": 25
+}

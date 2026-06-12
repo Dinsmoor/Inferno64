@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-End-to-end tests for the native aarch64 kernel (os/aarch64 + os/boards/virt64).
+End-to-end tests for native kernels (os/<arch> + os/boards/<board>).
 
-Each test boots its own qemu -M virt guest from the built image and drives
-the serial console; TAP output, one line per test.  See run.sh for the
-entry point and README.md for what each test proves.
+Board-agnostic: HWTARG selects the board (default virt64) and the board's
+os/boards/<board>/qemu.json profile says how to boot it under qemu (machine
+args, device flavours, settle time).  Each test boots its own guest from
+the built image and drives the serial console; TAP output, one line per
+test.  See run.sh for the entry point and README.md for what each test
+proves.  Tests needing a device the profile doesn't declare (gui, disk)
+SKIP rather than fail.
 
 Origin: the ad-hoc /tmp harnesses that verified the Tier-1 services
 (networking, DNS, storage, TLS, import/export, the graphical session)
@@ -20,14 +24,18 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-KERNEL = os.environ.get("KERNEL", os.path.join(ROOT, "os/aarch64/ivirt64.elf"))
-EMU = os.environ.get("EMU", os.path.join(ROOT, "Linux/aarch64/bin/emu"))
+HWTARG = os.environ.get("HWTARG", "virt64")
+PROFILE = os.path.join(ROOT, "os/boards", HWTARG, "qemu.json")
+with open(PROFILE) as _f:
+    PROF = json.load(_f)
+KERNEL = os.environ.get("KERNEL", os.path.join(
+    ROOT, "os", PROF["arch"], f"i{HWTARG}.elf"))
+# the hosted emu used as the import/export peer — always the build host's
+HOSTM = {"arm64": "aarch64", "x86_64": "amd64"}.get(os.uname().machine,
+                                                    os.uname().machine)
+EMU = os.environ.get("EMU", os.path.join(ROOT, f"Linux/{HOSTM}/bin/emu"))
 
-QEMU_BASE = [
-    "qemu-system-aarch64", "-M", "virt", "-cpu", "cortex-a53", "-m", "512",
-    "-global", "virtio-mmio.force-legacy=false",
-    "-device", "virtio-rng-device",
-]
+QEMU_BASE = [PROF["qemu"]] + PROF["machine"]
 
 NETCONF = [
     ("bind -a '#l' /net", 2),
@@ -49,7 +57,9 @@ def freeport():
 class Guest:
     """One qemu guest driven over the serial console."""
 
-    def __init__(self, extra=None, bootsecs=25):
+    def __init__(self, extra=None, bootsecs=None):
+        if bootsecs is None:
+            bootsecs = PROF.get("bootsecs", 25)
         self.port = freeport()
         cmd = QEMU_BASE + (extra or []) + [
             "-kernel", KERNEL, "-display", "none", "-monitor", "none",
@@ -87,9 +97,11 @@ class Guest:
 
 
 def netdev(hostfwd=None):
+    if not PROF.get("netdev_device"):
+        raise SkipTest(f"board {HWTARG} declares no qemu net device")
     n = "user,id=n0" + (f",hostfwd=tcp:127.0.0.1:{hostfwd[0]}-:{hostfwd[1]}"
                         if hostfwd else "")
-    return ["-netdev", n, "-device", "virtio-net-device,netdev=n0"]
+    return ["-netdev", n, "-device", f"{PROF['netdev_device']},netdev=n0"]
 
 
 # ---- the tests -----------------------------------------------------
@@ -138,11 +150,13 @@ def test_dns():
 
 
 def test_disk():
-    """kfs on virtio-blk: a file survives a full qemu restart."""
+    """kfs on the board's block device: a file survives a full qemu restart."""
+    if not PROF.get("blk_device"):
+        raise SkipTest(f"board {HWTARG} declares no qemu block device")
     with tempfile.NamedTemporaryFile(suffix=".img") as img:
         img.truncate(64 * 1024 * 1024)
         disk = ["-drive", f"if=none,file={img.name},format=raw,id=hd0",
-                "-device", "virtio-blk-device,drive=hd0"]
+                "-device", f"{PROF['blk_device']},drive=hd0"]
         g = Guest(extra=disk)
         g.run([
             ("bind -a '#S' /dev", 2),
@@ -271,13 +285,14 @@ def test_impexp():
 
 
 def test_gui():
-    """The wm desktop comes up on ramfb: QMP screendump must show a real
-    image (many distinct colours), not a flat/black framebuffer."""
+    """The wm desktop comes up on the board's display: QMP screendump must
+    show a real image (many distinct colours), not a flat/black framebuffer."""
+    if not PROF.get("gui_devices"):
+        raise SkipTest(f"board {HWTARG} declares no qemu display devices")
     qmp = tempfile.mktemp(prefix="ktest-qmp-")
-    gui = ["-device", "ramfb",
-           "-device", "virtio-keyboard-device", "-device", "virtio-tablet-device",
-           "-qmp", f"unix:{qmp},server=on,wait=off"]
-    g = Guest(extra=gui + netdev(), bootsecs=45)   # wm + warmup settle
+    gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
+    # wm + warmup settle
+    g = Guest(extra=gui + netdev(), bootsecs=PROF.get("bootsecs", 25) + 20)
     s = socket.socket(socket.AF_UNIX)
     s.connect(qmp)
     f = s.makefile("rw")
@@ -318,7 +333,8 @@ def main():
     tests = [t for t in ALL
              if not want or any(w in t.__name__ for w in want)]
     if not os.path.exists(KERNEL):
-        print(f"Bail out! kernel image missing: {KERNEL} (cd os/aarch64 && make)")
+        print(f"Bail out! kernel image missing: {KERNEL} "
+              f"(cd os/{PROF['arch']} && make HWTARG={HWTARG})")
         return 1
     print(f"1..{len(tests)}")
     failed = 0

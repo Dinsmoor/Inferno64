@@ -32,11 +32,14 @@ $LIBRARY(%.$O):N:	%.$O
 # libs -> __asan_* undefined references).
 %.$O:	$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE
 
+# -o $target: $O is the Plan 9 per-arch object letter on cross targets
+# (5=arm, 2=68020, ...) so cross objects coexist with the build host's
+# *.o in the same source dir; gcc's default output name would be $stem.o
 %.$O:	%.c
-	$CC $CFLAGS $stem.c
+	$CC $CFLAGS -o $target $stem.c
 
 %.$O:	%.s
-	$AS $ASFLAGS $stem.s
+	$AS $ASFLAGS -o $target $stem.s
 
 %.$O:	%.S$MACOSINF
 	$AS $ASFLAGS -o $target $stem.S

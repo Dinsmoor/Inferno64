@@ -140,7 +140,7 @@ This fork includes some others' work:
 
 - **Limbo by Example** (`docs/ref/limbobyexample/`) is by Sean "henesy" Hinchee —
   <https://github.com/henesy/limbobyexample>
-- The LP64 regression suite under `tests/lp64/` draws on the test programs in
+- The Dis VM regression suite under `tests/dis/` draws on the test programs in
   caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab>
 
 Mostly these are included here for convenience

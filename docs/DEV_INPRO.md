@@ -25,6 +25,16 @@ pointer here.
 
 ## Recently landed (move detail into the subsystem doc, then drop)
 
+- [x] **Portability generalization + cross-ABI canaries** — `tests/lp64` →
+      `tests/dis` (the suite was never LP64-specific; check-cell grammar is now
+      `dis/<conf>/<runmode>`); the native-kernel make machinery hoisted into
+      `os/native.mk` (arch files like `os/aarch64/Makefile` are ~10 lines);
+      `tests/kernel` is board-agnostic (`HWTARG=` + per-board
+      `os/boards/<board>/qemu.json`, check cell `kernel/<board>`); and
+      executable 32-bit/big-endian canaries: `tests/cunit/cross.sh arm|m68k`
+      cross-builds the portable C libs (Plan 9 object letters `*.5`/`*.2`, no
+      collision with host `*.o`) and runs the cunit sections under qemu-user
+      (`cunit/<objtype>` check cells). Detail: `tests/cunit/README.md`.
 - [x] **Native aarch64 kernel: full service parity + board factoring** — boots
       qemu -M virt to the complete wm desktop with JIT, crypto builtins,
       networking (os/ip + virtio-net, ndb/cs+dns work out of the box),
@@ -42,6 +52,14 @@ pointer here.
 
 ## Parked / deferred
 
+- [ ] **Native-kernel scheduler lockloop (flaky)** — the `kernel/virt64` check
+      cell can fail on the dns/tls tests: panic `lockloop` with `ready()`'s
+      `lock(runq)` (os/port/proc.c:119) as both holder and spinner, JIT
+      `rmcall` in the trace, triggered by webgrab's TCP path. Timing-dependent
+      (fails in streaks, passes on rerun); bisect shows it predates the
+      2026-06-12 build factoring. Suspects: an interrupt path doing `wakeup()`
+      outside splhi coverage, or the JIT entering the scheduler unmasked.
+      Start by making taslock's lockloop report dump the holder's trace.
 - [ ] **Idle-Charon heap corruption** (poolcheck abort on window close) —
       characterised, not root-caused. The bit-36 stray-free-tree-pointer bug.
       Detail: `ON_C_IN_DIS.md` §"Open runtime bug" + memory

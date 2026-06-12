@@ -13,18 +13,24 @@ The build is factored for multiple boards:
 
 - `os/aarch64/` — the arch core every aarch64 board shares: entry +
   vectors + MMU skeleton (l.S), traps (trap.c), generic timer
-  (clock.c), main.c, and the Makefile with the big lib lists (Dis,
-  draw/Tk, libsec/mp, mbedTLS, os/ip). l.S handles the EL2→EL1 drop
-  and builds the identity map from the board's `L1MAPENT0..3`.
+  (clock.c), main.c, and a ~10-line Makefile naming what is aarch64's
+  (arch sources, codegen flags, libinterp/libkern per-arch files).
+  Everything arch-free — board selection, the USERSPACE root profiles,
+  the big lib lists (Dis, draw/Tk, libsec/mp, mbedTLS, os/ip), the
+  compile rules and link — lives in `os/native.mk`, shared by every
+  future arch (amd64 next). l.S handles the EL2→EL1 drop and builds
+  the identity map from the board's `L1MAPENT0..3`.
 - `os/drivers/` — board-agnostic drivers, one file each: uart-pl011,
   gic-v2, the virtio-mmio transport + rng/input/net/blk drivers,
   ramfb, screen (memory-Memimage framebuffer), devether.
 - `os/boards/virt64/` (this directory) — what makes a board: `board.h`
   (addresses, IRQ ids, RAM base/size, MMU map, PSCI conduit), `board.c`
   (the `boardinit`/`boardready`/`rtctime` hooks), `board.mk` (which
-  drivers to link, how to `make run`), `kernel.ld` (load address), and
+  drivers to link, how to `make run`), `kernel.ld` (load address),
   the kernel config `virt64` (devices, builtin modules, root
-  structure).
+  structure), and `qemu.json` (how tests/kernel boots this board
+  headlessly — omit it for hardware with no qemu model and the suite
+  skips the board cleanly).
 
 The interrupt controller is behind a four-call seam (`intcinit`,
 `intcenable`, `intcdisable`, `intcdispatch` — see fns.h), so a GICv3

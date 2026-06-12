@@ -733,9 +733,10 @@ The native kernel has the same conceptual structure but is implemented different
 
 The `os/port/` directory contains architecture-independent kernel code (proc management, channel routing, memory allocation) that mirrors `emu/port/` semantically but is implemented for bare-metal.
 
-For aarch64/ARM64 native kernel work the build is split three ways:
-**`os/aarch64/`** (the arch core + the parameterized Makefile — build with
-`make HWTARG=<board> [USERSPACE=full|headless]` there), **`os/drivers/`**
+For native kernel work the build is split three ways:
+**`os/<arch>/`** (the arch core + a ~10-line arch Makefile over the shared
+`os/native.mk` — build with `make HWTARG=<board> [USERSPACE=full|headless]`
+there; aarch64 is the arch built so far), **`os/drivers/`**
 (board-agnostic drivers: pl011, gic-v2, virtio transport + net/blk/rng/input,
 ramfb, devether) and **`os/boards/<board>/`** (board.h addresses, board.c
 hooks, kernel config, kernel.ld, board.mk driver picks). The first board is

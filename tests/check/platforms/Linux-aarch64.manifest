@@ -10,9 +10,12 @@
 # CELL grammar:
 #   build  <conf>[/release]              conf = emu | emu-g | emu-wrt
 #                                        /release = link with DISPTRCHECK off
-#   test   cunit                         dual-ABI C library unit tests
-#   test   {lp64,web}/<conf>/<runmode>   runmode = interp | jit | jitB
+#   test   cunit[/<objtype>]             C library unit tests; /<objtype> =
+#                                        cross-ABI canary under qemu-user
+#                                        (tests/cunit/cross.sh: arm=ILP32, m68k=BE)
+#   test   {dis,web}/<conf>/<runmode>   runmode = interp | jit | jitB
 #   test   jitperf                       self-contained c0/c1/c1B bench + bit-equiv
+#   test   kernel/<board>                native-kernel e2e (os/boards/<board>/qemu.json)
 #   doc    <name>
 #
 # The matrix is identical across platforms; what differs per platform is the
@@ -21,17 +24,19 @@
 
 # ---- build matrix ----
 build  emu                require
-build  emu-g              require    headless build the lp64/web suites run under
+build  emu-g              require    headless build the dis/web suites run under
 build  emu/release        require    release link-check: DISPTRCHECK off must still build
 build  emu-wrt            todo       wince/wrt config unmaintained
 
 # ---- test matrix ----
 test   cunit              require
-test   lp64/emu-g/interp  require
-test   lp64/emu-g/jit     require    aarch64 Dis JIT is trusted
+test   cunit/arm          require    ILP32 canary (qemu-user; tests/cunit/cross.sh arm)
+test   cunit/m68k         require    big-endian canary (qemu-user; tests/cunit/cross.sh m68k)
+test   dis/emu-g/interp  require
+test   dis/emu-g/jit     require    aarch64 Dis JIT is trusted
 test   web/emu-g/interp   require
 test   jitperf            require    also a JIT bit-identity correctness gate
-test   kernel             require    native-kernel e2e under qemu -M virt (tests/kernel, ~4 min)
+test   kernel/virt64      require    native-kernel e2e under the board's qemu profile (~4 min)
 
 # ---- docs (scoped, not yet wired) ----
 doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage

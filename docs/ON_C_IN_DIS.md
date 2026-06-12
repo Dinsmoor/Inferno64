@@ -141,7 +141,7 @@ in Tables E–F exist to catch.
 | 5 | A truncated/stray Dis pointer gets walked by the collector | **`DISPTRCHECK`** ("Valgrind for Dis pointers"), `-DDISPTRCHECK` debug build | `libinterp/gc.c` | **Runtime (debug)** |
 | 6 | Wrong-width `.dis` (stale 32-bit module on 64-bit emu) | **`XMAGIC` vs `XMAGIC8`** stamp + `exDiswidth` rejection → shell recompiles from source | `limbo/com.c`, `libinterp/load.c` | **Load** |
 | 7 | Stale generated module headers (`srv.h`, runt.h) after an ABI switch | `make` **force-regenerates** generated headers per-ABI; `clean`/`nuke` wipe them | mkfiles | **Build** |
-| 8 | Anything that slips all of the above | regression nets: **`tests/lp64`** (9 suites) + **`tests/cunit`** (per-C-lib: lib9/libmp/libsec/libmath/libbio/…) | `tests/` | **Test** |
+| 8 | Anything that slips all of the above | regression nets: **`tests/dis`** (9 suites) + **`tests/cunit`** (per-C-lib: lib9/libmp/libsec/libmath/libbio/…) + **`tests/cunit/cross.sh`** (the same lib tests cross-built ILP32/arm and big-endian/m68k, run under qemu-user) | `tests/` | **Test** |
 | 9 | First-fault capture for a bug in the wild | **`EMUCRASH=1`** core + `USR2` dump + `EMUWATCHDOG` | `emu/Linux/os.c` | **Runtime obs.** |
 
 ### Table F — Defense-in-depth: when each net fires
@@ -153,7 +153,7 @@ in Tables E–F exist to catch.
 | **Build** | #1 `make lint` regression, #7 header regen | seconds; baseline diff |
 | **Load** | #6 wrong-width `.dis` | automatic recompile |
 | **Init / run** | #4 `verifytype`, #5 `DISPTRCHECK` (debug) | debug-build only |
-| **Test** | #8 `tests/lp64` + `tests/cunit` | `make check` gate |
+| **Test** | #8 `tests/dis` + `tests/cunit` | `make check` gate |
 | **In the wild** | #9 `EMUCRASH`/`USR2`/watchdog | core on first fault |
 
 The takeaway: the LP64 hazard is **real but bounded and mechanically caught** — two
@@ -289,7 +289,7 @@ lint`, the `genmove` width assert, the GC pointer-map cross-check, and `DISPTRCH
 > The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
 > arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
 > audited — see below). `github.com/caerwynj/inferno-lab` is the test battery;
-> the in-repo `tests/lp64/` harness (178 assertions, 9 suites) is the standing
+> the in-repo `tests/dis/` harness (178 assertions, 9 suites) is the standing
 > regression net.
 
 Status as of this work: the aarch64 host toolchain (`limbo`, `mk`, `iyacc`) and the
@@ -356,7 +356,11 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   corrupted the bignum arithmetic and made `word0`/`word1` read past the end of
   the double. Pinned the word type to 32 bits (`typedef unsigned int ULong; typedef
   int Long;`). Without this the freshly built `limbo` segfaulted while generating
-  `runt.h`.
+  `runt.h`. Same file, the byte-order rule: select `word0`/`word1` with the
+  compiler predefine `__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__`, never
+  `#ifdef __LITTLE_ENDIAN` — glibc defines that macro as a constant on every
+  arch, so the ifdef is always true and big-endian gets the halves swapped
+  (the `cunit/m68k` check cell guards this).
 - **`limbo/dtocanon.c` + `libinterp/load.c` (`dtocanon`/`canontod`)** — same
   `unsigned long`-is-8-bytes family. These split/reassemble an IEEE double into the
   two 32-bit words of the `.dis` data section via a `union { double d; unsigned long
@@ -401,7 +405,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   exception fell through a non-matching handler — e.g. `kill 99999` doing
   `raise "fail:nothing killed"` back into the shell, which broke `wm/wm`'s
   `wmsetup`/`plumber`. Fixed: `#define NOPC (~(ulong)0)` (all-ones at native width;
-  correct on ILP32 and LP64). Regression: `tests/lp64/suites/70_except.b`. Found
+  correct on ILP32 and LP64). Regression: `tests/dis/suites/70_except.b`. Found
   the native way (per ON_DEBUGGING.md): the broken proc parks in `Broken` and
   `/prog/<pid>/{exception,stack}` give the Dis-level trace — reach for `/prog`
   before gdb.
@@ -417,7 +421,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   `libinterp/load.c`. Also made `libinterp/load.c:operand()` (the bytecode operand
   decoder) shift in `u32int` — behavior-identical, removes the UB. Found by the
   UBSan sweep (see ON_DEBUGGING.md "Sanitizer builds"); regression-covered by
-  `tests/lp64/suites/30_styxnet` (9P) and the suite at large. The remaining UBSan
+  `tests/dis/suites/30_styxnet` (9P) and the suite at large. The remaining UBSan
   findings (pixel-assembly shifts, crypto/bignum byte-assembly, the string hash,
   `memmove(x,nil,0)`) are **benign** — results verified (correct render + crypto
   vectors), values stay 32-bit/masked — and were left to avoid churn in hot paths.
@@ -785,15 +789,15 @@ bug. After fixes, 1 residual fault: `toy0`, `IMFRAME` on a nil modlink from an
 uninstalled `load` with no nil-check — a program bug, not codegen. Not yet wired as
 a standing harness.
 
-### In-repo headless test suite — `tests/lp64/` (standing regression harness)
+### In-repo headless test suite — `tests/dis/` (standing regression harness)
 A self-contained TAP suite that exercises the Dis VM + Limbo end-to-end through
-`emu-g`, no display needed. `tests/lp64/run.sh` compiles each `suites/*.b` with the
+`emu-g`, no display needed. `tests/dis/run.sh` compiles each `suites/*.b` with the
 C `limbo`, runs it under `emu-g`, and aggregates `ok`/`not ok` (via the shared
 `lib/testing.{m,b}` helper). **178 assertions across 9 suites, all green.** Exits
 non-zero on any failure/crash; tolerates the benign teardown SIGKILL (rc 137; see
 below) but flags a mid-run VM break (`BROKE`/`NOPLAN` — a suite that never reaches
 summary()'s `1..N` plan line). `run.sh` compiles every `lib/*.b` helper first, with
-`-I module -I appl/lib -I tests/lp64/lib`. The suites:
+`-I module -I appl/lib -I tests/dis/lib`. The suites:
 - `00_vm` — big/real constants+math, strings, lists/tuples/arrays incl. replicate
   fill, pick-ADTs, data-carrying exceptions, and the modern features (`**`,
   `fixed()`, function refs). Regression-guards every pointer-width fix above.
@@ -828,7 +832,7 @@ summary()'s `1..N` plan line). `run.sh` compiles every `lib/*.b` helper first, w
   one the GUI apps hit that nothing else in the suite did** (the suites otherwise
   import only funcs and types, never global variables).
 
-### GUI app sweep — `tests/lp64/gui_sweep.sh` (compile + headless launch)
+### GUI app sweep — `tests/dis/gui_sweep.sh` (compile + headless launch)
 The TAP suites never open a window, so GUI-only LP64 crashes (like the imported-
 global one) need a separate net. `gui_sweep.sh` has two phases: **(1) compile** —
 runs `limbo` over every `.b` under the GUI app trees (`appl/{wm,acme,charon,ebook,
@@ -846,7 +850,7 @@ it matches the script's own command line and kills it; bound each emu with
 backgrounded (it exceeds a 120 s foreground budget).
 
 **Gotchas baked into the suite (read before extending):** (1) tests live in the
-repo tree and reference inferno paths under the emu root (`/tests/lp64/...`,
+repo tree and reference inferno paths under the emu root (`/tests/dis/...`,
 `/module`); generated files go in `_build/` (git-ignored), **not `/tmp`** — `/tmp`
 is not in the headless namespace. (2) `exit` is a no-arg statement; programs signal
 pass/fail through TAP, not an exit status. (3) **any spawned helper proc must

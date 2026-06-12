@@ -1,6 +1,6 @@
 Testing: module
 {
-	PATH:	con "/tests/lp64/_build/lib/testing.dis";
+	PATH:	con "/tests/dis/_build/lib/testing.dis";
 
 	init:		fn();
 	ok:		fn(cond: int, name: string);

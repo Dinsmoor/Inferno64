@@ -27,7 +27,7 @@ MK      := $(ROOT)/$(OBJDIR)/bin/mk
 # FreeType 2.13.2 is now vendored under libfreetype/libfreetype, the LP64
 # graphics path (libmemdraw/libdraw word width) is fixed, and the desktop
 # (wm/wm) runs, so the GUI build is the default.  Use CONF=emu-g for a
-# graphics-less headless build (faster; what the tests/lp64 suite runs under).
+# graphics-less headless build (faster; what the tests/dis suite runs under).
 CONF    := emu
 
 # Build profiles.  PROFILE selects an optimization + arch + instrumentation
@@ -64,9 +64,12 @@ MKARGS  := ROOT=$(ROOT) SYSHOST=$(SYSHOST) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE)
 EMUARGS := $(MKARGS) CONF=$(CONF)
 
 # Parallel compiles: mk runs up to $NPROC jobs concurrently within each
-# directory. Default to half the host CPUs (floor, min 1) to leave headroom;
-# override with `make NPROC=8 all`.
-NPROC   ?= $(shell n=$$(nproc 2>/dev/null || echo 1); h=$$((n/2)); [ $$h -ge 1 ] && echo $$h || echo 1)
+# directory. Default to all host CPUs minus one (clamped to >= 1) -- full
+# parallel build while leaving one core of headroom for the desktop/editor.
+# This same formula is the default for every build entry point in the tree
+# (os/native.mk for the native kernels, the test drivers). Override with
+# `make NPROC=8 all`.
+NPROC   ?= $(shell n=$$(nproc 2>/dev/null || echo 1); j=$$((n-1)); [ $$j -ge 1 ] && echo $$j || echo 1)
 
 export NPROC
 export PATH := $(ROOT)/$(OBJDIR)/bin:$(PATH)
@@ -315,7 +318,7 @@ test_jitperf:
 # Pre-push gate.  Runs the per-platform capability matrix declared in
 # tests/check/platforms/$(SYSTARG)-$(OBJTYPE).manifest: builds every required
 # CONF (emu, emu-g, and a release link-check), runs every required test suite
-# (cunit, lp64+web under the declared run-modes, jitperf), and prints a
+# (cunit, dis+web under the declared run-modes, jitperf), and prints a
 # PASS/FAIL/SKIP/TODO matrix.  Exits nonzero iff a `require' cell fails.  This is
 # what catches a config that breaks only the headless build, or a release build
 # that rots, before it reaches master.  Builds debug, does a release link-check,
