@@ -39,6 +39,7 @@ TARG=\
 ##	mpeg.dis\
 	mprof.dis\
 	pen.dis\
+	pleromussy.dis\
 	polyhedra.dis\
 	prof.dis\
 	raycube.dis\
