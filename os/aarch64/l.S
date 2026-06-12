@@ -1,10 +1,13 @@
 /*
- * aarch64 (qemu -M virt) low-level support: entry, exception vectors,
+ * aarch64 low-level support: entry, exception vectors,
  * setlabel/gotolabel, spl*, _tas, FP state.  GNU as.
  *
  * We run everything at EL1 with SP_EL1 (EL1h), identity-mapped
- * (MMU + caches on; flat 1GB-block map built at boot below).
+ * (MMU + caches on; flat 1GB-block map built at boot below from the
+ * board's L1MAPENT0..3, see board.h).
  */
+
+#include "board.h"
 
 #define DAIF_I		(1<<7)
 #define KSTACKSIZE	16384
@@ -74,20 +77,22 @@ _start:
 2:
 	/*
 	 * MMU + caches on, identity map.  T0SZ=32 → 4GB VA, walks start
-	 * at level 1, so the whole map is two 1GB block entries:
-	 *   [0] 0x00000000  device nGnRnE, AF, AttrIdx1, PXN|UXN
-	 *       (flash, GIC @0x08000000, PL011 @0x09000000, virtio)
-	 *   [1] 0x40000000  normal write-back inner-shareable, AF, AttrIdx0
-	 * Remaining entries stay 0 (invalid) — kpgtbl is in just-cleared BSS.
+	 * at level 1, so the whole map is four 1GB slots, installed
+	 * verbatim from the board's L1MAPENT0..3 (0 = invalid).
+	 * Remaining table entries stay 0 — kpgtbl is in just-cleared BSS.
 	 * No set/way D-cache invalidate: TCG doesn't model caches; real
 	 * hardware bring-up would need the 9front cache.v8.s dance.
 	 */
 	adrp	x1, kpgtbl
 	add	x1, x1, :lo12:kpgtbl
-	ldr	x2, =0x0060000000000405	/* device block: UXN|PXN|AF|AttrIdx1|block */
+	ldr	x2, =L1MAPENT0
 	str	x2, [x1]
-	ldr	x2, =0x40000701		/* RAM block: AF|SH=ISH|AttrIdx0|block */
+	ldr	x2, =L1MAPENT1
 	str	x2, [x1, #8]
+	ldr	x2, =L1MAPENT2
+	str	x2, [x1, #16]
+	ldr	x2, =L1MAPENT3
+	str	x2, [x1, #24]
 	dsb	ish
 	msr	ttbr0_el1, x1
 	mov	x2, #0xff		/* MAIR: Attr0=0xFF normal WB, Attr1=0x00 device-nGnRnE */
@@ -361,7 +366,11 @@ _tas:
  */
 	.globl psci_call
 psci_call:
-	hvc	#0
+#ifdef BOARD_PSCI_SMC
+	smc	#0		/* real firmware: TF-A at EL3 */
+#else
+	hvc	#0		/* qemu -M virt: no EL3, qemu emulates PSCI */
+#endif
 	ret
 
 /*

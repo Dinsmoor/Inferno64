@@ -3,7 +3,6 @@
 #include	"mem.h"
 #include	"dat.h"
 #include	"fns.h"
-#include	"io.h"
 #include	"ureg.h"
 #include	"../port/error.h"
 
@@ -42,18 +41,6 @@ trapname(int t)
 	return trapnames[t];
 }
 
-static void
-gicenable(int irq)
-{
-	IOREG32(GICD_PHYS, GICD_ISENABLER + 4*(irq/32)) = 1u << (irq%32);
-}
-
-static void
-gicdisable(int irq)
-{
-	IOREG32(GICD_PHYS, GICD_ICENABLER + 4*(irq/32)) = 1u << (irq%32);
-}
-
 void
 intrenable(int v, void (*f)(Ureg*, void*), void* a, int tbdf, char *name)
 {
@@ -70,7 +57,7 @@ intrenable(int v, void (*f)(Ureg*, void*), void* a, int tbdf, char *name)
 	h->a = a;
 	strncpy(h->name, name, KNAMELEN-1);
 	h->name[KNAMELEN-1] = 0;
-	gicenable(v);
+	intcenable(v);
 	iunlock(&veclock);
 }
 
@@ -86,7 +73,7 @@ intrdisable(int v, void (*f)(Ureg*, void*), void* a, int tbdf, char *name)
 	h = &irqvec[v];
 	if(h->r == f && h->a == a){
 		h->r = nil;
-		gicdisable(v);
+		intcdisable(v);
 	}
 	iunlock(&veclock);
 }
@@ -94,44 +81,24 @@ intrdisable(int v, void (*f)(Ureg*, void*), void* a, int tbdf, char *name)
 void
 trapinit(void)
 {
-	int i;
-
-	/* distributor: everything off, route to cpu0, lowest priority threshold */
-	IOREG32(GICD_PHYS, GICD_CTLR) = 0;
-	for(i = 0; i < NIRQ; i += 32){
-		IOREG32(GICD_PHYS, GICD_ICENABLER + 4*(i/32)) = ~0u;
-		IOREG32(GICD_PHYS, GICD_ICPENDR + 4*(i/32)) = ~0u;
-	}
-	for(i = 0; i < NIRQ; i += 4){
-		IOREG32(GICD_PHYS, GICD_IPRIORITYR + i) = 0xa0a0a0a0;
-		if(i >= 32)
-			IOREG32(GICD_PHYS, GICD_ITARGETSR + i) = 0x01010101;
-	}
-	IOREG32(GICD_PHYS, GICD_CTLR) = 1;
-
-	/* cpu interface */
-	IOREG32(GICC_PHYS, GICC_PMR) = 0xff;
-	IOREG32(GICC_PHYS, GICC_CTLR) = 1;
+	intcinit();
 }
 
-static void
-irq(Ureg *ur)
+/* called back from the intc driver's claim/eoi loop, once per vector */
+void
+dispatchirq(Ureg *ur, int v)
 {
-	u32int iar, v;
 	Handler *h;
 
-	for(;;){
-		iar = IOREG32(GICC_PHYS, GICC_IAR);
-		v = iar & 0x3ff;
-		if(v == GICSPURIOUS)
-			break;
-		h = &irqvec[v];
-		if(h->r != nil)
-			h->r(ur, h->a);
-		else
-			iprint("spurious irq %ud\n", v);
-		IOREG32(GICC_PHYS, GICC_EOIR) = iar;
+	if(v < 0 || v >= NIRQ){
+		iprint("irq vector %d out of range\n", v);
+		return;
 	}
+	h = &irqvec[v];
+	if(h->r != nil)
+		h->r(ur, h->a);
+	else
+		iprint("spurious irq %d\n", v);
 }
 
 void
@@ -171,7 +138,7 @@ trap(Ureg *ur)
 	case 1:		/* irq */
 		t = m->ticks;
 		up = nil;	/* no process at interrupt level */
-		irq(ur);
+		intcdispatch(ur);
 		up = m->proc;
 		preemption(m->ticks - t);
 		break;

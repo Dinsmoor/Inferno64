@@ -1,6 +1,7 @@
 /*
  * Memory and machine-specific definitions.  Used in C and assembler.
- * qemu -M virt, aarch64: RAM starts at 1GB.
+ * Board-specific facts (RAM base/size, load address, MMU map) come
+ * from board.h, found via the board include path the Makefile sets up.
  */
 
 /*
@@ -31,12 +32,7 @@
 #define	TK2SEC(t)	((t)/HZ)		/* ticks to seconds */
 #define	MS2TK(t)	((t)/MS2HZ)		/* milliseconds to ticks */
 
-/*
- *  Address spaces.  Identity-mapped (or MMU off): virtual == physical.
- */
-#define KZERO		0x40000000UL		/* base of RAM on qemu virt */
-#define KTZERO		0x40200000UL		/* kernel text load address */
 #define KSTACK		16384			/* kernel stack size (gcc frames are fat) */
 
-/* boot defaults; confinit may someday read the DTB instead */
-#define MEMSIZE		(512*_M_)
+/* KZERO, KTZERO, MEMSIZE, the MMU L1 map, the PSCI conduit */
+#include "board.h"

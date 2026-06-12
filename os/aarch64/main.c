@@ -1,7 +1,6 @@
 #include "u.h"
 #include "../port/lib.h"
 #include "mem.h"
-#include "io.h"
 #include "dat.h"
 #include "fns.h"
 #include "../port/error.h"
@@ -108,17 +107,15 @@ main(void)
 	poolsizeinit();
 	trapinit();
 	clockinit();
-	/* PL031 RTC data register = epoch seconds; qemu -M virt always has one */
-	boottime = IOREG32(RTC_PHYS, 0x000);
+	boottime = rtctime();	/* 0 = clock starts at 1970 (board has no RTC) */
 	printinit();
 	quotefmtinstall();	/* %q: sh and the wm window protocol depend on it */
 	uartinit();
-	screeninit();	/* ramfb, if qemu was given -device ramfb */
+	boardinit();		/* early board hook: framebuffer etc. */
 	procinit();
 	links();
 	chandevreset();
-	virtiornginit();	/* optional: -device virtio-rng-device */
-	virtioinputinit();	/* optional: -device virtio-keyboard-device / virtio-tablet-device */
+	boardready();		/* late board hook: remaining device probes */
 
 	/*
 	 * Dis JIT: one xalloc arena (see jitcode in comp-aarch64.c; a second

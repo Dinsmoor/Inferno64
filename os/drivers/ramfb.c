@@ -3,7 +3,6 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
-#include "io.h"
 
 /*
  * qemu ramfb display via fw_cfg (boot with -device ramfb).

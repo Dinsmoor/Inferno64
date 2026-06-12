@@ -1,29 +1,65 @@
-# os/virt64 — native aarch64 Inferno for qemu -M virt
+# virt64 — native aarch64 Inferno for qemu -M virt
 
 The first bare-metal aarch64 port of the Inferno kernel (`os/` tree,
 not hosted emu). Boots under `qemu-system-aarch64 -M virt` to an
 interactive Inferno shell on the PL011 serial console.
 
+This file documents both the virt64 board and the shared aarch64
+build it rides on.
+
+## Layout: arch core, drivers, boards
+
+The build is factored for multiple boards:
+
+- `os/aarch64/` — the arch core every aarch64 board shares: entry +
+  vectors + MMU skeleton (l.S), traps (trap.c), generic timer
+  (clock.c), main.c, and the Makefile with the big lib lists (Dis,
+  draw/Tk, libsec/mp, mbedTLS, os/ip). l.S handles the EL2→EL1 drop
+  and builds the identity map from the board's `L1MAPENT0..3`.
+- `os/drivers/` — board-agnostic drivers, one file each: uart-pl011,
+  gic-v2, the virtio-mmio transport + rng/input/net/blk drivers,
+  ramfb, screen (memory-Memimage framebuffer), devether.
+- `os/boards/virt64/` (this directory) — what makes a board: `board.h`
+  (addresses, IRQ ids, RAM base/size, MMU map, PSCI conduit), `board.c`
+  (the `boardinit`/`boardready`/`rtctime` hooks), `board.mk` (which
+  drivers to link, how to `make run`), `kernel.ld` (load address), and
+  the kernel config `virt64` (devices, builtin modules, root
+  structure).
+
+The interrupt controller is behind a four-call seam (`intcinit`,
+`intcenable`, `intcdisable`, `intcdispatch` — see fns.h), so a GICv3
+board adds a driver, not a trap.c fork.
+
+To add a board (e.g. bpi-r4): `mkdir os/boards/bpi-r4`, write the five
+files above (start by copying this board's), drop new drivers in
+`os/drivers/`, list them in its board.mk, and `make HWTARG=bpi-r4`.
+Nothing in os/aarch64 or os/drivers should need a board #ifdef; if it
+does, the fact belongs in board.h or behind a hook.
+
 ## Building the image
 
 ```sh
-cd os/virt64
-make            # → ivirt64.elf (this IS the image: one self-contained ELF)
-make run        # qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -kernel ivirt64.elf -nographic
-make PARANOID=0 # faster kernel: skip the pool free-tree audit on every alloc/free
-make clean      # also removes the generated virt64.c / *.root.* / errstr.h / version.h
+cd os/aarch64
+make                 # → ivirt64.elf (this IS the image: one self-contained ELF)
+make run             # qemu -M virt -cpu cortex-a53 -m 512 -kernel ivirt64.elf -nographic
+make HWTARG=virt64   # explicit board select (virt64 is the default)
+make USERSPACE=headless  # smaller baked root: no fonts/icons/man (36MB → 20MB)
+make PARANOID=0      # faster kernel: skip the pool free-tree audit on every alloc/free
+make clean           # removes every board's build-*/ and i*.elf
 ```
 
 There is no disk or initrd: the kernel ELF embeds its entire root
 filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.
+Generated files (the conf C, the baked root, errstr.h, version.h) land
+in `build-$(HWTARG)/`, so boards build side by side.
 
 ### Prerequisites
 
 - an aarch64 host with gcc + binutils (the kernel is built natively with
   the host toolchain as a freestanding cross-dialect compile — no
   mk/kencc: `-fplan9-extensions -std=gnu2x -fcommon -mstrict-align
-  -ffreestanding -fno-builtin`; GNU as for l.S; custom linker script
-  `virt64.ld`, link address 0x40200000)
+  -ffreestanding -fno-builtin`; GNU as for l.S; per-board linker script
+  `kernel.ld`, virt64 links at 0x40200000)
 - `qemu-system-aarch64` to run it
 - a **hosted** Inferno build somewhere, for two things the Makefile
   pulls in: the `limbo` compiler binary and the prebuilt `.dis` files
@@ -36,12 +72,14 @@ filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.
 
 The config file `virt64` (same format as the classic os ports) lists
 the devices, builtin modules and the *structure* of the root; the
-Makefile generates `virt64.gen` from it by appending every file under
-`dis/ fonts/ icons/ lib/ module/ man/ locale/` (ROOTTREES) — the full
-hosted-build application set, ~5800 files / ~40MB. Two awk generators
-from `os/port/` then consume `virt64.gen`:
+Makefile generates `build-virt64/virt64.gen` from it by appending every
+file under the USERSPACE profile's trees (`full` = `dis/ fonts/ icons/
+lib/ module/ man/ locale/` — the whole hosted-build application set,
+~5800 files / ~40MB; `headless` drops fonts/icons/man). Two awk
+generators from `os/port/` then consume `virt64.gen` (run from inside
+the build dir):
 
-- `mkdevc virt64.gen > virt64.c` — turns the `dev`/`mod`/`code`/`init`
+- `mkdevc virt64.gen > conf.c` — turns the `dev`/`mod`/`code`/`init`
   sections into the device table, conf strings and `virtinit()` glue.
 - `mkroot virt64.gen` — walks the `root` section and bakes every path
   into `virt64.gen.root.{h,s}`; directories become empty mountpoints,

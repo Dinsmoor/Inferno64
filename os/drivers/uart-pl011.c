@@ -3,13 +3,33 @@
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
-#include "io.h"
 #include "ureg.h"
 
 /*
- * PL011 console: polled output, interrupt-driven input into kbdq
- * (devcons does the line discipline).
+ * PL011 console (board.h: UART0_PHYS, UARTIRQ): polled output,
+ * interrupt-driven input into kbdq (devcons does the line discipline).
  */
+
+enum {
+	UARTDR		= 0x00,
+	UARTFR		= 0x18,
+	UARTIBRD	= 0x24,
+	UARTFBRD	= 0x28,
+	UARTLCR_H	= 0x2c,
+	UARTCR		= 0x30,
+	UARTIFLS	= 0x34,
+	UARTIMSC	= 0x38,
+	UARTMIS		= 0x40,
+	UARTICR		= 0x44,
+
+	/* UARTFR bits */
+	TXFF		= 1<<5,		/* tx fifo full */
+	RXFE		= 1<<4,		/* rx fifo empty */
+
+	/* interrupt bits (IMSC/MIS/ICR) */
+	RXINTR		= 1<<4,
+	RTINTR		= 1<<6,
+};
 
 extern Queue *kbdq;
 

@@ -1,31 +1,45 @@
-# Native Inferno kernel for qemu-system-aarch64 -M virt.
-# GNU make + host gcc (we are on an aarch64 host); no mk/kencc.
+# Native Inferno kernels, aarch64.  GNU make + host gcc (we are on an
+# aarch64 host); no mk/kencc.
 #
-#   make            -> ivirt64.elf
-#   make run        -> boot it under qemu (-nographic; C-a x quits)
+#   make [image]                  -> i<board>.elf for HWTARG (default virt64)
+#   make run                      -> boot it (if the board's board.mk knows how)
+#   make HWTARG=bpi-r4            -> another board
+#   make USERSPACE=headless       -> smaller baked root (see ROOTTREES below)
+#
+# Layout: this directory is the arch core (entry, traps, clock, MMU,
+# the Dis/draw/IP/TLS mass via the lib lists below).  A board is
+# ../boards/$(HWTARG)/: board.h (addresses), board.c (hooks), the
+# kernel config (devices/drivers/root), kernel.ld (load address) and
+# board.mk (driver picks + how to run).  Shared drivers: ../drivers/.
 
 MAKEFLAGS += -rR
 .SUFFIXES:
 
 ROOT    := ../..
-CONF    := virt64
-# the config actually fed to mkdevc/mkroot: the checked-in $(CONF) plus
-# the generated full-application root list (see the $(GENCONF) rule)
-GENCONF := $(CONF).gen
 
-# limbo (and the prebuilt .dis baked into the root, see README "Building the
-# image") come from a HOSTED build: `make all` at some inferno-os repo root.
-# Prefer this tree's own hosted build; fall back to the main shared tree.
-# Override with: make HOSTBIN=/path/to/Linux/aarch64/bin
+HWTARG  ?= virt64
+BOARD   := ../boards/$(HWTARG)
+ifeq ($(wildcard $(BOARD)/board.mk),)
+$(error no such board '$(HWTARG)' (need $(BOARD)/board.mk))
+endif
+
+CONF    := $(BOARD)/$(HWTARG)
+O       := build-$(HWTARG)
+KERNEL  := i$(HWTARG).elf
+# the config actually fed to mkdevc/mkroot: the checked-in $(CONF) plus
+# the generated baked-root file list (see the $(GENCONF) rule)
+GENCONF := $(O)/$(HWTARG).gen
+
+# limbo (and the prebuilt .dis baked into the root, see the board README
+# "Building the image") come from a HOSTED build: `make all` at some
+# inferno-os repo root.  Prefer this tree's own hosted build; fall back
+# to the main shared tree.  Override: make HOSTBIN=/path/to/Linux/aarch64/bin
 ifneq ($(wildcard $(ROOT)/Linux/aarch64/bin/limbo),)
 HOSTBIN ?= $(ROOT)/Linux/aarch64/bin
 else
 HOSTBIN ?= /home/tyler/inferno-os/Linux/aarch64/bin
 endif
 LIMBO   := $(HOSTBIN)/limbo
-
-O       := build
-KERNEL  := ivirt64.elf
 
 CC      := gcc
 AS      := gcc
@@ -35,7 +49,8 @@ LD      := ld
 # Default on for development; `make PARANOID=0` for a faster kernel.
 PARANOID ?= 1
 
-INCS    := -I. -I$(ROOT)/Inferno/aarch64/include -I$(ROOT)/include -I$(ROOT)/libinterp
+INCS    := -I. -I$(BOARD) -I../drivers -I$(O) \
+	   -I$(ROOT)/Inferno/aarch64/include -I$(ROOT)/include -I$(ROOT)/libinterp
 CFLAGS  := -O1 -g -static -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	   -fno-stack-protector -fno-strict-aliasing -fno-omit-frame-pointer \
 	   -mstrict-align -mcmodel=small \
@@ -43,15 +58,21 @@ CFLAGS  := -O1 -g -static -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	   -Wno-unused-parameter -Wno-parentheses -Wno-unknown-pragmas \
 	   -DKERNDATE=$(shell date +%s) -DPOOLPARANOID=$(PARANOID) \
 	   $(INCS)
-ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
+ASFLAGS := -ffreestanding -fno-pic $(INCS)
+
+# the board: BOARDC (its own sources), DRIVERC (picks from ../drivers),
+# and usually a `run` recipe.  The include may define targets, so pin
+# the default goal.
+.DEFAULT_GOAL := all
+include $(BOARD)/board.mk
 
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
 	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls
 
-ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs \
-	   devether ethervirtio sdvirtio tlsshim
+ARCHC   := main trap clock stubs tlsshim
+ARCHS   := l
 
 # the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
 # loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/
@@ -59,7 +80,6 @@ ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs \
 IPC     := devip arp ip ipaux ipifc iproute iprouter ipv6 netlog \
 	   nullmedium pktmedium ethermedium loopbackmedium plan9 ptclbsum \
 	   icmp icmp6 tcp udp
-ARCHS   := l
 
 # libmemdraw/libmemlayer file lists follow the libs' own mkfiles
 # (COMMONFILES + the Inferno/Plan9 SYSFILES), minus iprint.c: the
@@ -105,7 +125,7 @@ MATHC   := blas dtoa fdim FPcontrol-Inferno gemm g_fmt gfltconv pow10 \
 
 # crypto: the $Keyring/$Crypt/$IPints engines (lists from the libs' own
 # mkfiles).  Minus libsec genrandom.c: stubs.c serves genrandom from
-# virtio-rng instead of its X9.17-over-DES3 PRNG.  The kernel-side
+# the board rng instead of its X9.17-over-DES3 PRNG.  The kernel-side
 # hooks libsec expects (truerand, _genrandomqlock, sysfatal, werrstr)
 # all exist in os/port already — native kernels always linked libsec.
 SECC    := des desmodes desECB desCBC des3ECB des3CBC aes blowfish idea \
@@ -169,42 +189,53 @@ KERNC   := abort abs atol charstod cistrcmp cistrncmp cistrstr cleanname \
 	   utfnlen utfrrune utfrune vseprint vsmprint vsnprint \
 	   frexp-aarch64 nan-aarch64
 
-OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
-	   $(IPC:%=$(O)/ip_%.o) \
+OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) \
+	   $(DRIVERC:%=$(O)/drv_%.o) $(BOARDC:%=$(O)/brd_%.o) \
+	   $(PORTC:%=$(O)/port_%.o) $(IPC:%=$(O)/ip_%.o) \
 	   $(INTERPC:%=$(O)/interp_%.o) $(KERNC:%=$(O)/kern_%.o) \
 	   $(MEMDRAWC:%=$(O)/md_%.o) $(MEMLAYERC:%=$(O)/ml_%.o) \
 	   $(DRAWC:%=$(O)/dr_%.o) $(TKC:%=$(O)/tk_%.o) \
 	   $(MATHC:%=$(O)/ma_%.o) \
 	   $(SECC:%=$(O)/sec_%.o) $(MPC:%=$(O)/mp_%.o) $(KRC:%=$(O)/kr_%.o) \
 	   $(MBEDC:%=$(O)/tls_%.o) \
-	   $(O)/$(CONF).o $(O)/$(CONF).root.o
+	   $(O)/conf.o $(O)/root.o
 
 all: $(KERNEL)
+image: $(KERNEL)
 
 $(O):
 	mkdir -p $(O)
 
 # ---- generated files ----
 
-GENH := $(GENCONF).root.h errstr.h version.h $(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
+GENH := $(GENCONF).root.h $(O)/errstr.h $(O)/version.h \
+	$(ROOT)/libinterp/runt.h $(ROOT)/libinterp/sysmod.h \
 	$(ROOT)/libinterp/drawmod.h $(ROOT)/libinterp/tkmod.h $(ROOT)/libinterp/loadermod.h \
 	$(ROOT)/libinterp/mathmod.h $(ROOT)/libinterp/raster3mod.h \
 	$(ROOT)/libinterp/keyring.h $(ROOT)/libinterp/keyringif.h \
 	$(ROOT)/libinterp/cryptmod.h $(ROOT)/libinterp/ipintsmod.h
 
-# The full application set: the checked-in config lists only structure;
-# the generated config appends every file under these trees (the hosted
-# build's dis/ plus the checked-in data trees), so the image carries the
-# whole system.  Regenerated every run, but the file is only touched when
-# the list changes, so the root isn't rebaked needlessly.
-ROOTTREES := dis fonts icons lib module man locale
+# The baked root: the checked-in config lists only structure; the
+# generated config appends every file under the USERSPACE profile's
+# trees (the hosted build's dis/ plus the checked-in data trees).
+# Regenerated every run, but the file is only touched when the list
+# changes, so the root isn't rebaked needlessly.
+USERSPACE ?= full
+ROOTTREES.full     := dis fonts icons lib module man locale
+ROOTTREES.headless := dis lib module locale
+ROOTTREES := $(ROOTTREES.$(USERSPACE))
+ifeq ($(strip $(ROOTTREES)),)
+$(error unknown USERSPACE '$(USERSPACE)' (have: full, headless))
+endif
 
-$(GENCONF): $(CONF) force
+$(GENCONF): $(CONF) force | $(O)
 	@{ cat $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
 	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; echo "regenerated $@"; fi
 
-$(CONF).c: ../port/mkdevc $(GENCONF)
-	AWK=awk sh ../port/mkdevc $(GENCONF) > $@
+# run mkdevc/mkroot from inside $(O) so the generated #include and the
+# conffile boot banner use the bare name, not the build-dir path
+$(O)/conf.c: ../port/mkdevc $(GENCONF)
+	cd $(O) && AWK=awk sh ../../port/mkdevc $(HWTARG).gen > conf.c
 
 # grouped target (&:) — one mkroot run produces both; without it -j runs
 # the recipe twice in parallel and interleaves the output
@@ -215,15 +246,15 @@ ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1
 
 $(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
 	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
-	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(GENCONF)
+	cd $(O) && AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../../port/mkroot $(HWTARG).gen
 
 ../init/virtinit.dis: ../init/virtinit.b
 	$(LIMBO) -I$(ROOT)/module -o $@ $<
 
-errstr.h: ../port/error.h
-	sed 's/extern //;s,;.*/\* , = ",;s, \*/,";,' < ../port/error.h > errstr.h
+$(O)/errstr.h: ../port/error.h | $(O)
+	sed 's/extern //;s,;.*/\* , = ",;s, \*/,";,' < ../port/error.h > $@
 
-version.h:
+$(O)/version.h: | $(O)
 	echo '#define VERSION "kernelwork (native aarch64)"' > $@
 
 $(ROOT)/libinterp/runt.h:
@@ -261,14 +292,21 @@ $(ROOT)/libinterp/ipintsmod.h:
 
 # ---- compile rules ----
 
-HDRS := dat.h fns.h io.h mem.h virtio.h screen.h etherif.h \
+HDRS := dat.h fns.h mem.h io.h $(BOARD)/board.h \
+	../drivers/virtio.h ../drivers/screen.h ../drivers/etherif.h \
 	../port/portdat.h ../port/portfns.h ../port/lib.h ../port/netif.h ../ip/ip.h
 
 $(O)/%.o: %.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(O)/%.o: %.S | $(O)
+$(O)/%.o: %.S $(BOARD)/board.h | $(O)
 	$(AS) $(ASFLAGS) -c -o $@ $<
+
+$(O)/drv_%.o: ../drivers/%.c $(HDRS) $(GENH) | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/brd_%.o: $(BOARD)/%.c $(HDRS) $(GENH) | $(O)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(O)/port_%.o: ../port/%.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -323,40 +361,19 @@ $(O)/mp_%.o: $(ROOT)/libmp/port/%.c | $(O)
 $(O)/kr_%.o: $(ROOT)/libkeyring/%.c $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(O)/$(CONF).o: $(CONF).c $(GENCONF).root.h $(HDRS) | $(O)
+$(O)/conf.o: $(O)/conf.c $(GENCONF).root.h $(HDRS) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(O)/$(CONF).root.o: $(GENCONF).root.s | $(O)
+$(O)/root.o: $(GENCONF).root.s | $(O)
 	$(AS) $(ASFLAGS) -c -o $@ $<
 
 # ---- link ----
 
-$(KERNEL): $(OBJ) virt64.ld
-	$(LD) -T virt64.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
+$(KERNEL): $(OBJ) $(BOARD)/kernel.ld
+	$(LD) -T $(BOARD)/kernel.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
 	@echo "built $@"
 
-# modern virtio (force-legacy=false) is required by the input drivers;
-# rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
-# user-mode net (slirp): guest 10.0.2.15, gateway/host 10.0.2.2, dns 10.0.2.3
-# (see README "Networking" for the in-guest configuration).
-QEMUDEVS := -global virtio-mmio.force-legacy=false \
-	    -device virtio-rng-device -device ramfb \
-	    -device virtio-keyboard-device -device virtio-tablet-device \
-	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
-
-# optional persistent disk: make run DISK=/path/to/raw.img
-# (create with: truncate -s 64M img; in the guest see README "Persistent storage")
-ifneq ($(DISK),)
-QEMUDISK := -drive if=none,file=$(DISK),format=raw,id=hd0 \
-	    -device virtio-blk-device,drive=hd0
-endif
-
-run: $(KERNEL)
-	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
-		$(QEMUDEVS) $(QEMUDISK) -kernel $(KERNEL)
-
 clean:
-	rm -rf $(O) $(KERNEL) $(CONF).c $(GENCONF) $(GENCONF).root.h $(GENCONF).root.s \
-		$(CONF).root.h $(CONF).root.s errstr.h version.h
+	rm -rf build-* i*.elf
 
-.PHONY: all run clean force
+.PHONY: all image clean force
