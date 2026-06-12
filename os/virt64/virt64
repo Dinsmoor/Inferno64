@@ -12,6 +12,7 @@ dev
 	ether
 	ip
 	sd
+	tls
 
 misc
 	sdvirtio

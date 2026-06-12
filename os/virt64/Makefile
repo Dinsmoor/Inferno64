@@ -48,10 +48,10 @@ ASFLAGS := -ffreestanding -fno-pic -I. $(INCS)
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
-	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd
+	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls
 
 ARCHC   := main trap clock uart virtio rng vinput ramfb screen stubs \
-	   devether ethervirtio sdvirtio
+	   devether ethervirtio sdvirtio tlsshim
 
 # the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
 # loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/
@@ -123,6 +123,35 @@ MPC     := mpaux mpfmt strtomp mptobe mptole betomp letomp mpadd mpsub \
 
 KRC     := dsaalg egalg rsaalg
 
+# vendored mbedTLS (libmbedtls/mbedtls) for devtls, compiled freestanding
+# against mbedtls-kconfig.h + tlsshim.c (file list = libmbedtls/mkfile's;
+# modules the kconfig disables compile to empty objects)
+MBEDC   := aes aesce aesni aria asn1parse asn1write base64 bignum \
+	   bignum_core bignum_mod bignum_mod_raw block_cipher camellia ccm \
+	   chacha20 chachapoly cipher cipher_wrap cmac constant_time \
+	   ctr_drbg debug des dhm ecdh ecdsa ecjpake ecp ecp_curves \
+	   ecp_curves_new entropy entropy_poll error gcm hkdf hmac_drbg \
+	   lmots lms md5 md memory_buffer_alloc mps_reader mps_trace \
+	   net_sockets nist_kw oid padlock pem pk pkcs12 pkcs5 pkcs7 pk_ecc \
+	   pkparse pk_wrap pkwrite platform platform_util poly1305 \
+	   psa_crypto_aead psa_crypto psa_crypto_cipher psa_crypto_client \
+	   psa_crypto_driver_wrappers_no_static psa_crypto_ecp \
+	   psa_crypto_ffdh psa_crypto_hash psa_crypto_mac psa_crypto_pake \
+	   psa_crypto_rsa psa_crypto_se psa_crypto_slot_management \
+	   psa_crypto_storage psa_its_file psa_util ripemd160 \
+	   rsa_alt_helpers rsa sha1 sha256 sha3 sha512 ssl_cache \
+	   ssl_ciphersuites ssl_client ssl_cookie \
+	   ssl_debug_helpers_generated ssl_msg ssl_ticket ssl_tls12_client \
+	   ssl_tls12_server ssl_tls13_client ssl_tls13_generic \
+	   ssl_tls13_keys ssl_tls13_server ssl_tls threading timing version \
+	   version_features x509 x509_create x509_crl x509_crt x509_csr \
+	   x509write x509write_crt x509write_csr
+
+# -U_FORTIFY_SOURCE: Ubuntu gcc force-enables it at -O1+, and the glibc
+# headers then route snprintf/memcpy to __*_chk symbols we don't carry
+TLSINC  := -DNDEBUG -U_FORTIFY_SOURCE -DMBEDTLS_CONFIG_FILE='"mbedtls-kconfig.h"' \
+	   -I$(ROOT)/libmbedtls/mbedtls/include
+
 # the whole Tk widget library (lists from libtk/mkfile + mkfile-std)
 TKC     := ebind grids image packr panel parse utils varbl windw xdata \
 	   canvs canvu carcs cbits cimag cline coval cpoly crect ctext cwind \
@@ -147,6 +176,7 @@ OBJ     := $(ARCHS:%=$(O)/%.o) $(ARCHC:%=$(O)/%.o) $(PORTC:%=$(O)/port_%.o) \
 	   $(DRAWC:%=$(O)/dr_%.o) $(TKC:%=$(O)/tk_%.o) \
 	   $(MATHC:%=$(O)/ma_%.o) \
 	   $(SECC:%=$(O)/sec_%.o) $(MPC:%=$(O)/mp_%.o) $(KRC:%=$(O)/kr_%.o) \
+	   $(MBEDC:%=$(O)/tls_%.o) \
 	   $(O)/$(CONF).o $(O)/$(CONF).root.o
 
 all: $(KERNEL)
@@ -251,6 +281,13 @@ $(O)/port_alloc.o: $(O)/paranoid.stamp
 
 $(O)/ip_%.o: ../ip/%.c $(HDRS) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(O)/tls_%.o: $(ROOT)/libmbedtls/mbedtls/library/%.c mbedtls-kconfig.h | $(O)
+	$(CC) $(CFLAGS) $(TLSINC) -c -o $@ $<
+
+# devtls must see the same mbedTLS config (ABI: context struct sizes)
+$(O)/port_devtls.o: ../port/devtls.c $(HDRS) mbedtls-kconfig.h | $(O)
+	$(CC) $(CFLAGS) $(TLSINC) -c -o $@ $<
 
 $(O)/interp_%.o: $(ROOT)/libinterp/%.c $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<

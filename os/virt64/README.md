@@ -207,6 +207,31 @@ Plan 9 if you want more than the whole-disk `data` partition; the raw
 SCSI interface returns I/O errors by design (virtio-blk speaks no
 SCSI).
 
+## TLS
+
+`#T` is os/port/devtls.c — the emu devtls (mbedTLS-backed TLS 1.2/1.3,
+same ctl protocol, used by `Dial->pushtls`/`dialtls` and so by webgrab
+and charon) adapted for the kernel: the CA bundle is read through the
+kernel's own file I/O and parsed in memory, because the kernel's
+mbedTLS build is freestanding.
+
+That build compiles the vendored libmbedtls sources against
+`mbedtls-kconfig.h` (the default config minus files, sockets, clock
+syscalls and /dev/urandom) plus `tlsshim.c`: snprintf onto the Plan 9
+fmt engine, time() from the PL031-backed seconds(), a real gmtime_r so
+x509 validity dates are actually checked, inet_pton for IP-literal
+hostnames, and entropy from virtio-rng
+(MBEDTLS_ENTROPY_HARDWARE_ALT).
+
+The Mozilla CA bundle is baked at /lib/tls/ca-certificates.crt
+(lib/tls in the repo), which is the kernel devtls default, so
+certificate verification is ON and works out of the box.  Verified
+under qemu both ways: a server signed by an unknown CA is refused
+("X509 - Certificate verification failed"), and after binding that CA
+over /lib/tls/ca-certificates.crt the same `webgrab
+https://10.0.2.2:8443/` fetch succeeds against a TLS 1.3 server on the
+host loopback.
+
 ## Hardware (qemu -M virt)
 
 | device | where |
