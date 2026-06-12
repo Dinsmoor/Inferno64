@@ -179,8 +179,50 @@ guest connections to 10.0.2.2 from the host loopback). `netstat` reads
 the conversation directories.
 
 Skipped on purpose: bootp/dhcp (static or userspace config), il, gre,
-esp, igmp, ipmux, ppp. Name resolution is userspace's job (ndb/cs +
-ndb/dns, as on hosted emu) and needs an ndb pointing dns at 10.0.2.3.
+esp, igmp, ipmux, ppp.
+
+### Name resolution
+
+Works out of the box once the interface is up — no ndb edits needed.
+The stock /lib/ndb/local (baked into the image) already lists public
+resolvers (8.8.8.8, 1.1.1.1) under `infernosite=`, and slirp NATs
+outbound UDP, so:
+
+	ndb/cs &
+	ndb/dns &
+	ndb/dnsquery example.com         # real A records
+	webgrab -o /tmp/x http://example.com/
+
+ndb/cs serves /net/cs via devsrv (`#s`, file2chan) and the kernel's
+dial() consults it, so every dialer — webgrab, charon, mount —
+resolves hostnames from then on.  (ndb/dns answers /net/dns and speaks
+UDP to the resolvers itself.)
+
+### Import/export (Styx over TCP)
+
+The namespace travels both ways, same as hosted Inferno.  Export the
+bare-metal kernel's namespace:
+
+	styxlisten -A 'tcp!*!6666' export /
+
+and any Styx client can mount it; with `make run`'s slirp the host
+reaches the guest through a forward (`hostfwd=tcp:127.0.0.1:9996-:6666`
+on the -netdev), e.g. from a hosted emu on the host:
+
+	mount -A 'tcp!127.0.0.1!9996' /n/remote
+
+— verified: the host emu reads the guest's memfs /tmp and the guest's
+/net (the kernel IP stack, served over that same IP stack).  The other
+direction works too: serve from a hosted emu (`styxlisten -A
+'tcp!*!9997' export /`) and on the guest
+
+	mount -A 'tcp!10.0.2.2!9997' /n/remote
+
+Mountpoints under /n (`/n/remote`, `/n/local`, …) are part of the baked
+root — devroot is read-only, so a mountpoint that isn't in the config's
+root section doesn't exist.  Add new ones there (and to the Makefile's
+mkdir line).  `-A` on both ends skips Inferno authentication; wire up
+keys/getauthinfo if you want it.
 
 ## Persistent storage
 

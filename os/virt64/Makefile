@@ -214,7 +214,7 @@ $(CONF).c: ../port/mkdevc $(GENCONF)
 ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(GENCONF) 2>/dev/null)
 
 $(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
-	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
+	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
 	AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath data2s)" sh ../port/mkroot $(GENCONF)
 
 ../init/virtinit.dis: ../init/virtinit.b

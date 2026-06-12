@@ -98,6 +98,8 @@ root
 	/n
 	/n/disk
 	/n/kfs
+	/n/local
+	/n/remote
 	/net
 	/prog
 	/tmp
