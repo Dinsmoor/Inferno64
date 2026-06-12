@@ -64,6 +64,24 @@ And there are many other autonomously documented Inferno subsystems there —
 [namespaces](docs/ON_NAMESPACE.md), and [the JIT](docs/ON_JIT.md) — again, check
 out [`docs/README.md`](docs/README.md)
 
+## Testing
+
+One of the goals of this fork is a proper test suite (see Goals below), and it
+has grown into one. Everything lives under `tests/`, one suite per layer —
+C unit tests with 32-bit and big-endian canaries run under qemu-user, a
+TAP-emitting Dis VM + Limbo regression suite, a JIT bit-equivalence gate, a
+Charon rendering bench, a native-kernel end-to-end suite that boots qemu and
+drives the serial console, and a 64→32-bit narrowing lint. The whole thing is
+fronted by one pre-push gate:
+
+```sh
+make check
+```
+
+which runs the per-platform capability matrix and prints a PASS/FAIL table.
+The map of which suite covers what, and the conventions they share, is
+[`docs/ON_TESTING.md`](docs/ON_TESTING.md).
+
 ## Will my code behave the same on every machine?
 
 Yes, YOUR Limbo source code will. Your .dis binaries will likely not.

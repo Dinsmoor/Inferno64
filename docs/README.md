@@ -64,6 +64,15 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | understand 9P/Styx | [`ON_9P.md`](ON_9P.md) |
 | understand namespaces | [`ON_NAMESPACE.md`](ON_NAMESPACE.md) |
 
+### …test your change
+
+| …do this | read |
+|---|---|
+| find which suite covers your layer, run it, or run the whole `make check` gate | [`ON_TESTING.md`](ON_TESTING.md) |
+| add a test, or a new capability cell to the gate | [`ON_TESTING.md`](ON_TESTING.md) → the owning suite's README + [`tests/check/README.md`](../tests/check/README.md) |
+| debug a failing test — Limbo level | [`ON_DEBUGGING.md`](ON_DEBUGGING.md) |
+| debug a failing test — emu / C level | [`ON_EMU_DEBUG.md`](ON_EMU_DEBUG.md) |
+
 ### …extend the C side
 
 | …do this | read |
