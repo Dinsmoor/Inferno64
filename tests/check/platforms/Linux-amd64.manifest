@@ -20,6 +20,7 @@ test   lp64/emu-g/interp  require    interpreter is the portable reference path
 test   lp64/emu-g/jit     skip       comp-amd64.c unverified under LP64
 test   web/emu-g/interp   require
 test   jitperf            skip       needs a trusted JIT; revisit with lp64/.../jit
+test   kernel             skip       aarch64-only image; qemu TCG cross-boot untested here
 
 # ---- docs ----
 doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage

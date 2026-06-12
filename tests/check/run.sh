@@ -118,6 +118,8 @@ for i in $(seq 0 $((N-1))); do
 		if "$MAKE" $MFLAGS test_all_unit; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
 	jitperf)
 		if "$MAKE" $MFLAGS test_jitperf; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
+	kernel)
+		if bash "$ROOT/tests/kernel/run.sh"; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
 	lp64|web)
 		emubin="$BIN/$conf"
 		if [ ! -x "$emubin" ]; then set_v "$i" FAIL "binary $conf missing"; continue; fi

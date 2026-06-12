@@ -25,6 +25,15 @@ pointer here.
 
 ## Recently landed (move detail into the subsystem doc, then drop)
 
+- [x] **Native aarch64 kernel: full service parity + board factoring** — boots
+      qemu -M virt to the complete wm desktop with JIT, crypto builtins,
+      networking (os/ip + virtio-net, ndb/cs+dns work out of the box),
+      persistent storage (devsd + virtio-blk + kfs), kernel TLS (devtls +
+      freestanding mbedTLS, Mozilla CA bundle baked), import/export verified
+      both directions against hosted emu. Build factored into `os/aarch64/`
+      (arch core) + `os/drivers/` + `os/boards/<board>/`:
+      `make HWTARG=virt64 USERSPACE=full|headless`. Detail:
+      `os/boards/virt64/README.md`; porting taxonomy: `ON_PORTING.md`.
 - [x] **Modern TLS via mbedTLS** — DONE on master: vendored mbedTLS 3.6.2
       (`libmbedtls/`), the `#T` devtls device (`emu/port/devtls.c`, TLS 1.2/1.3),
       `dial->pushtls`/`dialtls`, and Charon's https path rewired off SSL3. Detail:
@@ -48,6 +57,13 @@ pointer here.
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
+- [ ] **BPI-R4 hardware bring-up** (future work; higher-level work first) —
+      first real-hardware board for the native kernel: Banana Pi BPI-R4
+      (MediaTek MT7988A). Milestone 1 = TFTP netboot → serial sh (Image
+      header + board files + uart-16550 + gic-v3); then MSDC storage,
+      mtk_eth, namespace-imported display / Limbo VNC export (no display
+      hardware on the board). Recipe + cost table: `ON_PORTING.md` Part II;
+      memory `bpi-r4-target`.
 
 ## Ideas / plans (scratchpad)
 

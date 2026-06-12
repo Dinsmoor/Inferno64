@@ -46,7 +46,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | understand the Dis VM (bytecode, GC, channels) | [`ON_DIS.md`](ON_DIS.md) |
 | understand how Dis is realised on a host/ABI | [`ON_DIS_ARCH.md`](ON_DIS_ARCH.md) |
 | write or extend the native-code JIT | [`ON_JIT.md`](ON_JIT.md) |
-| port emu to a new host system | [`ON_PORTING.md`](ON_PORTING.md) → [`ON_AARCH64_PORT.md`](ON_AARCH64_PORT.md) |
+| port Inferno (emu host / VM arch / native kernel / new board) | [`ON_PORTING.md`](ON_PORTING.md) → [`ON_AARCH64_PORT.md`](ON_AARCH64_PORT.md), [`os/boards/virt64/README.md`](../os/boards/virt64/README.md) |
 | understand the 32/64-bit dual ABI — *why* Limbo `int` is 32-bit everywhere, the tables, how one tree builds both | [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md) |
 | dig into the emulator's architecture | [`ON_EMU.md`](ON_EMU.md) |
 | debug the *emu itself* (C-level faults, hangs, cores) | [`ON_EMU_DEBUG.md`](ON_EMU_DEBUG.md) |

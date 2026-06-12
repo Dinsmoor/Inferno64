@@ -1,8 +1,27 @@
-# Porting emu to Linux/aarch64
+# Porting Inferno — emu hosts, VM archs, native kernels, new boards
 
-> *So you want to port emu to a new host system?* This is the reference.
+> *So you want to port Inferno to something new?* First decide **which kind
+> of port** you are doing — they are different jobs with different blast
+> radii, and each has its own reference.
 
-This doc is the file-by-file map of the Linux/aarch64 emu port. It assumes
+## The four kinds of port
+
+| # | You want Inferno on… | What actually changes | Worked example | Where the detail lives |
+|---|---|---|---|---|
+| 1 | a new **host OS/libc** for hosted emu | `emu/<Host>/` (os.c, devfs, ipif…), `lib9` shims, a mkfile | emu on Linux/aarch64 | **Part I below** (file-by-file) |
+| 2 | a new **CPU architecture** (Dis VM + JIT) | `libinterp/comp-<arch>.c` + `das-<arch>.c`, `Inferno/<arch>/include/` (u.h/lib9.h/ureg.h), per-arch lib9 asm (tas, setfcr, getcallerpc), `coherence()` barriers, mkfile | aarch64 | `ON_AARCH64_PORT.md` (register map, calling convention, type widths), `ON_JIT.md`; LP64 hazards in `ON_C_IN_DIS.md` |
+| 3 | a **native kernel** on an emulated machine | `os/aarch64/` arch core + `os/boards/<board>/` + picks from `os/drivers/` | `os/boards/virt64` (qemu -M virt: full wm desktop, JIT, net, disk, TLS) | **`os/boards/virt64/README.md`** — layout, image pipeline, gcc-vs-kencc rules, debug workflow |
+| 4 | a native kernel on **real hardware** (a new board) | a new `os/boards/<board>/` + new drivers in `os/drivers/` | none yet — BPI-R4 (MediaTek MT7988A) is the parked first target | **Part II below** (what a real board costs) |
+
+The levels stack: 2 underlies both 1-on-a-new-arch and 3; 3 is the proving
+ground for 4 (bring drivers up under qemu where you can, on hardware only
+where you must).
+
+---
+
+# Part I: porting emu to a new host (Linux/aarch64, as built)
+
+This part is the file-by-file map of the Linux/aarch64 emu port. It assumes
 familiarity with the kernel architecture (ON_EMU.md), the build system
 (`ON_BUILDING.md` and the root `Makefile`), the JIT (ON_JIT.md), and the LP64/dual-ABI
 work (ON_C_IN_DIS.md). For the architecture-level VM reference (register map,
@@ -349,3 +368,72 @@ All present in-tree. "Origin" is the template the file was derived from (if any)
 | `lib9/getcallerpc-Linux-aarch64.S` | other `getcallerpc-*.S` | `mov x0, x30; ret` |
 | `libinterp/comp-aarch64.c` | none | **real JIT** (~1500 lines), `emu -c1` |
 | `libinterp/das-aarch64.c` | `das-arm.c` | **real disassembler** (~880 lines) |
+
+---
+
+# Part II: native-kernel ports — emulated machines and real boards
+
+Level 3 (a native kernel under an emulator) is **done once per machine
+model** and documented where the code lives: **`os/boards/virt64/README.md`**
+covers the whole stack as built for qemu -M virt — the arch-core /
+drivers / boards layout, the image pipeline (config → mkdevc/mkroot →
+one self-contained ELF), `make HWTARG=<board> USERSPACE=full|headless`,
+the gcc-vs-kencc porting rules, and the QMP/gdb debug workflow. Read
+that first; this part covers only what is *different about real
+hardware*.
+
+## What a real board costs (level 4)
+
+A board is `os/boards/<board>/` — board.h (addresses, IRQs, RAM, MMU
+map, PSCI conduit), board.c (hooks), board.mk (driver picks), kernel.ld,
+the kernel config — plus whatever `os/drivers/` is missing for its SoC.
+The rule that keeps the factoring honest: **nothing in os/aarch64 or
+os/drivers takes a board #ifdef** — a board fact belongs in board.h or
+behind a hook (`boardinit`/`boardready`/`rtctime`, the `intc*` seam).
+
+What carries over for free: everything above the driver line (Dis/JIT,
+draw/Tk, the os/ip stack, devsd/devtls, the baked root), the generic
+timer, and l.S (entry, EL2→EL1, vectors, MMU skeleton — feed it the
+board's `L1MAPENT0..3`).
+
+What a typical SBC needs that qemu -M virt didn't:
+
+- **Boot protocol**: U-Boot `booti` wants the Linux arm64 Image header
+  (a 64-byte stub before `_start`); the ELF-loading luxury is qemu-only.
+  U-Boot's TFTP (`dhcp; tftpboot; booti`) is the dev loop — netboot
+  until storage works, build dd-able media last.
+- **Console UART**: if not PL011, a 16550 driver (~100 lines).
+- **Interrupt controller**: GICv2 boards reuse gic-v2.c at a new base;
+  modern SoCs need a gic-v3.c (sysreg interface + redistributors) behind
+  the same four intc calls.
+- **DMA cache coherency** — the trap nobody warns you about: qemu's
+  virtio DMA is cache-coherent, so the virt64 drivers never flush.
+  Real SoC DMA (SD controllers, NICs) usually is NOT: every DMA driver
+  needs dcache clean/invalidate-range discipline around buffers. Write
+  the helpers before the first real driver, not after the first
+  corruption hunt.
+- **Storage**: SDHCI where you're lucky; vendor MMC controllers (e.g.
+  MediaTek MSDC) where you're not. U-Boot's drivers are the compact
+  porting sources (hundreds of lines, vs. thousands in Linux). devsd
+  is portable — a new controller is just an SDifc.
+- **Network**: per-SoC MAC + PHY/MDIO (again: port from U-Boot, not
+  Linux). devether keeps the driver thin.
+- **Entropy/RTC**: SoC TRNG (often behind a TF-A SMC); boards rarely
+  have an RTC — the Inferno answer is a userspace SNTP client over the
+  net stack, not an I2C driver.
+- **Display/input — think namespace first**: a headless board gets a
+  graphical session by *importing* a display (mount a remote /dev/draw
+  and run wm against it — zero code, works today over styxlisten/mount)
+  or *exporting* its screen (a Limbo VNC server over the in-memory
+  framebuffer; screen.c renders to a plain Memimage regardless of
+  scanout hardware). Writing scanout/USB-HID drivers is the *last*
+  resort, not the first step. USB host (xHCI/DWC2 + enumeration + HID)
+  is the single biggest driver item on any board — defer it.
+
+First target (parked, future work): **Banana Pi BPI-R4** — MediaTek
+MT7988A, 4× Cortex-A73. Delta from virt64: Image header, 16550-compat
+UART, **GICv3**, MSDC storage, mtk_eth networking, TRNG via TF-A,
+PSCI via `smc` (`BOARD_PSCI_SMC`), no display hardware (namespace
+display / VNC export, above). Hardware wiki:
+https://www.fw-web.de/dokuwiki/doku.php?id=en:bpi-r4:start — exact
+MMIO bases/IRQs from the Linux DTB (mt7988a.dtsi) at bring-up.

@@ -33,6 +33,7 @@ CHECK  CELL  STATUS  [NOTE...]
   - `test   cunit` — dual-ABI C library unit tests
   - `test   {lp64,web}/<conf>/<runmode>` — runmode = `interp` | `jit` | `jitB`
   - `test   jitperf` — self-contained `c0`/`c1`/`c1B` bench + bit-equivalence
+  - `test   kernel` — native-kernel end-to-end under qemu -M virt (`tests/kernel`)
   - `doc    <name>`
 
 The matrix is identical across platforms; only the **trust** (the STATUS)

@@ -129,7 +129,10 @@ for interactive use.
 - Headless console in the terminal: `make run` (C-a x quits).
 - As a window on an X display: see "Graphical session" below for the
   full recipe (ramfb + virtio input devices).
-- Scripted/CI: `-display none -serial tcp:127.0.0.1:PORT,server=on,wait=on`
+- The end-to-end suite lives at `tests/kernel/run.sh` (boot, net, DNS,
+  kfs persistence, TLS verification, import/export, GUI screendump —
+  TAP output; also a `make check` cell). Its harness pattern:
+  `-display none -serial tcp:127.0.0.1:PORT,server=on,wait=on`
   and drive the console over the socket (use `wait=on`: the kernel
   boots faster than a client can connect, so `wait=off` loses the
   banner). See "Debugging" below for the gdb stub.

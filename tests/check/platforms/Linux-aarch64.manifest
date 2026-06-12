@@ -31,6 +31,7 @@ test   lp64/emu-g/interp  require
 test   lp64/emu-g/jit     require    aarch64 Dis JIT is trusted
 test   web/emu-g/interp   require
 test   jitperf            require    also a JIT bit-identity correctness gate
+test   kernel             require    native-kernel e2e under qemu -M virt (tests/kernel, ~4 min)
 
 # ---- docs (scoped, not yet wired) ----
 doc    man-coverage       todo       every /dis cmd has a man/1 page; then per-flag usage
