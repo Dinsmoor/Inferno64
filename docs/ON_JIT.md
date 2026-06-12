@@ -1,7 +1,5 @@
 # Dis JIT / Native Code Compilation
 
-> *So you want to write or extend the native-code JIT?* This is the reference.
-
 Inferno can run Dis bytecode in two modes: interpreted (the default, architecture-independent) or JIT-compiled to native machine code. The JIT is controlled by `cflag` and implemented per-architecture in `libinterp/comp-OBJTYPE.c`. For a new architecture like aarch64, the first decision is whether to implement a JIT or run interpreter-only.
 
 This doc does not re-cover the Dis VM scheduler (see ON_EMU.md) or the Dis wire format (see ON_9P.md). It focuses on the compilation pipeline itself.
@@ -321,10 +319,10 @@ Option A is sufficient to validate the port end-to-end; Option B can follow.
 # AArch64 JIT Implementation (LP64) — status and internals
 
 `libinterp/comp-aarch64.c` is a real from-scratch LP64 JIT (the first for Inferno).
-It is **off by default** (`cflag==0` runs everything interpreted; suite is 178/178)
-and activates with `emu -c1`/`-c2`, which is **working**: the full suite is also
-**178/178 under `-c1`** (sh plus all 9 suites run natively, including limbo
-self-host; re-verified 2026-06-07).
+It is **off by default** (`cflag==0` runs everything interpreted) and activates
+with `emu -c1`/`-c2`, which is **working**: the full `tests/dis` suite passes
+under both run modes (sh plus all suites run natively, including limbo
+self-host); the gate's `dis/<conf>/jit` cells keep it that way.
 The only `-c1` caveat is `$Loader` reflection, which is mutually exclusive with
 compilation by design (see below); it is TAP-skipped, not a codegen bug. This
 section is the durable reference for the implementation.
@@ -437,9 +435,10 @@ so the suite is honest in both modes rather than reporting a spurious failure.
    Rn and only produced the right register for odd `rn`; `cmnix(RA0)` actually tested **x1**.
    It mostly "worked" because x1 was rarely H — but e.g. indexing an array right after a
    `nil` list left x1 = H, so the array-bounds nil-check (`indarr`), `notnil`, `LEN*`, and
-   the `macmcal` `ml==H` test spuriously fired. This is what hung `sh` (via readdir's
-   `array of list` + cons-into-element path). Fix: base `0xB100041F` (Rn=0). One-character
-   bug, found by single-stepping the faulting `indl` in gdb and decoding `b100043f`.
+   the `macmcal` `ml==H` test spuriously fired — a hang whose trigger is data-dependent
+   (e.g. indexing an array right after a nil list). Fix: base `0xB100041F` (Rn=0). The
+   way to find this class: single-step the faulting op in gdb and decode the instruction
+   word by hand against the ARM ARM.
 2. **comvec clobbered C callee-saved registers.** Native code uses x19/x20/x21/x24
    (RREG/RFP/RMP/RLR2), all AAPCS64 callee-saved, but `comvec` is reached by an ordinary C
    call from `xec` and `macrelq`/the punt-TCHECK/`macmcal`-interp paths returned to `xec`
@@ -527,9 +526,9 @@ hot Limbo module without the global boot tax, two targeted hooks already exist:
 
 ## Future direction: async / tiered compilation ("best of both worlds")
 
-> **Partly implemented since commit `42da4e90`** — see "Background JIT closure
-> warming" below. The design analysis here remains the rationale; the section below
-> is what actually shipped (and the two caveats it surfaced).
+> **Partly implemented** — see "Background JIT closure warming" below. The design
+> analysis here remains the rationale; the section below is what is actually built
+> (and the two caveats it carries).
 
 Goal: interpret immediately for instant responsiveness, compile in the
 background, and let native code take over transparently. The VM is unusually
@@ -579,7 +578,7 @@ synchronous — once Phase 1 lands the desktop just comes up and quietly gets
 faster, making the progress UI redundant. Phase 1's correctness hinges entirely
 on item 2.
 
-## Background JIT closure warming — `wm/warmup` (commit `42da4e90`)
+## Background JIT closure warming — `wm/warmup`
 
 The async direction above is partly real. Under `-c1` only, **`wm/warmup`** (the
 "Welcome to Hell" splash) background-JIT-compiles the transitive module closure of

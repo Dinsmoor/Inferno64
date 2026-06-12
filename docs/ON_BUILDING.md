@@ -11,7 +11,7 @@ command line, catching the LP64 heap bugs, and how the project is developed.
 - [Running emu directly](#running-emu-directly)
 - [Debugging: catching the heap bugs](#debugging-catching-the-heap-bugs)
 
-See also the per-subsystem "so you want to…" references in [`ref/`](ref/) — start
+See also the per-subsystem `ON_*.md` references alongside this file — start
 at [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md) for the 32/64-bit story.
 
 ## Prerequisites

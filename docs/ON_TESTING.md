@@ -1,4 +1,4 @@
-# So you want to test Inferno64? — the suites, the gate, and which one you need
+# Testing Inferno64 — the suites, the gate, and which one you need
 
 Everything testable lives under `tests/`, one directory per suite, each with
 its own README for the details. This doc is the map: what each suite covers,

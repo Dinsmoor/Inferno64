@@ -1,8 +1,7 @@
 # Porting Inferno — emu hosts, VM archs, native kernels, new boards
 
-> *So you want to port Inferno to something new?* First decide **which kind
-> of port** you are doing — they are different jobs with different blast
-> radii, and each has its own reference.
+First decide **which kind of port** you are doing — they are different jobs
+with different blast radii, and each has its own reference.
 
 ## The four kinds of port
 
@@ -320,9 +319,8 @@ JIT. Not a stub.
   **must** be a real barrier: without it, the next thread's `_tas()` can see the
   lock free (its own `dmb` is only an *acquire* fence) while the protected writes
   are not yet visible — it then acts on stale shared state, e.g. the pool
-  free-tree links in `alloc.c`, which surfaced as rare, flaky, layout-dependent
-  **heap corruption** (the long-hunted aarch64 bug; commit `00e34e0a`). The tree
-  now does, in `os.c`:
+  free-tree links in `alloc.c`, which surfaces as rare, flaky, layout-dependent
+  **heap corruption**. The tree does, in `os.c`:
   ```c
   #ifdef LINUX_AARCH64
   static void fencecoherence(void){ __sync_synchronize(); }  /* emits dmb ish */
@@ -331,9 +329,9 @@ JIT. Not a stub.
   void (*coherence)(void) = nofence;   /* x86 TSO: store order is free */
   #endif
   ```
-  Leaving this as `nofence` on aarch64 is exactly the bug that was fixed — do not
-  "optimize" it back. 32-bit ARM has the same latent weakness. See memory
-  `aarch64-unlock-release-barrier` and ON_C_IN_DIS.md.
+  Leaving this as `nofence` on any weakly-ordered arch is exactly that bug — do
+  not "optimize" it back, and budget for it when porting to one (32-bit ARM has
+  the same latent weakness). See ON_C_IN_DIS.md.
 
 - **`libinit()`** calls `kprocinit()` (portable), sets up signal handlers (portable), reads `/etc/passwd` for user info (portable). No arch-specific work.
 

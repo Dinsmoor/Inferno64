@@ -1,7 +1,5 @@
 # AArch64 Architecture Reference — VM Porting Guide
 
-> *So you want to port the VM and its JIT to AArch64?* This is the reference.
-
 This document covers the AArch64 (ARM64, ARMv8-A) architecture at the depth needed to port a virtual machine interpreter and JIT compiler — specifically the Dis VM. It covers the register file, calling convention, instruction set, memory model, atomics, cache coherency for JIT, signal integration, and assembly syntax. It does not cover the native Inferno kernel (bare-metal); this is the hosted-emulator (emu) perspective.
 
 **Authoritative sources** (consult for anything not covered here):
@@ -1014,7 +1012,7 @@ Critical for Dis VM code that assumes C type widths:
 | `double`     | 8 bytes      | `REAL` |
 | `float`      | 4 bytes      | `SREAL` |
 
-**Key portability issue**: On AArch64, `sizeof(long) == sizeof(void*) == 8`. Code that stores pointers in `long` or `int` variables works on 32-bit but breaks on AArch64. This was the main fix in the portability commit (34afd3f5): replacing `long` with `uintptr_t` for pointer-integer round-trips in `lib9/`, `utils/mk/`.
+**Key portability issue**: On AArch64, `sizeof(long) == sizeof(void*) == 8`. Code that stores pointers in `long` or `int` variables works on 32-bit but breaks on AArch64; pointer-integer round-trips use `uintptr_t` throughout `lib9/` and `utils/mk/`.
 
 **Struct alignment on AArch64**:
 - Natural alignment: each field aligned to its own size
@@ -1074,7 +1072,7 @@ historical record; only the optional LSE item remains open.
 - [x] `lib9/setfcr-Linux-aarch64.S` — floating-point control register setup (FPCR)
 - [x] `libinterp/comp-aarch64.c` — JIT compiler: Dis→AArch64 native code
 - [x] Signal handler correctness — `trapmemref` (`emu/Linux/os.c`) uses `uc_mcontext.regs`/`.pc`; drives EMUCRASH/fault recovery
-- [x] `uintptr_t` casts — pointer↔integer conversions use `uintptr_t` (commit `34afd3f5`)
+- [x] `uintptr_t` casts — pointer↔integer conversions use `uintptr_t`
 - [x] `sizeof(long) == 8` — handled; the whole LP64 dual-ABI model builds and runs
 - [x] Struct layout — no hand-coded offsets assume 32-bit pointers (dual-ABI verified)
 - [x] Stack alignment — `sp` writes keep 16-byte alignment (JIT runs the full suite)

@@ -1,8 +1,6 @@
-# Limbo Language and Compiler — Agent Reference
+# The Limbo language and compiler
 
-> *So you want to write Limbo?* This is the reference.
-
-Limbo is the application programming language of Inferno. It compiles to Dis bytecode and runs on the Dis VM. This document is the authoritative agent reference, derived from the Limbo language specification (`limbo.html`), the Vita Nuova addendum (`addendum.html`), and Kernighan's practical guide (`descent.html`).
+Limbo is the application programming language of Inferno. It compiles to Dis bytecode and runs on the Dis VM. This is the language and compiler reference, distilled from the Limbo language specification (`limbo.html`), the Vita Nuova addendum (`addendum.html`), and Kernighan's practical guide (`descent.html`).
 
 ---
 

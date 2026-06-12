@@ -1,7 +1,5 @@
 # Limbo error handling — the two-layer model and why it's awkward
 
-> *So you want to handle (or fix) errors and exceptions in Limbo?* This is the reference.
-
 ## The two-layer error model (what exists today)
 
   Inferno has two error systems bridged awkwardly:

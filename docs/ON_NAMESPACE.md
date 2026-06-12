@@ -1,7 +1,5 @@
 # Namespace in Inferno OS
 
-> *So you want to compose services with bind, mount, and unmount?* This is the reference.
-
 Every process in Inferno has its own private namespace — a mapping from path names to file servers. Bind, mount, and unmount reshape this mapping without touching any global state. This is how Inferno composes services: you attach a file server to a path and everything that can manipulate files can then use it.
 
 ## Core Concepts

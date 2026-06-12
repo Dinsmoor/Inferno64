@@ -1,7 +1,4 @@
-# So you want to write C in the Inferno codebase?
-
-> *So you want to write C in the Inferno codebase?* This is the reference — the
-> dialect, the types, the error model, and where everything lives.
+# Writing C in the Inferno codebase
 
 Most of Inferno is Limbo, but the emulator, the kernel, the device drivers, and the
 built-in modules are C — and it is **not** the C you write everywhere else. It's

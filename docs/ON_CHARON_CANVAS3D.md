@@ -1,11 +1,9 @@
 # Charon `<canvas>` 3D Context — Wiring Design
 
-> *So you want to add a 3D <canvas> context to Charon (design)?* This is the reference.
-
 Status: **design / not yet implemented.** Depends on the `raylib-limbo` branch
 (`$Raster3` + `Raymath`) landing on master. This document is the implementation
 plan for adding a 3D rendering context to Charon's `<canvas>`, alongside the
-existing 2D context (`appl/charon/domjs.b`, shipped in commit `314244a4`).
+existing 2D context (`appl/charon/domjs.b`).
 
 It is written so the work can be picked up cold: every integration point names a
 real file/function as it exists today.
@@ -240,9 +238,8 @@ real` once the image exists.
 
 ## 4. Animation: both prerequisites now exist
 
-3D's whole point is animation. The two gaps this doc originally flagged are
-**both now implemented on master** (commit `f70b02b0` and the timer code that
-predates it), so a 3D context can animate the same way:
+3D's whole point is animation. Its two prerequisites are already in place, so
+a 3D context can animate the same way the 2D one does:
 
 1. **Frame clock — DONE.** Charon's JS engine has working
    `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`

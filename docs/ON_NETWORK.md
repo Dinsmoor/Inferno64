@@ -1,7 +1,5 @@
 # Network Programming in Inferno OS
 
-> *So you want to do network I/O or TLS?* This is the reference.
-
 All network I/O in Inferno goes through the `/net` filesystem. The `Dial` module is a thin wrapper that opens the right files and writes the right commands so you usually don't have to touch `/net` directly.
 
 ## The Dial Module
@@ -379,9 +377,7 @@ For real https, use **`#T` (devtls)** instead.
 compiled into emu (config `dev tls` + `lib mbedtls`) and lives at
 `emu/port/devtls.c`. It is a system-wide namespace capability — sh, `dial`,
 `webgrab`, 9P-over-TLS and Charon all share it — and it layers onto a connection
-exactly the way `devssl` does. Status: **shipped on master**
-(`33ff11f8` vendor, `27165454` device, `67b32e2f` Charon rewire, `b4018e54` dial
-helpers). Tested only on Linux/aarch64.
+exactly the way `devssl` does. Tested only on Linux/aarch64.
 
 Raw device usage (mirrors devssl's "push onto an fd" model):
 

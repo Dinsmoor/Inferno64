@@ -1,8 +1,7 @@
-# So you want to write C that touches the Dis VM?
+# Writing C that touches the Dis VM
 
-> *So you want to write C that touches the Dis VM?* This is the reference — the
-> integer model, the one C hazard it creates, and how to debug the heap corruption
-> that follows from getting it wrong.
+This is the reference for the integer model, the one C hazard it creates, and
+how to debug the heap corruption that follows from getting it wrong.
 
 Inferno was designed at the turn of the millennium, when the machines it ran on
 were 32-bit. Its virtual machine, **Dis**, rested on a quiet assumption: that a
@@ -162,7 +161,7 @@ are CI-gateable. That is the trade the target implicitly accepts: **a known, too
 C hazard in exchange for Limbo source that means the same thing on every host
 arch.**
 
-### So you want to write C for Inferno — what the ABI means for you
+### What the ABI means for your C
 
 You're working in an **LP64** world: a C `int` is 32 bits, a C **pointer is 64
 bits**, and a Dis word (a Limbo `int`) is 32 bits. The one thing that bites people:
@@ -177,7 +176,7 @@ and `make check` before you push and most truncation mistakes are caught for you
 (If you genuinely *want* `int == pointer` in C, that's exactly what the `ilp64`
 branch gives you — but it's not `master`, and it moves the cost onto Limbo.)
 
-### So you want to write Limbo for Inferno — what the ABI means for you
+### What the ABI means for your Limbo
 
 Basically nothing — and that's the whole point. Your `int` is **32 bits no matter
 what host the emu runs on**, so overflow, `1 << 31`, masking, and hashing all
@@ -262,58 +261,32 @@ below). For the broader emu-fault tooling see `ON_EMU_DEBUG.md`; for debugging a
 lint`, the `genmove` width assert, the GC pointer-map cross-check, and `DISPTRCHECK`
 — under "Catching LP64 width bugs statically and semantically" below.
 
-> **Branch / status (read first).** As of 2026-06-02 the LP64 work (`port-LP64`)
-> and `master` are **unified into one dual-ABI trunk** (`master` and `port-LP64`
-> point at the same merge commit; **`master` is the working trunk and is no longer
-> frozen**). The same source tree builds for **either** Dis ABI, selected
-> automatically by the host pointer width: `include/isa.h` sets
-> `IBY2PTR = sizeof(void*)`, all width logic is symbolic (`IBY2PTR` for pointer/
-> register slots vs `IBY2WD`=4 for the Dis word), and the `.dis` magic is stamped
-> (`limbo/com.c`) and accepted (`libinterp/load.c`) conditionally on `IBY2PTR` —
-> so a 32-bit build gets `IBY2PTR==4` and uses `XMAGIC`, a 64-bit build gets 8 and
-> uses `XMAGIC8`. A static assert in `libinterp/xec.c` (`sizeof(void*)==IBY2PTR`)
-> turns any mismatch into a compile error. The two ABIs' `.dis` binaries are not
-> interchangeable; a wrong-width module is rejected (`exDiswidth`) and the shell
-> recompiles it from source if available.
-> **One caveat:** the self-hosting Limbo compiler (`appl/cmd/limbo/isa.m`) has no
-> `sizeof`, so its `IBY2PTR` is a literal `con` (currently 8) that must match the
-> build ABI — the one value not auto-derived (candidate for build-time generation).
-> This is the durable project record (it travels with the repo); update the
-> relevant `docs/ON_*.md` rather than relying on external notes.
-> **The GUI works (2026-06).** `CONF=emu` is the default build and `wm/wm` runs
-> the desktop under X11 (verified headless via Xvfb + screenshot: taskbar,
-> FreeType menus, mouse input). Getting there fixed two LP64 bugs — the draw
-> scan-line word width (libmemdraw/libdraw) and the exception-unwind `NOPC`
-> sentinel — and vendored FreeType 2.13.2. See the "GUI stack" and "Fixes"
-> sections below, and ON_GRAPHICS.md. (`$Loader` LP64 fix is also done.)
-> The CLI/sh path is done and hardened (FP, big constants, exceptions, replicate
-> arrays, pick-ADTs, channels all correct; the pointer-width `tint` bug class is
-> audited — see below). `github.com/caerwynj/inferno-lab` is the test battery;
-> the in-repo `tests/dis/` harness (178 assertions, 9 suites) is the standing
-> regression net.
+**How one tree builds both ABIs.** The same source tree builds for either Dis
+ABI, selected automatically by the host pointer width: `include/isa.h` sets
+`IBY2PTR = sizeof(void*)`, all width logic is symbolic (`IBY2PTR` for
+pointer/register slots vs `IBY2WD`=4 for the Dis word), and the `.dis` magic is
+stamped (`limbo/com.c`) and accepted (`libinterp/load.c`) conditionally on
+`IBY2PTR` — a 32-bit build gets `IBY2PTR==4` and uses `XMAGIC`, a 64-bit build
+gets 8 and uses `XMAGIC8`. A static assert in `libinterp/xec.c`
+(`sizeof(void*)==IBY2PTR`) turns any mismatch into a compile error. The two
+ABIs' `.dis` binaries are not interchangeable; a wrong-width module is rejected
+(`exDiswidth`) and the shell recompiles it from source if available. One
+caveat: the self-hosting Limbo compiler (`appl/cmd/limbo/isa.m`) has no
+`sizeof`, so its `IBY2PTR` is a literal `con` that must match the build ABI —
+the one value not auto-derived (candidate for build-time generation).
 
-Status as of this work: the aarch64 host toolchain (`limbo`, `mk`, `iyacc`) and the
-emulator (`emu-g`) **build and link**, the **LP64 Dis pointer-model port is
-implemented**, and **`emu-g` runs Limbo without failure** — the project goal is met.
-A full interactive `sh` session works: command execution, **pipes** (`echo 1 2 3 | wc`
-→ `1 3 6`), **I/O redirection**, **globbing** (`ls *.dis | wc`), **directory reads**
-(`ls`, which drove the last bug via `readdir`), **`ps`** (lists the live Dis VM
-procs), **env vars** (`echo $emuhost` → `Linux`), `cd`, dynamic builtin load
-(`load std`), and shell **control flow** (`for`, `if`, `ftest`). Module load, mcall
-to C builtins, varargs `print`, function frames, list build+iterate+format-print, and
-`array of ref` sort/merge all execute correctly.
-
-The port came together as a **sequence of "this codegen/analysis path still assumes
-4-byte pointers" bugs**: each full dis-tree recompile with the corrected compiler
-pushed the boot further and exposed the next unconverted pointer path. This session
-fixed **five** distinct root causes — call-frame temp, array-literal element-address
-temp, pointer comparison opcodes, optimizer liveness sizes, and the indexed-element
-address node type (the `Oindex`→`Oindx` rewrite) — all detailed below. There are no
-known remaining crashes on the CLI path. (The once-deferred off-path items have
-since been fixed — exceptions/EXLP64 and `$Loader` are done, below; only the `-S`
-`Tcasec` listing and the devprog/devprof pointer-text casts remain — see "Deferred
-LP64 items". One open *runtime* bug remains: the idle-Charon heap corruption, also
-below.)
+Where the port stands: both ABIs build and run the full system — toolchain,
+`emu`/`emu-g`, the shell, and the `wm` desktop (the GUI fixes are the draw
+scan-line word width and the exception-unwind `NOPC` sentinel, in "Fixes"
+below; see ON_GRAPHICS.md for the stack itself). The recurring bug shape of
+the port is "this codegen/analysis path still assumes 4-byte pointers"; the
+five root-cause classes — call-frame temp, array-literal element-address temp,
+pointer comparison opcodes, optimizer liveness sizes, and the indexed-element
+address node type (the `Oindex`→`Oindx` rewrite) — are each detailed below,
+and the whole class is audited (see "The pointer-width `tint` bug class").
+Remaining gaps are listed in "Deferred LP64 items"; the one open *runtime* bug
+is the idle-Charon heap corruption, also below. `tests/dis/` is the standing
+regression net (see ON_TESTING.md).
 
 **Build dependencies:** the rule templates make a `.dis` depend on the `limbo`
 binary (`mkfiles/mkdis`) and a `.o` depend on the per-target flags mkfile
@@ -321,9 +294,9 @@ binary (`mkfiles/mkdis`) and a `.o` depend on the per-target flags mkfile
 the build flags change — not just when a source `.b`/`.c` changes. (To force a
 full dis recompile anyway: `find appl -name '*.b' -exec touch {} +`.)
 
-This file records every place where something was turned off, stubbed, or worked
+This file records every place where something is turned off, stubbed, or worked
 around, plus the LP64 port design and the one open runtime bug (the idle-Charon
-heap corruption, below), so the next person knows what is real vs. deferred.
+heap corruption, below), so you know what is real vs. deferred.
 
 How to build, the profiles, the vendored-library cache, and the `make check`
 gate are all in **[`ON_BUILDING.md`](ON_BUILDING.md)** — not repeated here.
@@ -333,53 +306,50 @@ One build hazard is ABI-specific, though, so it stays:
 > activation-record headers for builtin modules (`limbo -a`/`limbo -t` output:
 > `libinterp/runt.h`, `sysmod.h`, … and `emu/Linux/srv.h`/`srvm.h`) encode
 > ABI-specific frame offsets (pointer/register-slot size, `MaxTemp`, frame
-> `size`). Their mk rules historically depended only on the module *source*, so
-> switching the build ABI (32↔64-bit) rebuilds `limbo` but does **not** touch the
-> `.m`/`.b` source — `mk` then keeps the wrong-ABI headers and links them into the
-> new emu, so a builtin reads its arguments at the wrong frame offset (truncated
-> pointer → wild-address fault). This caused the long-mislabelled "DNS hang"
-> (stale 32-bit `srv.h`/`srvm.h`: `WORD regs`/`temps[12]`/`size=40` vs the LP64
-> `void* regs`/`temps[24]`/`size=72`, faulting in `string2c ← Srv_iph2a`). The
-> `srv.h`/`srvm.h` rule now lists the `limbo` binary as a prerequisite so an ABI
+> `size`). A mk rule that depends only on the module *source* keeps the
+> wrong-ABI header across a 32↔64-bit switch (the switch rebuilds `limbo` but
+> touches no `.m`/`.b`), and links it into the new emu — the builtin then reads
+> its arguments at the wrong frame offset (truncated pointer → wild-address
+> fault, e.g. a stale 32-bit `srv.h` with `WORD regs`/`size=40` against the
+> LP64 `void* regs`/`size=72`, faulting deep inside the builtin). The
+> `srv.h`/`srvm.h` rule lists the `limbo` binary as a prerequisite so an ABI
 > change forces regeneration; **the other generated headers share the latent
 > flaw, so after any ABI switch on an existing tree do a clean rebuild
 > (`mk nuke`) rather than an incremental one.**
 
 ---
 
-## Fixes (correct, not stubs — listed for context)
+## Fixes (correct, not stubs — each carries a rule)
 
-These are genuine 64-bit correctness fixes, not shortcuts:
+These are genuine 64-bit correctness fixes, not shortcuts; each entry states
+the rule the code now follows:
 
-- **`libmath/dtoa.c`** — David Gay's `dtoa` assumed the bignum word type and the
-  two halves of an IEEE double are 32 bits. On LP64 `long` is 64 bits, which
-  corrupted the bignum arithmetic and made `word0`/`word1` read past the end of
-  the double. Pinned the word type to 32 bits (`typedef unsigned int ULong; typedef
-  int Long;`). Without this the freshly built `limbo` segfaulted while generating
-  `runt.h`. Same file, the byte-order rule: select `word0`/`word1` with the
-  compiler predefine `__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__`, never
+- **`libmath/dtoa.c`** — David Gay's `dtoa` assumes the bignum word type and the
+  two halves of an IEEE double are 32 bits; on LP64 `long` is 64 bits, which
+  corrupts the bignum arithmetic and makes `word0`/`word1` read past the end of
+  the double. The word type is pinned to 32 bits (`typedef unsigned int ULong;
+  typedef int Long;`). Same file, the byte-order rule: select `word0`/`word1`
+  with the compiler predefine `__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__`, never
   `#ifdef __LITTLE_ENDIAN` — glibc defines that macro as a constant on every
   arch, so the ifdef is always true and big-endian gets the halves swapped
   (the `cunit/m68k` check cell guards this).
 - **`limbo/dtocanon.c` + `libinterp/load.c` (`dtocanon`/`canontod`)** — same
-  `unsigned long`-is-8-bytes family. These split/reassemble an IEEE double into the
-  two 32-bit words of the `.dis` data section via a `union { double d; unsigned long
-  ul[2]; }`; on LP64 `ul[0]` aliased the whole double, so **every real *constant*
-  loaded as ~0** (reals computed at run time were fine, which is why the CLI/sh path
-  never caught it). Pinned the union element to `unsigned int`. Found by checking
-  floating-point math (`sqrt`/`sin`/`pow`/…, real arrays, `1e±300`, string→real) —
-  all correct after the fix. `dtocanon` is in the compiler, so the dis tree was
-  recompiled. The self-host `appl/cmd/limbo` is unaffected (it serialises reals via
-  the Math `export_real` builtin, not a C union).
-- **`emu/port/alloc.c`** — the pool allocation quantum was `31` (32-byte minimum
-  block). A free block stores its tree node *in-band* in the `Bhdr` union; on LP64
-  that node is 56 bytes + 8-byte `Btail` = 64 bytes, so 32-byte blocks let the
-  free-tree pointers and trailer spill into the neighbouring block. Changed the
-  quantum to a word-size-aware value (`#define QUANTA (sizeof(Bhdr)+sizeof(Btail)
-  <= 32 ? 31 : 63)`), so 64-bit builds use 64-byte minimum blocks. No-op on 32-bit.
-- **`Linux/aarch64/include/lib9.h`** — `#define READ 4` should have been
-  `#define AREAD 4` (the `access(2)` mode used by `libdraw/subfontname.c`). Typo
-  fix.
+  `unsigned long`-is-8-bytes family. These split/reassemble an IEEE double into
+  the two 32-bit words of the `.dis` data section via a
+  `union { double d; unsigned long ul[2]; }`; on LP64 `ul[0]` aliases the whole
+  double, so **every real *constant* loads as ~0** while reals computed at run
+  time stay fine — a trap that hides from any test that never reads a real
+  literal. The union element is pinned to `unsigned int`. The self-host
+  `appl/cmd/limbo` is unaffected (it serialises reals via the Math
+  `export_real` builtin, not a C union).
+- **`emu/port/alloc.c`** — a free block stores its tree node *in-band* in the
+  `Bhdr` union; on LP64 that node is 56 bytes + 8-byte `Btail` = 64 bytes, so
+  the original 32-byte minimum block lets the free-tree pointers and trailer
+  spill into the neighbouring block. The allocation quantum is word-size-aware
+  (`#define QUANTA (sizeof(Bhdr)+sizeof(Btail) <= 32 ? 31 : 63)`): 64-bit
+  builds get 64-byte minimum blocks, 32-bit builds are unchanged.
+- **`Linux/aarch64/include/lib9.h`** — the `access(2)` mode constant is
+  `AREAD`, not `READ` (used by `libdraw/subfontname.c`).
 - **Draw scan-line word width — `libdraw/bytesperline.c`, `libmemdraw/{alloc,draw,
   defont,load,unload,line}.c`** (the GUI-enabling graphics fix). libmemdraw models
   an image scan line as an array of `ulong` "words" and computed every stride as
@@ -391,40 +361,37 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   (which strides by `Xsize*4`). Result: the screen image (`width=1024`, depth 32)
   got stride `8*1024=8192` instead of `4096`, so the compositor walked off the end
   of the X buffer → SIGSEGV in `boolcalc1011`/`memimagedraw` on the first window.
-  Fixed by pinning the draw word to 32 bits: `sizeof(u32int)` for strides,
+  The draw word is pinned to 32 bits: `sizeof(u32int)` for strides,
   `8*sizeof(u32int)` in `wordsperline`, and `u32int*` (not `ulong*`) for the pixel
   pointers (`Buffer.rgba`, `boolcopy32`, `memsetl`, `chardraw`). **Rule: a draw
-  word is 4 bytes — never `sizeof(ulong)`.** Found via gdb backtrace
-  (`boolcalc1011` ← `memimagedraw`) then inspecting `dst->width`/`bwidth`.
+  word is 4 bytes — never `sizeof(ulong)`.**
 - **Exception unwind `NOPC` sentinel — `emu/port/exception.c`, `os/port/exception.c`.**
   `handler()` walks frames; the "no handler here, keep unwinding" terminator is
   stored in `Except.pc` (a `ulong`) as the loader's `operand()` value `-1`, which
-  **sign-extends to `0xffffffffffffffff` on LP64**. `NOPC` was `0xffffffff`
-  (32-bit), so `newpc != NOPC` was wrongly true and the unwinder jumped to
-  `R.PC = prog + (-1) = prog-1` → "illegal dis instruction". This fired whenever an
-  exception fell through a non-matching handler — e.g. `kill 99999` doing
-  `raise "fail:nothing killed"` back into the shell, which broke `wm/wm`'s
-  `wmsetup`/`plumber`. Fixed: `#define NOPC (~(ulong)0)` (all-ones at native width;
-  correct on ILP32 and LP64). Regression: `tests/dis/suites/70_except.b`. Found
-  the native way (per ON_DEBUGGING.md): the broken proc parks in `Broken` and
-  `/prog/<pid>/{exception,stack}` give the Dis-level trace — reach for `/prog`
-  before gdb.
+  **sign-extends to `0xffffffffffffffff` on LP64**. A 32-bit `NOPC`
+  (`0xffffffff`) makes `newpc != NOPC` wrongly true and the unwinder jumps to
+  `R.PC = prog + (-1) = prog-1` → "illegal dis instruction", firing whenever an
+  exception falls through a non-matching handler (e.g. a `fail:` raise back
+  into the shell). The sentinel is `#define NOPC (~(ulong)0)` — all-ones at
+  native width, correct on ILP32 and LP64. Regression:
+  `tests/dis/suites/70_except.b`.
 - **Byte→word sign-extension into 64-bit fields (UBSan-audit class).** A `uchar`
   shifted `<< 24` promotes to `int`; for a high byte >= 0x80 (e.g. `0x80`=DMDIR,
   `0xFF`=alpha) the result is a negative `int` that **sign-extends to
-  `0xFFFFFFFF…` when widened into a 64-bit `ulong`/`vlong`**. On 32-bit `ulong`
-  was 4 bytes so it never showed. Fixed across: the 9P field-unpack macros
+  `0xFFFFFFFF…` when widened into a 64-bit `ulong`/`vlong`** — invisible on
+  32-bit where `ulong` is 4 bytes. Fixed across: the 9P field-unpack macros
   `GBIT32`/`GBIT64` in `include/styx.h` + `include/fcall.h` (the big one — every
   9P `mode`/length/qid/time unpack; `GBIT64` also zero-extended its low word);
   `Dir.mode` assembly in `emu/port/dev.c`, `emu/port/devfs-posix.c`,
   `lib9/dirstat-{Nt,posix}.c`; and `disw()`/the DEFL big-constant path in
-  `libinterp/load.c`. Also made `libinterp/load.c:operand()` (the bytecode operand
-  decoder) shift in `u32int` — behavior-identical, removes the UB. Found by the
-  UBSan sweep (see ON_DEBUGGING.md "Sanitizer builds"); regression-covered by
-  `tests/dis/suites/30_styxnet` (9P) and the suite at large. The remaining UBSan
-  findings (pixel-assembly shifts, crypto/bignum byte-assembly, the string hash,
-  `memmove(x,nil,0)`) are **benign** — results verified (correct render + crypto
-  vectors), values stay 32-bit/masked — and were left to avoid churn in hot paths.
+  `libinterp/load.c`. `libinterp/load.c:operand()` (the bytecode operand
+  decoder) shifts in `u32int` — behavior-identical, removes the UB. The UBSan
+  sweep finds this class (see ON_DEBUGGING.md "Sanitizer builds");
+  regression-covered by `tests/dis/suites/30_styxnet` (9P) and the suite at
+  large. The remaining UBSan findings (pixel-assembly shifts, crypto/bignum
+  byte-assembly, the string hash, `memmove(x,nil,0)`) are **benign** — results
+  verified (correct render + crypto vectors), values stay 32-bit/masked — and
+  stay as-is to avoid churn in hot paths.
 
 ---
 
@@ -439,7 +406,7 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   punted (ICALL, IRET, IFRAME/IMFRAME, IGOTO/ICASE/ICASEC — tables relocated first, FP,
   news, div/mod, sends). Code is generated into a low (<2GB) executable mmap arena so the
   32-bit WORD jump tables can hold native addresses, matching the interpreter's
-  `(Inst*)t[0]` reads. The old broken attempt is at `libinterp/comp-aarch64.c.jit-wip`.
+  `(Inst*)t[0]` reads.
 - **Default behaviour is unchanged:** `cflag==0` (the default) never calls `compile()`,
   so every module runs interpreted exactly as before. The LP64 test suite is **178/178**
   with the JIT present. The JIT only activates with `emu -c1` (or `-c2`).
@@ -450,10 +417,10 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   introspect a JIT-compiled module because `compile()` replaces `m->prog` (Dis) with native
   code and frees the original — `ifetch` rejects compiled modules *by design* in stock
   Inferno, and every JIT back-end makes this trade-off. Not a codegen defect; the full
-  reflection round-trip runs and passes at `cflag==0`. Three bugs cracked sh: a one-character `cmnix` encoding error (tested x1 not
-  x0 in is-H checks), `comvec` not preserving AAPCS64 callee-saved x19/x20/x21/x24 across
-  the C boundary (corrupted `xec`'s `p` on reschedule), and a stale `R.PC` during yielding
-  builtins. See ON_JIT.md "Root causes found and fixed".
+  reflection round-trip runs and passes at `cflag==0`. The traps that bite this
+  back-end — encoder field mix-ups, `comvec` failing to preserve the AAPCS64
+  callee-saved registers across the C boundary, a stale `R.PC` during yielding
+  builtins — are catalogued in ON_JIT.md "Root causes".
 - **Supporting changes that DID land (and are correct/regression-free):**
   - `emu/Linux/segflush-aarch64.c` now `mprotect()`s the flushed range RWX (pool/heap
     memory is non-executable on Linux; generated code faulted on instruction fetch).
@@ -472,24 +439,21 @@ These are genuine 64-bit correctness fixes, not shortcuts:
   during normal execution. It only needs to compile/link. Not worth making the
   heuristics correct while the JIT is stubbed out.
 
-### GUI stack — RESOLVED (2026-06): `CONF=emu` is now the default and the desktop runs
-- **Was:** the build was `CONF=emu-g` (graphics-less) because `libfreetype` could
-  not build — the upstream FreeType `src/`/`include/` tree (`libfreetype/libfreetype/`)
-  was an *unpopulated git submodule*, so `freetype.c` had no headers to compile
-  against and the full `emu` config could not link `freetype`/`tk`/`draw`.
-- **Fixed by:**
-  1. **Vendoring FreeType 2.13.2** into `libfreetype/libfreetype/` — the exact
-     commit (`546237e1…`) the old `freetype2` submodule pinned, checked out as
-     plain files (submodule de-registered, `.gitmodules` removed). `libfreetype/
-     mkfile` compiles the upstream `src/` against the Inferno glue
-     (`libfreetype/freetype.c`, `ftsystem_inf.c`); it builds clean.
-  2. **The LP64 draw word-width fix** (see Fixes) — without it `CONF=emu` linked
-     but `wm/wm` segfaulted in the libmemdraw compositor on the first window.
-  3. **The LP64 `NOPC` exception-unwind fix** (see Fixes) — without it the desktop
-     came up but `wmsetup`/`plumber` broke with "illegal dis instruction".
-- **Now:** `make all` builds `CONF=emu` (libfreetype/libtk/libdraw/win-x11a),
-  `wm/wm` renders and is interactive (Xvfb-verified). `make all CONF=emu-g` still
-  gives the fast headless build. `libdynld` (Vita Nuova's DLM facility —
+### GUI stack — `CONF=emu` is the default and the desktop runs
+- `make all` builds `CONF=emu` (libfreetype/libtk/libdraw/win-x11a) and `wm/wm`
+  renders and is interactive; `make all CONF=emu-g` gives the fast headless
+  build.
+- **FreeType is vendored** (2.13.2) into `libfreetype/libfreetype/` as plain
+  files — upstream used a git submodule, which leaves a fresh clone with no
+  headers to compile `freetype.c` against. `libfreetype/mkfile` compiles the
+  upstream `src/` against the Inferno glue (`libfreetype/freetype.c`,
+  `ftsystem_inf.c`).
+- The two LP64 fixes the GUI depends on are in "Fixes" above: the draw
+  word-width rule (without it `wm/wm` segfaults in the libmemdraw compositor on
+  the first window) and the `NOPC` exception-unwind sentinel (without it the
+  desktop comes up but `wmsetup`/`plumber` break with "illegal dis
+  instruction").
+- `libdynld` (Vita Nuova's DLM facility —
   runtime-loadable *native* modules with signature-checked linkage) remains
   dropped for two independent reasons: (1) it has per-arch relocation backends
   only for 386/arm/mips/power/sparc, no LP64 `dynld-aarch64.c`/`dynld-amd64.c`, so
@@ -568,8 +532,8 @@ by **one new constant**:
   pointer-sized register slots (`void* regs[NREG-1]`, `void* noret`,
   `temps[MaxTemp-NREG*IBY2PTR]`) so they match the interpreter frame on LP64.
 
-**limbo (compiler) changes — pointer-width temporaries, comparisons, and analysis
-(added this session; each was a real crash):**
+**limbo (compiler) changes — pointer-width temporaries, comparisons, and
+analysis (each of these is a real crash class, not a tidy-up):**
 - `ecom.c` `callcom()`: the call-frame-pointer temp (`IFRAME`/`IMFRAME` dst,
   `ICALL`/`IMCALL` src) was `talloc(&frame, tint, …)` — a 4-byte slot holding an
   8-byte frame pointer. `idoffsets` packs by each decl's own `ty->align/size`, so the
@@ -628,16 +592,14 @@ by **one new constant**:
 - `load.c`: `brpatch` stores absolute branch/spawn targets in the `Inst.d.ins`
   pointer member (was the truncating `WORD d.imm`; `JMP` reads `*(Inst**)&d.imm`).
 
-**Build / dis tree:** rebuilt limbo → libinterp (regenerates `runt.h`/`*mod.h` maps)
-→ emu-g, then **recompiled the whole `appl/lib` and `appl/cmd` dis trees** with the
-new compiler (`mk -k ... install`; `-k` to skip the pre-existing broken `venti.b`).
-The 4-byte `.dis` cannot be mixed with the new VM, so any `.dis` that is loaded must
-be recompiled.
+**Build / dis tree:** the build order is limbo → libinterp (regenerates
+`runt.h`/`*mod.h` maps) → emu, then the whole `appl/lib` and `appl/cmd` dis
+trees recompiled with the new compiler. The two ABIs' `.dis` cannot be mixed
+with the wrong VM, so any `.dis` a build loads must come from its own compiler.
 
-### Phase 2 — pointer-width `.dis` magic + recompile-on-mismatch (implemented)
-Done (stage-2 commit on this branch; the guard half is also on `master`). A 64-bit
-and a 32-bit Dis now **reject each other's binaries** instead of silently mis-running
-them:
+### Pointer-width `.dis` magic + recompile-on-mismatch
+A 64-bit and a 32-bit Dis **reject each other's binaries** instead of silently
+mis-running them:
 - **`include/isa.h`**: `XMAGIC8`/`SMAGIC8` (= `XMAGIC`/`SMAGIC` `| 0x100000`), the
   64-bit-pointer-ABI magics; on this branch `IBY2PTR=8`, on master `IBY2PTR=IBY2WD`.
 - **compiler** (`limbo/com.c` and `appl/cmd/limbo/com.b`) stamps the magic selected by
@@ -645,13 +607,14 @@ them:
 - **loader** (`libinterp/load.c`) accepts only this build's width; the other width's
   magic is rejected with a distinct catchable error `exDiswidth`
   ("dis module compiled for wrong pointer width"); garbage still says "bad magic".
-- **`appl/cmd/limbo` was ported to LP64** (mirror of the stage-1 C-compiler changes:
-  `isa.m`/`limbo.m`/`types.b`/`ecom.b`/`gen.b`/`com.b`/`decls.b`/`dis.b`/`stubs.b`), so
-  the **self-hosted `/dis/limbo` emits correct 64-bit `.dis`** — this is what the
-  recompile path runs. (Note: there are **two** compilers — the C `limbo/` host binary
-  that `mk` uses, and the Limbo `appl/cmd/limbo/` one compiled to `/dis/limbo.dis`;
-  both must be LP64-ported. `appl/cmd/limbo/optim.b` is a no-op stub, so no optimizer
-  liveness fix is needed there.)
+- **`appl/cmd/limbo` carries the same LP64 port** (mirrors of the C-compiler
+  changes in `isa.m`/`limbo.m`/`types.b`/`ecom.b`/`gen.b`/`com.b`/`decls.b`/
+  `dis.b`/`stubs.b`), so the **self-hosted `/dis/limbo` emits correct 64-bit
+  `.dis`** — this is what the recompile path runs. (Note: there are **two**
+  compilers — the C `limbo/` host binary that `mk` uses, and the Limbo
+  `appl/cmd/limbo/` one compiled to `/dis/limbo.dis`; a width change must land
+  in both. `appl/cmd/limbo/optim.b` is a no-op stub, so no optimizer liveness
+  fix is needed there.)
 - **recompile-on-mismatch** (`appl/cmd/sh/sh.b`): on the wrong-width error, sh reads the
   source path embedded at the end of the `.dis` (the trailing `source` string, read
   width-independently), and if that `.b` exists runs `limbo -o <dis> <src>` and retries
@@ -665,22 +628,8 @@ the new emu-g rejects; you must build (`make`) and recompile the dis tree once. 
 recompile-on-mismatch only helps for *application* modules once a correct-width
 `emuinit`/`sh`/`limbo` core is in place.
 
-### Solved this session
-The list+format-print crash (the previous "one remaining bug") was the **call-frame
-temp** bug (`callcom`, above): the loop variable `l` at `72(fp)` sat adjacent to the
-4-byte frame-pointer temp at `68(fp)`; `frame $1,68(fp)` stored an 8-byte pointer
-that overran into `l`'s low word. Fixed by making the frame temp `tbig`. The
-`MP+24`/module-data theory in the prior notes was a **misdiagnosis** — a gdb hardware
-watchpoint showed `MP+24` was never written; the corruption was the overlapping frame
-slot. Lesson: trust the watchpoint, not the inferred instruction window.
-
-### No known CLI crashes
-The previous "active edge" — `Readdir`/`mergesort` faulting on `array of ref Dir` —
-was the `Oindex`→`Oindx` element-address-type bug (above) and is fixed. A full `sh`
-session (pipes, redirection, globbing, `ls`/`ps`/`cat`/`wc`, env vars, `cd`,
-`load std`, `for`/`if`/`ftest`) now runs with no faults.
-
-Debug recipe that found these (keep for the deferred items): run under gdb **without**
+### Reading a width-bug fault in gdb
+The recipe for the whole bug class: run under gdb **without**
 `-s` (so SIGSEGV stops inside the faulting VM `OP()` rather than the signal handler),
 `bt` to see which op, then read `R` at its **literal** address (gdb's symbolic `&R`
 is wrong because emu is built `-O`; find `R`'s static address with `nm emu-g | grep
@@ -692,26 +641,23 @@ diagnostic: `0xffffffff0000xxxx` = high-half overwrite (overlap/coalesce of a sl
 that held `H`); `0xXXXXXXXXXXXXXXXX` with equal 32-bit halves = a low-half value
 duplicated; two distinct small halves = an 8-byte read straddling two int fields.
 
-### Temporary debug instrumentation
+### Fault-path instrumentation
 - `emu/Linux/os.c` `sysfault()`: prints `LP64 fault: ... in <module> pc=<n> op=<n>`
-  via `modstatus(&R,...)` (added `#include "interp.h"`). Now a permanent part of the
-  fault path (the recoverable, non-`EMUCRASH` branch — see ON_DEBUGGING.md
-  "Graceful failure isolation"); kept deliberately for per-module fault triage.
-- The `libinterp/xec.c` `OP(consp)`/`OP(headp)` `print("DBG …")` dumps have been
-  **removed**, and `appl/cmd/emuinit.b` has been **restored** from git (it is the real
-  emuinit again). The `lt.b`/`t64.b` reproducers under `appl/cmd/` can stay as tests.
+  via `modstatus(&R,...)` — a permanent part of the fault path (the recoverable,
+  non-`EMUCRASH` branch — see ON_DEBUGGING.md "Graceful failure isolation"),
+  kept for per-module fault triage.
 - Reading a reported `pc=N`: the dispatch loop increments `R.PC` **before** running
   the op, so during a fault `R.PC` points at the *next* instruction; the faulting
   instruction is typically `pc-1` (account for this when matching a `limbo -S`
   listing). `limbo -S file.b` writes the Dis assembly listing to `file.s`.
 
-### Hardening fixes (found by an exceptions/big/tuple/pick/channel test sweep)
+### Hardening fixes
 - **Big (64-bit) constants** (`libinterp/load.c` DEFL): `(LONG)hi<<32 |
-  (LONG)(ulong)lo` sign-extended a low word with bit 31 set on LP64 (`ulong` is
-  8 bytes), so e.g. `big 123456789012` loaded as `-1097262572` (constants whose
-  low word's bit 31 was clear, like `9000000000`, were fine by luck). Now
-  `(u32int)lo` (zero-extend); high word keeps the sign. VM-only; also on master.
-- **Exception value layout (EXLP64, was deferred — now fixed):** the exbasetype
+  (LONG)(ulong)lo` sign-extends a low word with bit 31 set on LP64 (`ulong` is
+  8 bytes), so e.g. `big 123456789012` loads as `-1097262572` while constants
+  whose low word's bit 31 is clear are fine by luck. The low word is
+  `(u32int)lo` (zero-extend); the high word keeps the sign. VM-only.
+- **Exception value layout:** the exbasetype
   `{string name; tag; args}` header is now IBY2LG-aligned (tag is `tbig` on LP64
   → `{string(8),tag(8)}=16`) so the user args sit at an 8-aligned offset and line
   up whether accessed (laid out from 0) or constructed (from the header); the
@@ -727,9 +673,8 @@ duplicated; two distinct small halves = an 8-byte read straddling two int fields
   `tint`, so on LP64 the 8-byte element address overran its 4-byte temp and the
   fill stored through a corrupt (duplicated-half) pointer — faulting for any
   non-zero replicate of a real/big/pointer-element array (zero fills are optimised
-  away, which hid it). Now `tbig`, same as `rewrite()`'s `Oindex` and `arraycom`'s
-  temp. **101 modules use the pattern; recompiled.** Found by the inferno-lab
-  battery (`ffttest`, `puttar`).
+  away, which hides it). Typed pointer-width, same as `rewrite()`'s `Oindex` and
+  `arraycom`'s temp.
 
 ### The pointer-width `tint` bug class — audited (don't whack-a-mole)
 Every LP64 bug here is the same shape: a slot that holds/computes a **pointer or
@@ -742,7 +687,7 @@ loaded pointer. `tint` temps used only as intermediates for explicitly-typed
 big-array-element `+=`) are safe — the op carries the operand type. So **most
 `tint` is correct; do not blanket-convert.**
 
-**Use `tptr`, not `tbig`, for these slots (2026-06-02 — ABI-correctness fix).**
+**Use `tptr`, not `tbig`, for these slots.**
 The materialised-pointer slots must be **pointer-width**: `IBY2PTR` bytes — 4 on
 ILP32, 8 on LP64. `tbig` is a fixed 8-byte/`IMOVL` type, so it is correct on LP64
 *only because* `IBY2PTR == IBY2LG` there; on a 32-bit build (the C compiler gets
@@ -762,32 +707,30 @@ regression); ILP32 becomes correct. Genuine-`big` sites stay `tbig`
 (`globalBconst`; the alignment-guarded exception/pick-tag header, which is already
 `IBY2PTR`-conditioned).
 
-**Imported global VARIABLES — the acme/charon crash (2026-06-02).** Accessing a
+**Imported global VARIABLES — the GUI-app launch crash.** Accessing a
 variable imported from another module (`x: import othermod`, e.g. acme's
 `display: import gui`) is rewritten (`ecom.c`/`ecom.b` `rewrite()` Omdot/Dglobal)
 to `Oind(Oadd(Oind(module), field_offset))`: load the foreign module's
-data-segment pointer (`Modlink.MP`), add the global's offset, load the field. The
-inner `Oind(module)` load was typed `tint`, so on LP64 it was a 4-byte `movw` that
-truncated/sign-extended the 8-byte `Modlink.MP` (e.g. fault at
-`0xffffffff2c138d00`); the next deref faulted **at app launch**. This is why acme
-and charon crashed immediately while in-process Tk apps that don't read another
-module's globals (bounce, tetris, clock, …) were fine, and why the TAP suite never
-caught it — the suites import funcs and types but never imported global
-*variables*. Fixed by typing that load `tptr`. Regression: `suites/80_modglobal.b`
+data-segment pointer (`Modlink.MP`), add the global's offset, load the field. An
+inner `Oind(module)` load typed `tint` is a 4-byte `movw` on LP64 that
+truncates/sign-extends the 8-byte `Modlink.MP` (e.g. fault at
+`0xffffffff2c138d00`); the next deref faults **at app launch**. The trap: apps
+that read another module's globals (acme, charon) crash immediately while apps
+that don't (bounce, tetris, clock, …) are fine, and a test suite that imports
+only functions and types never exercises the path. The load is typed `tptr`.
+Regression: `suites/80_modglobal.b`
 (imports ref/string/list/array globals from `lib/modglobals`; reverting the fix
 turns it `BROKE` with the segfault). `Oadr` nodes still always fold into an `Oind`
 addressing mode (the compiler `fatal`s otherwise), so no other truncating
 materialisation remains.
 
-### Test battery
-`github.com/caerwynj/inferno-lab` (~281 real Limbo programs) is the repeatable
-battery. Compile sweep: 234/281 compile, 0 compiler crashes (misses = uninstalled
-lab-local modules; the 18 errors are source-level API drift, not LP64). Run sweep
-(headless, flag `segmentation violation`/`illegal dis`; ignore "module not loaded"
-= uninstalled deps and "dereference of nil" = missing args) found the replicate
-bug. After fixes, 1 residual fault: `toy0`, `IMFRAME` on a nil modlink from an
-uninstalled `load` with no nil-check — a program bug, not codegen. Not yet wired as
-a standing harness.
+### External test battery
+`github.com/caerwynj/inferno-lab` (~281 real Limbo programs) is a useful
+one-shot battery beyond the in-repo suites: compile every program, then run
+headless and flag `segmentation violation`/`illegal dis` (ignore "module not
+loaded" = uninstalled deps and "dereference of nil" = missing args — those are
+environment, not codegen). Expect a few dozen compile errors from source-level
+API drift; they are not LP64 findings. Not wired as a standing harness.
 
 ### In-repo headless test suite — `tests/dis/` (standing regression harness)
 A self-contained TAP suite that exercises the Dis VM + Limbo end-to-end through
@@ -841,10 +784,10 @@ top-level GUI app under `Xvfb` + `wm/wm` with the graphical `emu`, waits a few
 seconds, and FAILs it only if the emu log shows a C-level VM crash (`LP64 fault`/
 `segmentation`/`Broken:`/`illegal dis`/`panic`). Benign env noise (no `/tmp`, no
 plumber, no network) is ignored — we hunt VM crashes, which is where LP64 bugs
-live. Result after the `tptr` fix + full dis-tree recompile: **compile 116 ok / 4
-err** (the 4 — `mpeg`, `qt`, `samtk`, `paginate` — are pre-existing source-level
-API drift, not LP64), and **every launched app runs crash-free** (acme, charon,
-and ~20 `wm` apps). Caveats baked in: never `pkill -f <pattern>` from the script —
+live. The expected baseline: 4 known compile errors (`mpeg`, `qt`, `samtk`,
+`paginate` — source-level API drift, not LP64) and **every launched app
+crash-free** (acme, charon, and ~20 `wm` apps). Caveats baked in: never
+`pkill -f <pattern>` from the script —
 it matches the script's own command line and kills it; bound each emu with
 `timeout -s KILL` instead. The full launch phase runs ~2 min, so run it
 backgrounded (it exceeds a 120 s foreground budget).
@@ -855,28 +798,25 @@ repo tree and reference inferno paths under the emu root (`/tests/dis/...`,
 is not in the headless namespace. (2) `exit` is a no-arg statement; programs signal
 pass/fail through TAP, not an exit status. (3) **any spawned helper proc must
 terminate** (sentinel/bounded) or `emu-g` hangs until the timeout — a leaked
-infinite producer cost a 65 s-per-run stall before the sieve was made
-sentinel-terminated. (4) the post-run rc 137 SIGKILL is the pre-existing benign
+infinite producer stalls every run. (4) the post-run rc 137 SIGKILL is the pre-existing benign
 emu-g teardown (repro: bare `echo hi`), output always completes first — the harness
 treats 0/1/137 as non-error **but** still requires summary()'s `1..N` plan line and
 the absence of `Broken:`/`illegal dis`/panic, so a tolerated exit code can no longer
 hide a mid-run VM fault (this is how `70_except` catches the `NOPC` regression).
 
-### `$Loader` LP64 fix (done) — runtime module reflect/rebuild
+### `$Loader` on LP64 — runtime module reflect/rebuild
 `$Loader` (`libinterp/loader.c`, the `Loader->ifetch`/`newmod`/`link`/`tdesc`
-reflective interface) round-trips a module's instructions to/from Limbo. Three
-LP64 bugs, all fixed (VM-only, no `.dis` change); verified `ifetch`→`newmod`
-round-trips echo/cat/wc/ls/tee and the 1967-instruction `sh/std.dis`, and the
-rebuilt module frees cleanly:
-1. **brunpatch** read a branch target from the truncating 4-byte `i->d.imm`; the
-   core stores it as a full `Inst*` in `i->d.ins` (8 bytes), so the recovered
-   instruction index was garbage and `newmod`'s `brpatch` rejected it. Now passes
-   the `Inst*` and computes the index from `i->d.ins`.
-2. **`Loader_newmod`** `malloc`'d the Module and set only some fields, leaving
-   `ldt`/`htab`/`ext`/`link`/`dlm` as garbage 8-byte pointers that the teardown
-   (`freemod`/`destroylinks`) walks → crash. Now `memset(m,0,sizeof(Module))`.
-3. **`destroylinks`** (`link.c`) walked `m->ext` with no nil check; a `newmod`'d
-   module has `ext==nil`. Guarded (as `freemod` already guards `ldt`/`htab`).
+reflective interface) round-trips a module's instructions to/from Limbo. Its
+three LP64 hazards (all VM-only, no `.dis` change; `50_loader` is the
+regression):
+1. **brunpatch** must read a branch target from the full `Inst*` in `i->d.ins`
+   (8 bytes), not the truncating 4-byte `i->d.imm` — otherwise the recovered
+   instruction index is garbage and `newmod`'s `brpatch` rejects it.
+2. **`Loader_newmod`** must `memset(m,0,sizeof(Module))`: a Module with only
+   some fields set leaves `ldt`/`htab`/`ext`/`link`/`dlm` as garbage 8-byte
+   pointers that the teardown (`freemod`/`destroylinks`) walks → crash.
+3. **`destroylinks`** (`link.c`) guards `m->ext` against nil — a `newmod`'d
+   module has `ext==nil` (as `freemod` already guards `ldt`/`htab`).
 
 ### Deferred LP64 items (compile fine; off the emuinit/sh boot path)
 - **`asm.c` `-S` listing**: the textual assembly listing's `Tcasec` case was not
@@ -924,9 +864,9 @@ isolation", `EMUCRASH`, `EMUPOOLCHECK`).
 ## Second LP64 target: Linux/amd64 (x86-64) — glue added, UNBUILT/UNTESTED
 amd64 Linux is also LP64, so it **reuses the entire shared LP64 model** (the
 `IBY2PTR=8` Dis ABI, the compilers, the interpreter, **the committed XMAGIC8 `.dis`
-tree** — which should run unchanged) and adds only thin arch glue. None of it is
-built or run yet (no x86-64 host/toolchain was available); the asm is written by
-hand from the 386 + aarch64 references and needs a real build + test pass.
+tree** — which should run unchanged) and adds only thin arch glue. None of it
+has had a real build or run yet; the asm is written by hand from the 386 +
+aarch64 references and needs a build + test pass on an x86-64 host.
 
 Files added (all amd64-specific; no shared code changed):
 - `mkfiles/mkfile-Linux-amd64` (`gcc -m64`, `-DLINUX_AMD64`), `emu/Linux/mkfile-amd64`

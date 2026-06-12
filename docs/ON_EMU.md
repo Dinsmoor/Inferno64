@@ -1,7 +1,5 @@
 # Inferno Emulator (emu) Architecture
 
-> *So you want to understand or extend the emulator?* This is the reference.
-
 Hosted Inferno runs inside `emu` — a process on the host OS that provides the Dis VM, a synthetic kernel, and a set of device drivers. Understanding `emu` is prerequisite for adding devices, debugging kernel panics, or touching anything in `emu/`.
 
 ## Directory Layout

@@ -1,7 +1,5 @@
 # Limbo Concurrency Model in Inferno OS
 
-> *So you want to use channels, spawn, and alt correctly?* This is the reference.
-
 ## Progs and Procs: Two Levels of Concurrency
 
 Inferno has two separate concurrency layers that interact in non-obvious ways.

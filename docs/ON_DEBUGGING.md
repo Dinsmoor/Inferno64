@@ -1,7 +1,5 @@
 # Debugging Limbo programs in Inferno OS (exceptions, /prog, disdump)
 
-> *So you want to debug a Limbo program (exceptions, /prog, disdump)?* This is the reference.
-
 **Audience / when to read this:** you are debugging a **Limbo program** running on
 the Dis VM — it raised an exception, went `Broken`, wedged, or you want a stack
 trace / diagnostic prints from *inside* Inferno. The first tool here is the VM's own

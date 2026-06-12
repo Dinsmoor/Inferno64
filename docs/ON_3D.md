@@ -1,7 +1,5 @@
 # 3D / raylib-in-Limbo: Raymath, $Raster3, Objloader
 
-> *So you want to draw 3D (or 2D) graphics from Limbo?* This is the reference.
-
 A software 2D/3D graphics stack layered on Inferno's native Draw, ported from
 raylib's feature set. **It is a Limbo port over Draw, not an FFI binding.**
 Design rationale: native desktop integration (composites into `wm/wm`), no
@@ -189,9 +187,8 @@ ABI switch can't leave a stale `raster3mod.h`.
 ### Gotchas
 
 - **Reserved words** bit this port repeatedly: `fn`, `load`, `tl`, `hd` are Limbo
-  keywords and **cannot be identifiers**. (`readobj` not `load`, `tlist` not `tl`,
-  `fnorm`/`dfar` not `fn`.) See ON_LIMBO.md — there is a per-turn reminder hook
-  in `.claude/`.
+  keywords and **cannot be identifiers** (`readobj` not `load`, `tlist` not `tl`,
+  `fnorm`/`dfar` not `fn`). See ON_LIMBO.md.
 - A bare boot module that returns makes `emu` exit 137/SIGKILL — harmless; for
   `raytest`, grep the printed `PASS n/n`, don't check the exit code.
 

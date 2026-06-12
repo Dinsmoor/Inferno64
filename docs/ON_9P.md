@@ -1,7 +1,5 @@
 # 9P/Styx Protocol in Inferno OS
 
-> *So you want to understand or speak 9P/Styx?* This is the reference.
-
 The 9P protocol (called Styx in Inferno) is the universal communication layer. Every resource—files, devices, network connections, synthetic filesystems—is served over 9P. Understanding it is prerequisite to any systems-level work.
 
 ## Wire Format

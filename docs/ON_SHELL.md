@@ -1,7 +1,5 @@
 # The Inferno Shell (sh)
 
-> *So you want to use or hack on the Inferno shell?* This is the reference.
-
 `sh` is Inferno's command language (`appl/cmd/sh/sh.b`, interface `module/sh.m`,
 compiled to `/dis/sh.dis`). It is **not** a Bourne/`rc` clone with extra commands —
 it is a small language where *everything is a command* and *every value is a list of
@@ -12,14 +10,14 @@ fork-specific counterpart.
 
 > **This repo differs from stock Inferno** in three ways that matter at the prompt:
 > 1. **Bash-like interactive line editing, history, and Tab completion** (the
->    `Readline` module — commit `58f946cb`). Stock `sh` reads the console cooked,
->    one line at a time, with no recall.
+>    `Readline` module). Stock `sh` reads the console cooked, one line at a
+>    time, with no recall.
 > 2. **Recompile-on-ABI-mismatch**: running a `.dis` built for the wrong Dis ABI
->    width transparently rebuilds it from source instead of failing (commits
->    `0f4d1c68` + `f728bcdf`; see `ON_DIS_ARCH.md`).
+>    width transparently rebuilds it from source instead of failing (see
+>    `ON_DIS_ARCH.md`).
 > 3. **`-l` login shells** run an rc script (`/lib/sh/profile`).
 >
-> A model trained on stock Inferno `sh` will not expect any of these.
+> If you know stock Inferno `sh`, none of these are what you'll expect.
 
 ---
 

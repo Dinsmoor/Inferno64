@@ -1,7 +1,5 @@
 # Debugging the Inferno Emulator (C internals — faults, hangs, sanitizers, cores)
 
-> *So you want to debug the emu itself (a C-level crash, hang, or heap bug)?* This is the reference.
-
 **Audience / when to read this:** the bug is in the **C emulator itself** — emu
 crashed with a host SIGSEGV/SIGBUS/SIGILL, hung, corrupted its heap, or you're
 hunting an LP64 64→32 truncation in the VM/libraries. Ask yourself first: *is the
@@ -169,7 +167,7 @@ loop, which runs the prog's handler or `progexit()`s it, then re-enters the
 scheduler. nil derefs are recognised by `isnilref` (`addr==~0 || addr<512`) and stay
 ordinary exceptions even under `EMUCRASH`.
 
-**Two known gaps (analysed; left as-is by decision, 2026-06-06):**
+**Two known gaps (analysed; left as-is by design):**
 
 1. **The `EMUCRASH` trade-off.** `EMUCRASH=1` (the standard dev setting) turns
    *every* wild fault into a fatal core, so an app crash kills the whole desktop.

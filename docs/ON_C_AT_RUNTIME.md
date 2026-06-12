@@ -1,7 +1,5 @@
 # Using third-party C at runtime — out-of-process native services over Styx
 
-> *So you want to use someone else's C library on a running Inferno system, without rebuilding the world — and without it crashing the world?* This is the reference.
-
 This document is about a specific, narrow building block: take **some C library
 someone else wrote** (SQLite, a codec, a numerics kernel), build it on a running
 system, and **write Limbo against it** — *without* vendoring it into emu/the

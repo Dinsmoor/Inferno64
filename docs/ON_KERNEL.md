@@ -1,6 +1,4 @@
-# Inferno Kernel Internals — Agent Reference
-
-> *So you want to work in the kernel layer (hosted or native)?* This is the reference.
+# Inferno kernel internals — hosted (emu) and native (os/)
 
 This document covers the kernel layer of Inferno — both the hosted emulator (emu) kernel and the native bare-metal kernel (os/). It explains process management, the 9P file protocol, device drivers, the namespace, memory allocation, and the scheduler.
 

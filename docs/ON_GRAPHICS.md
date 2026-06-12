@@ -1,30 +1,18 @@
-# Graphics in Inferno OS: Draw, Tk, and Prefab
+# Graphics: Draw, Tk, and Prefab
 
-> *So you want to draw with Draw, Tk, or Prefab?* This is the reference.
-
-> **LP64-port note (2026-06): the GUI works.** `CONF=emu` is now the default
-> build and `wm/wm` runs under X11 (verified headless via Xvfb + screenshot:
-> desktop, taskbar, FreeType-rendered menus, mouse input). Two things made it
-> work on LP64:
->
-> 1. **FreeType 2.13.2 is vendored** under `libfreetype/libfreetype/` (the exact
->    version the old git submodule pinned). `libfreetype/mkfile` builds the
->    upstream `src/` against the small Inferno glue (`libfreetype/freetype.c`).
-> 2. **The draw "word" was pinned to 32 bits.** libmemdraw/libdraw modelled an
->    image scan line as an array of `ulong` words and computed every stride as
->    `sizeof(ulong)`. On LP64 that silently became 8, so strides doubled and the
->    compositor walked off the screen image (segfault in `boolcalc*`). A draw
->    word must be 32 bits, matching the packed layout used by the draw protocol,
->    image files, fonts and `win-x11a.c`. Fixed by using `sizeof(u32int)` (and a
->    32-bit unit in `wordsperline`) and making the pixel pointers `u32int*`
->    across `libdraw/bytesperline.c`, `libmemdraw/{alloc,draw,defont,load,unload,
->    line}.c`. **If you touch pixel/scan-line code, never use `sizeof(ulong)` for
->    a draw word — it is 4 bytes (`u32int`).**
->
-> A second, non-graphics LP64 bug also blocked the desktop in practice: the
-> exception unwinder's `NOPC` sentinel (`emu/port/exception.c`) was 32-bit, so a
-> `raise` that fell through a non-matching handler jumped to `prog-1`
-> ("illegal dis instruction"); this broke `wmsetup`/`plumber`. See ON_C_IN_DIS.md.
+> **The one LP64 rule for graphics code.** A draw "word" is **32 bits**
+> (`u32int`), matching the packed layout used by the draw protocol, image
+> files, fonts and `win-x11a.c`. libmemdraw/libdraw model an image scan line
+> as an array of words; computing a stride as `sizeof(ulong)` silently doubles
+> it on LP64 and the compositor walks off the screen image (segfault in
+> `boolcalc*`). **If you touch pixel/scan-line code, never use `sizeof(ulong)`
+> for a draw word** — the stride is `sizeof(u32int)` and pixel pointers are
+> `u32int*` (`libdraw/bytesperline.c`,
+> `libmemdraw/{alloc,draw,defont,load,unload,line}.c`). FreeType 2.13.2 is
+> vendored under `libfreetype/libfreetype/`; `libfreetype/mkfile` builds the
+> upstream `src/` against the small Inferno glue (`libfreetype/freetype.c`).
+> The wider LP64 story, including the exception-unwind `NOPC` sentinel that
+> can break `wmsetup`/`plumber`, is ON_C_IN_DIS.md.
 
 ## Architecture Overview
 
