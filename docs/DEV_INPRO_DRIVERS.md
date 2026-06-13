@@ -82,20 +82,17 @@ substitutes real plumbing.
 
 ## `sd-ahci` — AHCI / SATA (the most simplified)
 
-- [ ] **Fully polled — no interrupts (blocked on a qemu `PxIS` quirk).** Port
-      interrupts stay masked (`p->ie = 0`); `checkdrive()`/`ahciwait()` spin with
-      `delay()` (the scheduler's `m->ticks` does not advance in polled bring-up).
-      The AHCI line is a plain GIC SPI (no MSI needed), so the blocker is not the
-      interrupt path but completion acknowledgement: after bring-up the port latches
-      `PxIS = Adhrs|Apio` (the reset D2H + PIO-setup FISes) with the drive otherwise
-      ready (`PxTFD task 0x50`, `PxCI 0`), and **qemu does not honour the W1C write
-      that should clear those bits** while the port sits in that post-reset state —
-      `p->isr = p->isr` reads back unchanged. With `PxIE` unmasked that pins the
-      `GHC.IS` port bit, re-asserting the SPI forever (a storm that pegs the CPU,
-      which no poll fallback can rescue). The polled path is unaffected because it
-      watches `PxCI`, never `PxIS`. Full support needs the port moved out of that
-      post-reset limbo (a first command, or a fuller `PxSERR`/`PxCMD.FRE` clear
-      sequence) before arming `Adhrs`, then `updatedrive()` off the SPI.
+- **IRQ-driven completion — done (`sd-ahci.c`).** Data I/O sleeps on a per-`Drive`
+      `Rendez` woken by `iainterrupt`; `iario()` no longer busy-spins on `PxCI`, so
+      the scheduler runs during storage I/O. The AHCI line is a plain GIC SPI (no
+      MSI), so it works under both `GIC=v2` and `GIC=v3`. The subtlety: qemu
+      re-asserts the post-reset D2H FIS while the port settles, so the usual W1C
+      idiom (write back only the `PxIS` bits just read) races that re-post — the
+      missed bit pins `GHC.IS` into an SPI storm. The fix is to clear **all** `PxIS`
+      bits (W1C of `~0`), after `PxSERR`; `updatedrive()` does this and `iaverify()`
+      flushes the stale bring-up latches before arming `PxIE=Adhrs` once a drive is
+      `Dready`. Bring-up stays polled (`m->ticks` does not advance there). Proven on
+      qemu `ich9-ahci`: full 64 MB read on v2 and v3, coexisting with NVMe MSI-X.
 - **Drive-ready gate relaxed.** Bring-up accepts qemu's post-reset task value
       `0x30` (WRERR|SEEK, no DRDY); real hardware posts `0x50`. No change needed —
       the relaxed gate also accepts real hardware.
@@ -184,11 +181,11 @@ self-contained items account for nearly all of them:
   `intcmsialloc`) ship together: parsing has no delivery target without the ITS,
   and the ITS has nothing to translate without parsing. Both are in tree and
   proven against qemu's gpex + `gic-version=3`.
-- **IRQ-driven storage rides on MSI.** `sd-nvme` now harvests its completion
-  queue from the MSI-X LPI (poll fallback retained). `sd-ahci` does **not** yet:
-  its line is a plain SPI, but completion acknowledgement is blocked on qemu not
-  honouring the post-reset `PxIS` W1C clear (see its section) — so it stays
-  polled until the port is moved out of that state before `PxIE` is armed.
+- **IRQ-driven storage — done.** `sd-nvme` harvests its completion queue from the
+  MSI-X LPI (poll fallback retained); `sd-ahci` sleeps on a `Rendez` woken from
+  its GIC SPI handler (the post-reset `PxIS` re-post that storms is handled by a
+  W1C-of-`~0` clear, see its section). Both let the scheduler run during I/O, and
+  coexist under `gic-version=3` (NVMe LPI + AHCI SPI).
 - **USB enumerator + HID is the high-value Limbo-side item.** It is the one
   completion that is mostly a userspace/Limbo build, and the one that makes a
   native machine interactively usable from real USB input.
