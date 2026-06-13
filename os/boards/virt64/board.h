@@ -42,9 +42,20 @@ enum {
 	FWCFG_PHYS	= 0x09020000,
 	VIRTIO_PHYS	= 0x0a000000,	/* 32 transports, 0x200 apart */
 
+	/* PCIe generic host bridge (qemu -M virt,highmem-ecam=off / GPEX).
+	 * The low ECAM keeps config space inside the [0,1G) device map; the
+	 * qemu default (high ECAM at 0x40_10000000) needs a wider MMU map. */
+	PCIE_ECAM_PHYS	= 0x3f000000,	/* config space, 1MB/bus; 16 buses */
+	PCIE_ECAM_SIZE	= 0x01000000,
+	PCIE_MMIO_PHYS	= 0x10000000,	/* 32-bit BAR window... */
+	PCIE_MMIO_SIZE	= 0x2eff0000,	/* ...up to 0x3eff0000 */
+	PCIE_PIO_PHYS	= 0x3eff0000,	/* I/O-space window, 64KB */
+	PCIE_PIO_SIZE	= 0x00010000,
+
 	TIMERIRQ	= 30,		/* EL1 physical timer PPI */
 	UARTIRQ		= 32+1,		/* SPI 1 */
 	VIRTIOIRQ0	= 32+16,	/* SPI 16..47 */
+	PCIINTA		= 32+3,		/* INTA..INTD = SPI 3..6, slot-swizzled */
 
 	NIRQ		= 256,
 

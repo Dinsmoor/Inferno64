@@ -54,6 +54,7 @@ enum {
 	PSCI_CPU_ON		= 0xC4000003,	/* SMP secondary bring-up (unused) */
 };
 uchar*	ramfbinit(int*, int*);
+void	pciscan(void);
 void	screeninit(void);
 void	screensize(int*, int*);
 void	virtioinputinit(void);

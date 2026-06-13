@@ -8,7 +8,7 @@
 BOARDC  := board
 
 DRIVERC := uart-pl011 gic-v2 virtio rng-virtio input-virtio ramfb screen \
-	   devether ether-virtio sd-virtio
+	   devether ether-virtio sd-virtio pci
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
@@ -26,8 +26,12 @@ QEMUDISK := -drive if=none,file=$(DISK),format=raw,id=hd0 \
 	    -device virtio-blk-device,drive=hd0
 endif
 
+# highmem-ecam=off keeps the PCIe ECAM config window at 0x3f000000 (16
+# buses), inside the [0,1G) device-mapped region — see board.h PCIE_*.
+# The qemu default puts ECAM high at 0x40_10000000, which the current 4GB
+# identity map doesn't cover.
 run: $(KERNEL)
-	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
+	qemu-system-aarch64 -M virt,highmem-ecam=off -cpu cortex-a53 -m 512 -nographic \
 		$(QEMUDEVS) $(QEMUDISK) -kernel $(KERNEL)
 
 .PHONY: run
