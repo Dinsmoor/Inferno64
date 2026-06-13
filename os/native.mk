@@ -55,6 +55,17 @@ KERNEL  := i$(HWTARG).elf
 # the generated baked-root file list (see the $(GENCONF) rule)
 GENCONF := $(O)/$(HWTARG).gen
 
+# Driver/board picks (e.g. GIC=v2|v3) are make variables, not files, so make
+# can't see when one changes — switching GIC swaps which gic-* object links but
+# touches no timestamp, leaving a stale kernel that still contains the old
+# driver.  Stamp the choices into a file whose mtime bumps only when they
+# change, and make the link depend on it, so a re-pick always relinks.
+VARSTAMP := $(O)/.varstamp
+$(shell mkdir -p $(O) 2>/dev/null; \
+	echo "GIC=$(GIC) USERSPACE=$(USERSPACE)" > $(O)/.varstamp.new; \
+	cmp -s $(O)/.varstamp.new $(VARSTAMP) || cp $(O)/.varstamp.new $(VARSTAMP); \
+	rm -f $(O)/.varstamp.new)
+
 # limbo (and the prebuilt .dis baked into the root, see the board README
 # "Building the image") come from a HOSTED build: `make all` at some
 # inferno-os repo root.  Always the build host's arch (limbo runs here),
@@ -391,7 +402,7 @@ $(O)/root.o: $(GENCONF).root.s | $(O)
 
 # ---- link ----
 
-$(KERNEL): $(OBJ) $(BOARD)/kernel.ld
+$(KERNEL): $(OBJ) $(BOARD)/kernel.ld $(VARSTAMP)
 	$(LD) -T $(BOARD)/kernel.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
 	@echo "built $@"
 
