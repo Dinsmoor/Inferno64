@@ -45,14 +45,17 @@ substitutes real plumbing.
       the low 32-bit window and zeroes 64-bit BAR high halves, so no device
       lands there. A device with a forced 64-bit prefetchable BAR would need a
       40-bit VA (`T0SZ=24`, an L0 table) and a window allocator.
-- **INTx legacy interrupts only, no MSI/MSI-X.** The four legacy lines arrive as
-      GIC SPI 3–6 (`board.h PCIINTA`), slot-swizzled the way qemu's gpex wires
-      them. Full support: walk the capability list for MSI (cap ID `0x05`) and
-      MSI-X (cap ID `0x11`), read the MSI-X table's BAR + offset, and allocate
-      per-vector entries. MSI is only *plumbing* on its own — it has no delivery
-      target until the GICv3 ITS exists, so PCI MSI parsing and the ITS (see
-      "Kernel-wide gaps") are two halves of **one** deliverable. qemu's gpex does
-      expose MSI-X tables, so this is testable in-tree once the ITS lands.
+- **MSI-X is wired through the GICv3 ITS; INTx is the fallback.** `pcimsienable()`
+      (`pci.c`) walks the capability list (`pcicapfind`), finds the MSI-X cap
+      (ID `0x11`), allocates a GICv3 LPI for the device's requester id via
+      `intcmsialloc()`, points table entry 0 at `GITS_TRANSLATER`, and enables
+      MSI-X; a driver that gets `0` back is IRQ-driven, one that gets `-1`
+      (no ITS, i.e. GICv2; or no MSI-X cap) falls back to `intrenable(p->intl,…)`
+      on the legacy line. The four INTx lines still arrive as GIC SPI 3–6
+      (`board.h PCIINTA`), slot-swizzled the way qemu's gpex wires them. MSI (cap
+      ID `0x05`, config-space message register rather than a BAR table) is not yet
+      parsed — devices that expose only MSI take the INTx fallback. Proven with
+      `sd-nvme` under `qemu -M virt,gic-version=3`.
 - **Flat topology, no bridge recursion.** BAR sizing is single-level because qemu
       virt presents a flat root bus. Full support: detect header-type `0x01`
       bridges, assign primary/secondary/subordinate bus numbers, and program each
@@ -69,22 +72,30 @@ substitutes real plumbing.
 - **One namespace.** The driver assumes namespace #1 (qemu exposes one). Full
       support: `Identify` (CNS=2) the active-namespace-ID list, then `Identify
       Namespace` (CNS=0) each, and attach an `Sdunit` per namespace.
-- [ ] **Polled completion queue.** The driver spins on the CQ phase bit instead
-      of taking the controller's interrupt. Full support harvests the completion
-      queue from the MSI vector — and therefore co-gates on PCI MSI + the GICv3
-      ITS (see `pci.c` and "Kernel-wide gaps").
+- **IRQ-driven completion via MSI-X.** `nvmeenable()` calls `pcimsienable()`; on
+      success completions arrive as a GICv3 LPI (`nvmeintr` off the MSI vector),
+      with a short poll fallback in `wcmd()` so a lost interrupt can't hang. Where
+      there is no ITS (GICv2) the driver falls back to INTx. The CQ phase bit is
+      still the source of truth — the interrupt just replaces the busy spin.
 - **`mallocalign → xspanalloc` (never freed).** Queues are allocated once at
       attach, so the lack of a free path is harmless until controllers hot-unplug.
 
 ## `sd-ahci` — AHCI / SATA (the most simplified)
 
-- [ ] **Fully polled — no interrupts.** Port interrupts stay masked (`p->ie = 0`)
-      because an unmasked `PxIE` makes qemu re-assert the post-reset D2H FIS as a
-      perpetual GIC SPI storm. `checkdrive()`/`ahciwait()` spin with `delay()`
-      (the scheduler's `m->ticks` does not advance in polled bring-up). Full
-      support: enable `PxIE`, clear `PxIS`/`GHC.IS` in the handler, and harvest
-      completed command slots via `updatedrive()` off the GIC vector. This is the
-      headline gap — it is also what lets the scheduler tick during storage I/O.
+- [ ] **Fully polled — no interrupts (blocked on a qemu `PxIS` quirk).** Port
+      interrupts stay masked (`p->ie = 0`); `checkdrive()`/`ahciwait()` spin with
+      `delay()` (the scheduler's `m->ticks` does not advance in polled bring-up).
+      The AHCI line is a plain GIC SPI (no MSI needed), so the blocker is not the
+      interrupt path but completion acknowledgement: after bring-up the port latches
+      `PxIS = Adhrs|Apio` (the reset D2H + PIO-setup FISes) with the drive otherwise
+      ready (`PxTFD task 0x50`, `PxCI 0`), and **qemu does not honour the W1C write
+      that should clear those bits** while the port sits in that post-reset state —
+      `p->isr = p->isr` reads back unchanged. With `PxIE` unmasked that pins the
+      `GHC.IS` port bit, re-asserting the SPI forever (a storm that pegs the CPU,
+      which no poll fallback can rescue). The polled path is unaffected because it
+      watches `PxCI`, never `PxIS`. Full support needs the port moved out of that
+      post-reset limbo (a first command, or a fuller `PxSERR`/`PxCMD.FRE` clear
+      sequence) before arming `Adhrs`, then `updatedrive()` off the SPI.
 - **Drive-ready gate relaxed.** Bring-up accepts qemu's post-reset task value
       `0x30` (WRERR|SEEK, no DRDY); real hardware posts `0x50`. No change needed —
       the relaxed gate also accepts real hardware.
@@ -145,19 +156,17 @@ missing is everything *above* the controller.
         its `ICC_*` interface) plus SGI generation via `ICC_SGI1R_EL1` for
         cross-cpu preempt / TLB shootdown. Co-gates on the kernel becoming SMP at
         all.
-  - [ ] **An ITS for LPIs → MSI/MSI-X.** This is the concrete, sizeable piece and
-        the delivery target PCI MSI parsing needs (the two ship together). Steps:
-        (1) allocate + hand the redistributor the **LPI Configuration table**
-        (1 byte/LPI: priority+enable) and per-redistributor **Pending table**,
-        program `GICR_PROPBASER`/`GICR_PENDBASER`, set `GICR_CTLR.EnableLPIs`;
-        (2) allocate the **ITS command queue** (`GITS_CBASER`/`GITS_CWRITER`) and
-        the device + collection tables (`GITS_BASER<n>`); (3) per device allocate
-        an **ITT** and issue **MAPD** (DeviceID→ITT), **MAPC** (collection→this
-        redistributor), **MAPTI/MAPI** (DeviceID+EventID→INTID+collection), then
-        **INV/SYNC** to publish; (4) point the device's MSI-X message at
-        `GITS_TRANSLATER` with the EventID as data. qemu models the ITS under
-        `gic-version=3`, so it is testable in-tree. INTx is unaffected (still GIC
-        SPI).
+  - **An ITS for LPIs → MSI-X — done (`gic-v3.c`, `GIC=v3`).** `itsinit()` hands
+        the redistributor the **LPI Configuration** + **Pending** tables
+        (`GICR_PROPBASER`/`GICR_PENDBASER`, `GICR_CTLR.EnableLPIs`), allocates the
+        **ITS command queue** (`GITS_CBASER`/`GITS_CWRITER`) and the device +
+        collection tables (`GITS_BASER<n>`), and maps collection 0 to this
+        redistributor (**MAPC**). `intcmsialloc()` allocates an LPI, builds the
+        device **ITT**, and issues **MAPD**/**MAPTI**/**INV**/**SYNC**; the caller
+        points the device's MSI-X message at `GITS_TRANSLATER`. `intcdispatch`
+        treats only intids 1020–1023 as special so LPIs (≥8192) dispatch and EOI
+        normally. GICv2 keeps `intcmsialloc` stubbed to `-1` (INTx). Proven under
+        `qemu -M virt,gic-version=3` with `sd-nvme`. INTx is unaffected.
 - **High ECAM map — done.** The default `qemu -M virt` runs unmodified: `l.S`
       widens VA to 39 bits (`T0SZ=25`) and `board.h` maps a `[256 G, 257 G)`
       device block covering both the high ECAM and the GICv3 redistributors. See
@@ -170,13 +179,16 @@ missing is everything *above* the controller.
 The per-driver gaps above are not independent. One keystone and a couple of
 self-contained items account for nearly all of them:
 
-- **MSI is the keystone.** PCI capability-list parsing (`pci.c`) and the GICv3
-  **ITS** ("Kernel-wide gaps") are two halves of one deliverable: parsing has no
-  delivery target without the ITS, and the ITS has nothing to translate without
-  parsing. Land them together against qemu's gpex + `gic-version=3`.
-- **IRQ-driven storage rides on MSI.** Once MSI delivers, the AHCI and NVMe
-  "polled completion" gaps each gain a real vector to harvest from
-  (`updatedrive()` / completion-queue handler) instead of spinning.
+- **MSI is the keystone — landed.** PCI capability-list parsing (`pci.c`
+  `pcicapfind`/`pcimsienable`) and the GICv3 **ITS** (`gic-v3.c` `itsinit`/
+  `intcmsialloc`) ship together: parsing has no delivery target without the ITS,
+  and the ITS has nothing to translate without parsing. Both are in tree and
+  proven against qemu's gpex + `gic-version=3`.
+- **IRQ-driven storage rides on MSI.** `sd-nvme` now harvests its completion
+  queue from the MSI-X LPI (poll fallback retained). `sd-ahci` does **not** yet:
+  its line is a plain SPI, but completion acknowledgement is blocked on qemu not
+  honouring the post-reset `PxIS` W1C clear (see its section) — so it stays
+  polled until the port is moved out of that state before `PxIE` is armed.
 - **USB enumerator + HID is the high-value Limbo-side item.** It is the one
   completion that is mostly a userspace/Limbo build, and the one that makes a
   native machine interactively usable from real USB input.
