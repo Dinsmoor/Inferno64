@@ -31,8 +31,17 @@ static Pcidev*	pcitail;
 static int	pcidone;
 
 static uvlong	membase = PCIE_MMIO_PHYS;	/* 32-bit MMIO bump allocator */
-static ulong	iobase  = PCIE_PIO_PHYS;	/* I/O-space bump allocator */
+static uvlong	iobase  = 0x1000;		/* PCI I/O-space bump allocator */
 static int	maxbno;				/* highest bus number assigned */
+
+/*
+ * The host bridge windows: a memory BAR is identity-mapped on qemu virt
+ * (PCI address == CPU address), so the value written to the BAR is also
+ * the address a driver dereferences.  An I/O BAR is not: PCI I/O address
+ * A lands at CPU address PCIE_PIO_PHYS+A.  So the hardware BAR gets the
+ * PCI I/O address, while p->mem[].bar carries the CPU-side MMIO address a
+ * driver actually uses (with bit 0 kept as the I/O-space indicator).
+ */
 
 /*
  * ECAM config address: bus[27:20] dev[19:15] fn[14:12] reg[11:0].
@@ -99,9 +108,9 @@ pcibars(Pcidev *p)
 			if(raw == 0)
 				continue;
 			size = ~raw + 1;
-			base = memalloc(&iobase, size);
+			base = memalloc(&iobase, size);		/* PCI I/O addr */
 			wcfg32(p->tbdf, rno, (u32int)base | 1);
-			p->mem[i].bar = base | 1;
+			p->mem[i].bar = (PCIE_PIO_PHYS + base) | 1; /* CPU addr */
 			p->mem[i].size = size;
 			continue;
 		}

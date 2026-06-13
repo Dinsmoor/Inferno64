@@ -26,6 +26,7 @@ ip
 
 link
 	ethervirtio
+	etherrtl8139
 	ethermedium
 	loopbackmedium
 

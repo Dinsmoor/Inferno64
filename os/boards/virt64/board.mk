@@ -8,7 +8,7 @@
 BOARDC  := board
 
 DRIVERC := uart-pl011 gic-v2 virtio rng-virtio input-virtio ramfb screen \
-	   devether ether-virtio sd-virtio pci
+	   devether ether-virtio sd-virtio pci ether-rtl8139
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
