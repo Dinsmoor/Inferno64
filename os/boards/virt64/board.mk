@@ -28,12 +28,11 @@ QEMUDISK := -drive if=none,file=$(DISK),format=raw,id=hd0 \
 	    -device virtio-blk-device,drive=hd0
 endif
 
-# highmem-ecam=off keeps the PCIe ECAM config window at 0x3f000000 (16
-# buses), inside the [0,1G) device-mapped region — see board.h PCIE_*.
-# The qemu default puts ECAM high at 0x40_10000000, which the current 4GB
-# identity map doesn't cover.
+# Default machine: PCIe ECAM is high (0x40_10000000, 256 buses), which the
+# arch MMU now maps via board.h L1MAP_HIECAM_* (T0SZ=25, [256G,257G) device
+# block).  No highmem-ecam=off needed — see board.h PCIE_ECAM_PHYS.
 run: $(KERNEL)
-	qemu-system-aarch64 -M virt,highmem-ecam=off -cpu cortex-a53 -m 512 -nographic \
+	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
 		$(QEMUDEVS) $(QEMUDISK) -kernel $(KERNEL)
 
 .PHONY: run

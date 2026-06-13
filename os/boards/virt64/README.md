@@ -333,10 +333,12 @@ host loopback.
 
 ## Current scope / deliberate simplifications
 
-- MMU and caches ON: TTBR0-only identity map, two 1GB block entries
-  (device + RAM) built in l.S before the boot stack; T0SZ=32, MAIR
-  idx0=WB-normal/idx1=device-nGnRnE (recipe adapted from 9front
-  sys/src/9/arm64 l.s/mem.c).
+- MMU and caches ON: TTBR0-only identity map, 1GB block entries
+  (device + RAM, plus a high `[256G,257G)` device block for the default
+  machine's high PCIe ECAM / GICv3 redistributors) built in l.S before the
+  boot stack; T0SZ=25 (39-bit VA, the single page is a full L1 of 1GB
+  blocks), MAIR idx0=WB-normal/idx1=device-nGnRnE (recipe adapted from
+  9front sys/src/9/arm64 l.s/mem.c).
 - Dis JIT ON (`cflag 1`): one 4MB xalloc-backed code arena, single-arena
   mode (`jitsinglearena` in libinterp/comp-aarch64.c — a second arena
   would break the `[jitlo,jithi)` native-PC dispatch test in xec.c, so

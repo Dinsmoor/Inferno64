@@ -34,12 +34,17 @@ substitutes real plumbing.
 
 ## `pci.c` — the ECAM enumerator
 
-- [ ] **High ECAM + high MMIO are unmapped.** Config space is the low ECAM window
-      (`0x3f000000`, 1 MB/bus, 16 buses), which requires booting with
-      `-M virt,highmem-ecam=off`. qemu's default puts ECAM at `0x40_10000000`
-      and 64-bit MMIO at `0x80_00000000`, outside the current 4 GB identity map.
-      Full support widens the MMU map so the default `virt` machine works
-      unmodified. (Tracked as the high-ECAM task.)
+- **High ECAM is mapped; high 64-bit MMIO is not (and is unused).** Config space
+      is the default machine's high ECAM (`0x40_10000000`, 1 MB/bus, 256 buses);
+      the arch MMU reaches it with a `[256 G, 257 G)` device block (`board.h`
+      `L1MAP_HIECAM_*`, `T0SZ=25` widening VA to 39 bits in `l.S`). That same
+      block also covers the GICv3 redistributors at `0x40_00000000`. The qemu
+      `-M virt,highmem-ecam=off` low ECAM (`0x3f000000`) still works if
+      `PCIE_ECAM_PHYS` is pointed back. The 64-bit MMIO window at
+      `0x80_00000000` (512 G) stays unmapped: `pcibars()` assigns every BAR from
+      the low 32-bit window and zeroes 64-bit BAR high halves, so no device
+      lands there. A device with a forced 64-bit prefetchable BAR would need a
+      40-bit VA (`T0SZ=24`, an L0 table) and a window allocator.
 - **INTx legacy interrupts only, no MSI/MSI-X.** The four legacy lines arrive as
       GIC SPI 3–6 (`board.h PCIINTA`), slot-swizzled the way qemu's gpex wires
       them. MSI needs capability-list parsing and a GICv3 ITS.
@@ -108,5 +113,7 @@ missing is everything *above* the controller.
       behind the same four intc calls. It is the sole interrupt-controller gap and
       gates MSI and modern SoCs. See `ON_PORTING.md` ("GICv3 is the one driver
       9front can't supply").
-- [ ] **High ECAM / high MMIO map** — see `pci.c` above; shared with the GICv3
-      work as the path to running default `qemu -M virt`.
+- **High ECAM map — done.** The default `qemu -M virt` runs unmodified: `l.S`
+      widens VA to 39 bits (`T0SZ=25`) and `board.h` maps a `[256 G, 257 G)`
+      device block covering both the high ECAM and the GICv3 redistributors. See
+      `pci.c` above. Only the unused 64-bit MMIO window remains unmapped.

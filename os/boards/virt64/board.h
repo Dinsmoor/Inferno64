@@ -15,13 +15,23 @@
 #define MEMSIZE		(512*_M_)		/* boot default; someday the DTB */
 
 /*
- * MMU level-1 identity map: with T0SZ=32 the table has four 1GB slots.
- * l.S installs these four entries verbatim; 0 = invalid.
+ * MMU level-1 identity map: with T0SZ=25 the VA is 39 bits, so the single
+ * 512-entry table is a full level-1 (one 1GB block per slot, [0,512G)).
+ * l.S installs the low entries verbatim; 0 = invalid; entries 2..511 stay 0.
  */
 #define L1MAPENT0	0x0060000000000405	/* [0,1G): device nGnRnE — UXN|PXN|AF|AttrIdx1|block */
 #define L1MAPENT1	0x40000701		/* [1G,2G): RAM — AF|SH=ISH|AttrIdx0(WB)|block */
 #define L1MAPENT2	0
 #define L1MAPENT3	0
+
+/*
+ * Default qemu -M virt puts PCIe ECAM config space high (0x40_10000000)
+ * and the GICv3 redistributors just below it (0x40_00000000); both sit in
+ * [256G,257G).  Map that 1GB slot as device memory at index 256 (256G>>30),
+ * same attributes as L1MAPENT0.  l.S installs it whenever this is defined.
+ */
+#define L1MAP_HIECAM_IDX	256
+#define L1MAP_HIECAM_ENT	0x0060004000000405
 
 /*
  * PSCI conduit: qemu -M virt has no EL3; firmware expects hvc.
@@ -42,11 +52,9 @@ enum {
 	FWCFG_PHYS	= 0x09020000,
 	VIRTIO_PHYS	= 0x0a000000,	/* 32 transports, 0x200 apart */
 
-	/* PCIe generic host bridge (qemu -M virt,highmem-ecam=off / GPEX).
-	 * The low ECAM keeps config space inside the [0,1G) device map; the
-	 * qemu default (high ECAM at 0x40_10000000) needs a wider MMU map. */
-	PCIE_ECAM_PHYS	= 0x3f000000,	/* config space, 1MB/bus; 16 buses */
-	PCIE_ECAM_SIZE	= 0x01000000,
+	/* PCIe generic host bridge (qemu -M virt / GPEX).  The 32-bit BAR
+	 * window and the PIO window stay in the [0,1G) device map; ECAM config
+	 * space is high (see PCIE_ECAM_PHYS below — too wide for this int enum). */
 	PCIE_MMIO_PHYS	= 0x10000000,	/* 32-bit BAR window... */
 	PCIE_MMIO_SIZE	= 0x2eff0000,	/* ...up to 0x3eff0000 */
 	PCIE_PIO_PHYS	= 0x3eff0000,	/* I/O-space window, 64KB */
@@ -63,6 +71,15 @@ enum {
 	BUSUNKNOWN	= -1,
 	BusCPU		= 0,
 };
+
+/*
+ * High PCIe ECAM (qemu -M virt default): 1MB/bus, 256 buses.  Mapped by the
+ * arch MMU via board.h L1MAP_HIECAM_*.  Point this back at 0x3f000000 (and
+ * size 0x01000000, 16 buses) to use the legacy -M virt,highmem-ecam=off
+ * window, which lives in the [0,1G) device map.  Too wide for the int enum.
+ */
+#define PCIE_ECAM_PHYS	0x4010000000UL
+#define PCIE_ECAM_SIZE	0x10000000UL
 
 #endif	/* __ASSEMBLER__ */
 #endif	/* BOARD_H */
