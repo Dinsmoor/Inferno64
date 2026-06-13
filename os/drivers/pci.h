@@ -70,6 +70,8 @@ enum {					/* type 0/1 pre-defined header */
 	PciBST		= 0x0F,		/* BIST */
 
 	PciBAR0		= 0x10,		/* base address[0..5] */
+	PciSVID		= 0x2C,		/* subsystem vendor ID */
+	PciSID		= 0x2E,		/* subsystem ID */
 	PciCAP		= 0x34,		/* capabilities list pointer */
 	PciINTL		= 0x3C,		/* interrupt line */
 	PciINTP		= 0x3D,		/* interrupt pin */

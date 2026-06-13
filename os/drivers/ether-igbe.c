@@ -665,7 +665,7 @@ igbeifstat(Ether* edev, void* a, long n, ulong offset)
 		for(i = 0; i < NMiiPhyr; i++){
 			if(i && ((i & 0x07) == 0))
 				l += snprint(p+l, 2*READSTR-l, "\n       ");
-			r = miimir(ctlr->mii, i);
+			r = miimir(ctlr->mii->curphy, i);
 			l += snprint(p+l, 2*READSTR-l, " %4.4uX", r);
 		}
 		snprint(p+l, 2*READSTR-l, "\n");
@@ -823,7 +823,7 @@ igbelproc(void* arg)
 		 *
 		 *	MiiPhy.speed, etc. should be in Mii.
 		 */
-		if(miistatus(ctlr->mii) < 0)
+		if(miistatus(ctlr->mii->curphy) < 0)
 			//continue;
 			goto enable;
 
@@ -1514,25 +1514,25 @@ igbemii(Ctlr* ctlr)
 	case i82546eb:
 		break;
 	default:
-		r = miimir(ctlr->mii, 16);
+		r = miimir(phy, 16);
 		r |= 0x0800;			/* assert CRS on Tx */
 		r |= 0x0060;			/* auto-crossover all speeds */
 		r |= 0x0002;			/* polarity reversal enabled */
-		miimiw(ctlr->mii, 16, r);
+		miimiw(phy, 16, r);
 
-		r = miimir(ctlr->mii, 20);
+		r = miimir(phy, 20);
 		r |= 0x0070;			/* +25MHz clock */
 		r &= ~0x0F00;
 		r |= 0x0100;			/* 1x downshift */
-		miimiw(ctlr->mii, 20, r);
+		miimiw(phy, 20, r);
 
-		miireset(ctlr->mii);
+		miireset(phy);
 		p = 0;
 		if(ctlr->txcw & TxcwPs)
 			p |= AnaP;
 		if(ctlr->txcw & TxcwAs)
 			p |= AnaAP;
-		miiane(ctlr->mii, ~0, p, ~0);
+		miiane(phy, ~0, p, ~0);
 		break;
 	}
 	return 0;

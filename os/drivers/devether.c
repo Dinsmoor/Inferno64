@@ -326,14 +326,14 @@ etherbwrite(Chan* chan, Block* bp, ulong)
 static struct {
 	char*	type;
 	int	(*reset)(Ether*);
-} cards[MaxEther+1];
+} cards[Maxcard+1];
 
 void
 addethercard(char* t, int (*r)(Ether*))
 {
 	static int ncard;
 
-	if(ncard == MaxEther)
+	if(ncard == Maxcard)
 		panic("too many ether cards");
 	cards[ncard].type = t;
 	cards[ncard].reset = r;
