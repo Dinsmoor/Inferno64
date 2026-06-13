@@ -9,7 +9,7 @@ BOARDC  := board
 
 DRIVERC := uart-pl011 gic-v2 virtio rng-virtio input-virtio ramfb screen \
 	   devether ether-virtio sd-virtio pci ether-rtl8139 sd-nvme \
-	   sd-scsi sd-ahci
+	   sd-scsi sd-ahci devusb usbxhci usbxhcipci
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
@@ -18,6 +18,7 @@ DRIVERC := uart-pl011 gic-v2 virtio rng-virtio input-virtio ramfb screen \
 QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-rng-device -device ramfb \
 	    -device virtio-keyboard-device -device virtio-tablet-device \
+	    -device qemu-xhci,id=xhci -device usb-kbd \
 	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
 
 # optional persistent disk: make run DISK=/path/to/raw.img
