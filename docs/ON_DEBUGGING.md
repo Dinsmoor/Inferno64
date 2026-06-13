@@ -267,6 +267,48 @@ by their own `grp`, never the wm group.
 
 ---
 
+## Tracking services, and where output goes
+
+Inferno has **no syslog / journald / log files** and no daemon supervisor. A
+"service" is just (a) a process and (b) the file tree it serves into the
+namespace. So you introspect them with the same tools as anything else:
+
+- **`ps`** — every process: `pid grp user cpu state mem module`. Grep for the
+  service (`ps | grep cs`). Liveness is the `state` column, not a log.
+- **`ns`** — the current namespace as `bind`/`mount` lines. A file server shows up
+  as the mount that publishes it; this is how you confirm e.g. `/net/cs` or
+  `/net/dns` is actually being served (vs. the process merely existing).
+- **`ls /net`** / `ftest -e /net/cs` — the quickest "is it up?" check: the service
+  *is* its served file. (This is exactly what `svc/net.sh` tests before starting
+  `ndb/dns`/`ndb/cs`.)
+- **`/prog/PID/`** — `status`, `stack`, `fd`, `ns`, `wait` for a specific proc.
+
+**Where does output go?** There is no central sink — a process's fd 1/2 go
+wherever they were set when it started:
+
+- **The emu's controlling terminal** (the shell you ran `emu` from) gets emu
+  C-level messages — pool/GC diagnostics like `arena main too large`, kernel
+  `print`, panics — and the stdout/stderr of anything launched without
+  redirection. This is the real "console"; most surprising messages land here.
+- **`/chan/wmstdout` + `/chan/wmstderr`** — `wm/toolbar` publishes these with
+  `file2chan`, and `wmrun` (the launcher's run helper, see `/lib/wmsetup`)
+  redirects a launched app's `>` and `>[2]` into them. So the wm "log" window
+  only shows the output of apps **started via the menu/`wmrun`** — an app you
+  started by hand, or anything below the Dis level, never reaches it. That's why
+  it "almost never has useful information."
+
+To get an app's own diagnostics somewhere you control, write them to fd 2 (they
+follow the rules above) or to an explicit file you open.
+
+**Are `cs`/`dns` boot services?** Not inherently. The canonical starter is
+`appl/svc/net.sh` (`ndb/dns` unless `/env/emuhost` is set — hosted emu uses the
+host resolver, so dns is normally skipped — then `ndb/cs`), but it only runs if
+boot invokes it; the repo's `/lib/wmsetup` starts only `plumber`. On hosted emu
+the one that matters is `cs`, and apps that dial (e.g. `wm/pleromussy`) commonly
+start it themselves on demand.
+
+---
+
 ## disdump — Disassembling .dis Files
 
 ```sh

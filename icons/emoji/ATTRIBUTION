@@ -1,0 +1,13 @@
+Emoji graphics in this directory are from Twemoji.
+
+Copyright Twitter, Inc and other contributors.
+Maintained fork: https://github.com/jdecked/twemoji
+
+Graphics licensed under CC-BY 4.0:
+https://creativecommons.org/licenses/by/4.0/
+
+These 72x72 PNGs are vendored unmodified (a curated single-codepoint subset)
+by tools/emoji/fetch-twemoji.py so wm/pleromussy can render emoji as inline
+images -- no Inferno font covers the emoji blocks.  File names follow the
+twemoji convention: lowercase hex codepoint(s) joined by '-', with the U+FE0F
+variation selector omitted.

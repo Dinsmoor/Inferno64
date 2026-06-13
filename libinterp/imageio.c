@@ -16,6 +16,7 @@
  * world and the Inferno (lib9.h) world never share a translation unit.
  */
 extern uchar*	stbwrap_decode(const uchar *data, int len, int *w, int *h, const char **err);
+extern uchar*	stbwrap_decode_fit(const uchar *data, int len, int maxw, int maxh, int *w, int *h, const char **err);
 extern uchar*	stbwrap_encode_png(const uchar *rgba, int w, int h, int *outlen, const char **err);
 extern void	stbwrap_free(void *p);
 
@@ -48,6 +49,52 @@ Imageio_decode(void *fp)
 
 	err = nil;
 	pix = stbwrap_decode(f->data->data, f->data->len, &w, &h, &err);
+	if(pix == nil){
+		if(err == nil)
+			err = "image decode failed";
+		f->ret->t3 = c2string((char*)err, strlen((char*)err));
+		return;
+	}
+
+	n = w * h * 4;
+	hp = heaparray(&Tbyte, n);
+	if(hp == H){
+		stbwrap_free(pix);
+		f->ret->t3 = c2string(exNomem, strlen(exNomem));
+		return;
+	}
+	a = H2D(Array*, hp);
+	memmove(a->data, pix, n);
+	stbwrap_free(pix);
+
+	f->ret->t0 = w;
+	f->ret->t1 = h;
+	f->ret->t2 = a;
+}
+
+void
+Imageio_decodefit(void *fp)
+{
+	F_Imageio_decodefit *f = fp;
+	uchar *pix;
+	const char *err;
+	int w, h, n;
+	Heap *hp;
+	Array *a;
+
+	/* default return: (0, 0, nil, nil) */
+	f->ret->t0 = 0;
+	f->ret->t1 = 0;
+	f->ret->t2 = H;
+	f->ret->t3 = H;
+
+	if(f->data == H){
+		f->ret->t3 = c2string("no image data", 13);
+		return;
+	}
+
+	err = nil;
+	pix = stbwrap_decode_fit(f->data->data, f->data->len, f->maxw, f->maxh, &w, &h, &err);
 	if(pix == nil){
 		if(err == nil)
 			err = "image decode failed";

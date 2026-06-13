@@ -412,13 +412,89 @@ accountstatuses(c: ref Client, id, max_id: string, limit: int): (list of ref Sta
 }
 
 #
+# Pleroma emoji reactions (extension verbs)
+#
+
+statusreactions(c: ref Client, id: string): (list of ref Reaction, string)
+{
+	r := api(c, "GET", "/api/v1/pleroma/statuses/" + id + "/reactions", nil, nil);
+	if(r.err != "")
+		return (nil, r.err);
+	if(r.code != 200)
+		return (nil, apierr("reactions", r));
+	(jv, jerr) := json->readjson(r.body);
+	if(jv == nil)
+		return (nil, "json: " + jerr);
+	return (reactionarray(jv), nil);
+}
+
+react(c: ref Client, id, emoji: string): (ref Status, string)
+{
+	return reactverb(c, "PUT", id, emoji);
+}
+
+unreact(c: ref Client, id, emoji: string): (ref Status, string)
+{
+	return reactverb(c, "DELETE", id, emoji);
+}
+
+# PUT/DELETE /api/v1/pleroma/statuses/<id>/reactions/<emoji>; both return the
+# updated Status.  The emoji travels in the path, so url-encode it.
+reactverb(c: ref Client, method, id, emoji: string): (ref Status, string)
+{
+	path := "/api/v1/pleroma/statuses/" + id + "/reactions/" + urlencode(emoji);
+	r := api(c, method, path, nil, nil);
+	if(r.err != "")
+		return (nil, r.err);
+	if(r.code != 200)
+		return (nil, apierr("react", r));
+	(jv, jerr) := json->readjson(r.body);
+	if(jv == nil)
+		return (nil, "json: " + jerr);
+	return (mkstatus(jv), nil);
+}
+
+#
 # Generic URL fetch (media/avatars) — no auth, follows redirects.
 #
 
 MAXREDIR: con 4;
 MAXBYTES: con 25*1024*1024;	# refuse media larger than this (OOM guard)
 
+# Fetch a URL with a soft retry: networks drop, TLS handshakes flake, and a body
+# can stop mid-stream (now a "short read" error, see httpfetch).  Re-fetch the
+# whole thing a few times with a short backoff before giving up.  Permanent
+# failures (a real 4xx, an oversize body, a bad URL) are not retried.
+FETCHTRIES: con 3;
+
 fetchurl(url: string): (array of byte, string)
+{
+	err := "";
+	for(try := 0; ; try++){
+		(body, e) := fetchonce(url);
+		if(e == nil)
+			return (body, nil);
+		err = e;
+		if(try >= FETCHTRIES - 1 || !retryable(e))
+			break;
+		sys->sleep(250 * (try + 1));	# 250ms, then 500ms
+	}
+	return (nil, err);
+}
+
+# is this fetch error worth retrying?  Transient = network/TLS/short read;
+# a definite HTTP 4xx, an oversize body, a redirect loop, or a malformed URL
+# won't get better on a retry.
+retryable(err: string): int
+{
+	permanent := array[] of {"http 4", "too large", "too many redirects", "bad url"};
+	for(i := 0; i < len permanent; i++)
+		if(strindex(err, permanent[i]) >= 0)
+			return 0;
+	return 1;
+}
+
+fetchonce(url: string): (array of byte, string)
 {
 	for(redir := 0; redir < MAXREDIR; redir++){
 		(scheme, host, port, path, perr) := parseurl(url);
@@ -492,9 +568,15 @@ httpfetch(fd: ref Sys->FD, host, path: string): (int, string, array of byte, str
 	body: array of byte;
 	if(chunked)
 		body = readchunked(b);
-	else if(clen >= 0)
+	else if(clen >= 0){
 		body = readn(b, clen);
-	else
+		# a connection dropped mid-body leaves a short read; report it as an
+		# error (don't hand back a truncated image as success) so the caller
+		# can retry.  readn returns buf[0:got] on a short read, no error.
+		if(len body < clen)
+			return (code, loc, nil,
+				sys->sprint("short read: %d of %d bytes", len body, clen));
+	} else
 		body = readcapped(b, MAXBYTES);
 	if(len body > MAXBYTES)
 		return (code, loc, nil, "too large");
@@ -646,7 +728,31 @@ mkstatus(jv: ref JValue): ref Status
 		jstr(jv, "url"), acct, reblog,
 		jbool(jv, "favourited"), jbool(jv, "reblogged"), jbool(jv, "bookmarked"),
 		jint(jv, "favourites_count"), jint(jv, "reblogs_count"),
-		jint(jv, "replies_count"), parsemedia(jget(jv, "media_attachments")));
+		jint(jv, "replies_count"), parsemedia(jget(jv, "media_attachments")),
+		reactionarray(jget(jget(jv, "pleroma"), "emoji_reactions")));
+}
+
+# parse a JSON array of Pleroma reaction objects ({name,count,me,...}),
+# preserving server order; tolerates nil/missing (vanilla Mastodon)
+reactionarray(jv: ref JValue): list of ref Reaction
+{
+	out: list of ref Reaction;
+	pick x := jv {
+	Array =>
+		for(i := len x.a - 1; i >= 0; i--){
+			rx := mkreaction(x.a[i]);
+			if(rx != nil)
+				out = rx :: out;
+		}
+	}
+	return out;
+}
+
+mkreaction(jv: ref JValue): ref Reaction
+{
+	if(jv == nil || !jv.isobject())
+		return nil;
+	return ref Reaction(jstr(jv, "name"), jint(jv, "count"), jbool(jv, "me"));
 }
 
 parsemedia(jv: ref JValue): list of ref Attachment

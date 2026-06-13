@@ -65,6 +65,16 @@ imageload = load Imageload Imageload->PATH;
 `$Imageio` can also be used directly (`load Imageio Imageio->PATH; decode(data)`)
 when you want the raw bytes — e.g. Charon decoding into a canvas node image.
 
+**Decoding with a size cap:** `decodefit(data, maxw, maxh): (w, h, rgba, err)`
+is `decode` plus a downscale — if the source exceeds `maxw × maxh` it is reduced
+(aspect-preserving) **in C** via `stb_image_resize2` (`stbwrap_decode_fit`), so a
+huge image is never allocated in the Dis heap (whose main arena is ~32 MB —
+`emu/port/alloc.c`; a 4000×3000 photo is 48 MB of RGBA and overflows it). The
+returned `w, h` are the reduced dimensions. `maxw`/`maxh` ≤ 0 means no cap. Use
+this, not a Limbo-side downscale, whenever the source size is untrusted (e.g. a
+fetched-from-the-web image) — a post-decode downscale can't help because the
+full-resolution buffer has to exist first.
+
 **Encoding (RGBA8 → PNG):** `encode(w, h, rgba): (array of byte, string)` is the
 inverse, backed by `stb_image_write` (`stbwrap_encode_png`, memory callback — no
 host file IO). Input is the same `R,G,B,A` top-to-bottom layout `decode` produces,

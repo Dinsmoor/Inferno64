@@ -19,6 +19,12 @@ Imageio: module
 	# where rgba has w*h*4 bytes (R,G,B,A order); on failure (0, 0, nil, err).
 	decode:	fn(data: array of byte): (int, int, array of byte, string);
 
+	# Like decode(), but cap the result to maxw x maxh, downscaling a larger
+	# source (preserving aspect) in C before it ever reaches the Dis heap --
+	# so a huge image can't overflow the (~32 MB) main arena.  maxw/maxh <= 0
+	# means no cap.  Returns the RETURNED (possibly reduced) w, h.
+	decodefit:	fn(data: array of byte, maxw, maxh: int): (int, int, array of byte, string);
+
 	# Encode 8-bit RGBA pixels (w*h*4 bytes, R,G,B,A order, top-to-bottom --
 	# the layout decode() produces) to an in-memory PNG.  On success returns
 	# (png, nil); on failure (nil, err).

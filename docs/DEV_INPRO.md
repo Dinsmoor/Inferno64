@@ -55,6 +55,13 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
+- [ ] **wm launcher: auto-refresh the program list** (idea, unscheduled) — the
+      Start menu is built once from `/lib/wmsetup` at wm start (`appl/wm/toolbar.b`,
+      the `menu` builtin), so adding an app means re-running `/lib/wmsetup` by
+      hand. Make the menu reload on click when stale — e.g. stat `/lib/wmsetup`
+      (and `$home/lib/wmsetup`) and, if the mtime changed since the last build,
+      `delmenu`/re-run before posting. Watch the menu-rebuild cost and the
+      `wmrun`/builtin re-registration.
 - [ ] **BPI-R4 hardware bring-up** (future work; higher-level work first) —
       first real-hardware board for the native kernel: Banana Pi BPI-R4
       (MediaTek MT7988A). Milestone 1 = TFTP netboot → serial sh (Image

@@ -25,6 +25,9 @@
 #define STBI_WRITE_NO_STDIO	/* encode to memory; no host file IO */
 #include "stb/stb_image_write.h"
 
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb/stb_image_resize2.h"
+
 /*
  * Decode an in-memory image of any stb-supported format (PNG, JPEG, BMP, TGA,
  * GIF, PSD, HDR, PIC, PNM) to 8-bit RGBA: 4 channels, top-to-bottom, byte
@@ -57,6 +60,67 @@ stbwrap_decode(const unsigned char *data, int len, int *w, int *h, const char **
 			*err = stbi_failure_reason();
 	}
 	return p;
+}
+
+/*
+ * Decode like stbwrap_decode, but cap the result to maxw x maxh: if the source
+ * is larger, downscale it (preserving aspect) in C with stb_image_resize, so
+ * the caller never has to allocate the full-resolution buffer.  This matters
+ * because the decoded RGBA lands in the Dis heap, whose main arena is small
+ * (~32 MB) -- a big fedi photo (e.g. 4000x3000 = 48 MB) overflows it.  Doing the
+ * downscale here keeps the large buffer in C's malloc and returns only the
+ * small image.  maxw/maxh <= 0 means "no cap".  *w,*h receive the RETURNED size.
+ * Free the result with stbwrap_free.
+ */
+unsigned char*
+stbwrap_decode_fit(const unsigned char *data, int len, int maxw, int maxh,
+	int *w, int *h, const char **err)
+{
+	unsigned char *p, *q;
+	int sw, sh, comp, dw, dh;
+	double s, sv;
+
+	*w = 0;
+	*h = 0;
+	if(err != 0)
+		*err = 0;
+	if(data == 0 || len <= 0){
+		if(err != 0)
+			*err = "no image data";
+		return 0;
+	}
+	p = stbi_load_from_memory(data, len, &sw, &sh, &comp, 4);	/* force RGBA */
+	if(p == 0){
+		if(err != 0)
+			*err = stbi_failure_reason();
+		return 0;
+	}
+	if(maxw <= 0 || maxh <= 0 || (sw <= maxw && sh <= maxh)){
+		*w = sw;
+		*h = sh;
+		return p;
+	}
+	s = (double)maxw / sw;
+	sv = (double)maxh / sh;
+	if(sv < s)
+		s = sv;
+	dw = (int)(sw * s);
+	dh = (int)(sh * s);
+	if(dw < 1)
+		dw = 1;
+	if(dh < 1)
+		dh = 1;
+	/* output NULL => stb allocates and returns the buffer (free with free) */
+	q = stbir_resize_uint8_srgb(p, sw, sh, 0, 0, dw, dh, 0, STBIR_RGBA);
+	stbi_image_free(p);
+	if(q == 0){
+		if(err != 0)
+			*err = "image resize failed";
+		return 0;
+	}
+	*w = dw;
+	*h = dh;
+	return q;
 }
 
 void

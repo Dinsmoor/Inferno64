@@ -134,6 +134,21 @@ threadresults: chan of ref TResult;
 profresults: chan of ref PResult;
 postresult: chan of ref Status;
 actionresult: chan of (ref Status, string, ref Status);
+reactresult: chan of (ref Status, ref Status, string);
+pickresult: chan of (ref Status, string);
+
+# Emoji-as-image.  No Inferno font covers the emoji blocks (lucidasans/unicode
+# stops at U+FB1E), so each emoji in a reaction chip is drawn as a small inline
+# image from the vendored twemoji PNGs.  `emojicache` memoises decoded images by
+# twemoji file-name (a nil value is a cached "no asset" negative).  `emojiseq`
+# only supplies unique panel names — the embedded panels are owned descendants of
+# `.view.t`, so `.view.t delete` destroys them for us (don't destroy them again).
+emojicache: list of (string, ref Image);
+emojiseq: int;
+
+# set once we've started our own ndb/cs, so the ~10 ensurecs callers don't race
+# to spawn duplicates (see ensurecs)
+csspawned: int;
 
 BODYFONT:	con "/fonts/lucidasans/unicode.8.font";
 NAMEFONT:	con "/fonts/lucidasans/unicode.10.font";
@@ -222,6 +237,10 @@ viewcfg := array[] of {
 MAXIMGW:	con 900;
 MAXIMGH:	con 700;
 
+# vendored twemoji PNGs, and the on-screen pixel size of an inline emoji
+EMOJIDIR:	con "/icons/emoji";
+EMOJIPX:	con 16;
+
 init(actxt: ref Draw->Context, argv: list of string)
 {
 	sys = load Sys Sys->PATH;
@@ -273,6 +292,10 @@ init(actxt: ref Draw->Context, argv: list of string)
 	tk->namechan(window, dsel, "dsel");
 	ctx := chan of string;
 	tk->namechan(window, ctx, "ctx");
+	# clicks on an embedded emoji-image panel can't reach .view.t's tag
+	# hit-test, so each panel sends "<i> <j>" here to toggle that reaction
+	rtog := chan of string;
+	tk->namechan(window, rtog, "rtog");
 	for(i := 0; i < len tkconfig; i++)
 		tkcmd(window, tkconfig[i]);
 	mktags();
@@ -285,6 +308,8 @@ init(actxt: ref Draw->Context, argv: list of string)
 	profresults = chan of ref PResult;
 	postresult = chan of ref Status;
 	actionresult = chan of (ref Status, string, ref Status);
+	reactresult = chan of (ref Status, ref Status, string);
+	pickresult = chan of (ref Status, string);
 	loginresult := chan of ref Session;
 	whoami := chan of ref Account;
 	nextid = "";
@@ -318,6 +343,13 @@ init(actxt: ref Draw->Context, argv: list of string)
 		doubleclick(xy);
 	xy := <-ctx =>
 		contextclick(xy);
+	rt := <-rtog =>
+		(nr, rp) := sys->tokenize(rt, " ");
+		if(nr >= 2){
+			selected = int hd rp;
+			highlight(selected);
+			togglereaction(int hd rp, int hd tl rp);
+		}
 	cmd := <-nav =>
 		case cmd {
 		"public" or "home" =>
@@ -393,6 +425,18 @@ init(actxt: ref Draw->Context, argv: list of string)
 		else
 			revertaction(target, action);
 		rerender();
+	(rtarget, rsrv, rerr) := <-reactresult =>
+		if(rsrv != nil){
+			# adopt the server's authoritative reaction list + counts
+			rtarget.reactions = rsrv.reactions;
+			copyinteraction(rtarget, rsrv);
+			rerender();
+			settitle(titlefor(""));
+		} else
+			settitle(titlefor("[react: " + rerr + "]"));
+	(ptarget, pemoji) := <-pickresult =>
+		if(pemoji != "")
+			reactdo(ptarget, pemoji, 1);
 	newsess := <-loginresult =>
 		if(newsess != nil){
 			host = newsess.host;
@@ -800,13 +844,15 @@ loadmedia(url: string, out: chan of (ref Image, array of byte, string))
 	out <-= (img, data, ierr);
 }
 
-# decode encoded image bytes into a Draw image, downscaling to fit the cap
+# decode encoded image bytes into a Draw image.  decodefit downscales a large
+# source to MAXIMGW x MAXIMGH *in C*, so the full-resolution RGBA never has to
+# fit in the Dis heap (a big fedi photo is tens of MB and would overflow the
+# main arena -> "arena main too large" + a failed decode).
 decodeimage(data: array of byte): (ref Image, string)
 {
-	(w, h, rgba, err) := imageio->decode(data);
-	if(rgba == nil)
+	(dw, dh, drgba, err) := imageio->decodefit(data, MAXIMGW, MAXIMGH);
+	if(drgba == nil)
 		return (nil, "decode: " + err);
-	(dw, dh, drgba) := fit(w, h, rgba, MAXIMGW, MAXIMGH);
 	img := ctxt.display.newimage(Rect(Point(0,0), Point(dw,dh)), draw->ABGR32, 0, draw->White);
 	if(img == nil)
 		return (nil, "newimage failed");
@@ -814,38 +860,140 @@ decodeimage(data: array of byte): (ref Image, string)
 	return (img, nil);
 }
 
-# nearest-neighbour downscale of RGBA8 pixels to fit within maxw x maxh; a
-# small-enough image is returned untouched
-fit(w, h: int, rgba: array of byte, maxw, maxh: int): (int, int, array of byte)
+# map an emoji string to its twemoji file-name: the lowercase hex of each rune,
+# joined by '-', with the U+FE0F variation selector dropped (twemoji's scheme).
+emojiname(s: string): string
 {
-	if(w <= maxw && h <= maxh)
-		return (w, h, rgba);
-	s := real maxw / real w;
-	sh := real maxh / real h;
-	if(sh < s)
-		s = sh;
-	dw := int(real w * s);
-	dh := int(real h * s);
-	if(dw < 1) dw = 1;
-	if(dh < 1) dh = 1;
+	name := "";
+	for(i := 0; i < len s; i++){
+		if(s[i] == 16rFE0F)
+			continue;
+		if(name != "")
+			name += "-";
+		name += sys->sprint("%x", s[i]);
+	}
+	return name;
+}
+
+# decoded Draw image for an emoji string, or nil when no asset is bundled (so
+# the caller falls back to rendering the raw emoji as text).  Memoised — the
+# negative (nil) result is cached too, so a missing emoji is looked up once.
+emojiimage(s: string): ref Image
+{
+	name := emojiname(s);
+	if(name == "")
+		return nil;
+	for(l := emojicache; l != nil; l = tl l){
+		(k, im) := hd l;
+		if(k == name)
+			return im;
+	}
+	img: ref Image;
+	(data, derr) := readfile(EMOJIDIR + "/" + name + ".png");
+	if(derr == nil)
+		(img, derr) = decodeemoji(data);
+	emojicache = (name, img) :: emojicache;
+	return img;
+}
+
+# decode emoji PNG bytes into a small Draw image (downscaled to EMOJIPX).  Kept
+# separate from decodeimage so emoji get their own tiny size cap.
+decodeemoji(data: array of byte): (ref Image, string)
+{
+	(w, h, rgba, err) := imageio->decode(data);
+	if(rgba == nil)
+		return (nil, "decode: " + err);
+	dw := EMOJIPX;
+	dh := EMOJIPX;
+	drgba := rgba;
+	if(w != dw || h != dh)
+		drgba = emojiscale(w, h, rgba, dw, dh);
+	img := ctxt.display.newimage(Rect(Point(0,0), Point(dw,dh)), draw->ABGR32, 0, draw->Transparent);
+	if(img == nil)
+		return (nil, "newimage failed");
+	img.writepixels(img.r, drgba);
+	return (img, nil);
+}
+
+# alpha-weighted area-average downscale of RGBA8 (bytes R,G,B,A == ABGR32 in
+# memory).  Box-filtering beats fit()'s nearest-neighbour for emoji, which carry
+# fine detail and antialiased edges; weighting colour by alpha avoids dark
+# halos where transparent pixels would otherwise drag the average toward black.
+emojiscale(w, h: int, rgba: array of byte, dw, dh: int): array of byte
+{
 	out := array[dw * dh * 4] of byte;
-	for(y := 0; y < dh; y++){
-		sy := int(real y / s);
-		if(sy >= h) sy = h - 1;
-		drow := y * dw * 4;
-		srow := sy * w * 4;
-		for(x := 0; x < dw; x++){
-			sx := int(real x / s);
-			if(sx >= w) sx = w - 1;
-			si := srow + sx * 4;
-			di := drow + x * 4;
-			out[di] = rgba[si];
-			out[di+1] = rgba[si+1];
-			out[di+2] = rgba[si+2];
-			out[di+3] = rgba[si+3];
+	for(dy := 0; dy < dh; dy++){
+		sy0 := dy * h / dh;
+		sy1 := (dy + 1) * h / dh;
+		if(sy1 <= sy0) sy1 = sy0 + 1;
+		for(dx := 0; dx < dw; dx++){
+			sx0 := dx * w / dw;
+			sx1 := (dx + 1) * w / dw;
+			if(sx1 <= sx0) sx1 = sx0 + 1;
+			ar := ag := ab := aw := n := 0;
+			for(sy := sy0; sy < sy1; sy++){
+				for(sx := sx0; sx < sx1; sx++){
+					si := (sy * w + sx) * 4;
+					a := int rgba[si + 3];
+					ar += int rgba[si] * a;
+					ag += int rgba[si + 1] * a;
+					ab += int rgba[si + 2] * a;
+					aw += a;
+					n++;
+				}
+			}
+			di := (dy * dw + dx) * 4;
+			if(aw > 0){
+				out[di]   = byte (ar / aw);
+				out[di+1] = byte (ag / aw);
+				out[di+2] = byte (ab / aw);
+			}
+			out[di+3] = byte (aw / n);
 		}
 	}
-	return (dw, dh, out);
+	return out;
+}
+
+# embed an emoji image inline at the current end of the text widget, over a
+# panel tinted `bg` (the chip colour) so the emoji's transparent edges blend in.
+# The image doubles as its own matte, so its alpha composites over the panel.
+# The panel is an owned descendant of `.view.t`, so the next `.view.t delete`
+# destroys it automatically — we must NOT destroy it ourselves (a manual destroy
+# before the delete dangles the text item's sub-widget pointer; after it, it's a
+# double-destroy that prints "bad window path").
+emojipanel(img: ref Image, bg: string, i, j: int)
+{
+	p := ".view.t.e" + string emojiseq++;
+	w := img.r.dx();
+	h := img.r.dy();
+	tkcmd(window, "panel " + p + " -bd 0 -width " + string w +
+		" -height " + string h + " -background " + bg);
+	tkcmd(window, ".view.t window create {end -1c} -window " + p + " -align center");
+	tkcmd(window, "bind " + p + " <Button-1> {send rtog " +
+		string i + " " + string j + "}");
+	tk->putimage(window, p, img, img);
+}
+
+# read a whole (small) local file; used for the bundled emoji PNGs
+readfile(path: string): (array of byte, string)
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return (nil, sys->sprint("%r"));
+	buf: array of byte;
+	tmp := array[8192] of byte;
+	for(;;){
+		n := sys->read(fd, tmp, len tmp);
+		if(n < 0)
+			return (nil, sys->sprint("%r"));
+		if(n == 0)
+			break;
+		nb := array[len buf + n] of byte;
+		nb[0:] = buf;
+		nb[len buf:] = tmp[0:n];
+		buf = nb;
+	}
+	return (buf, nil);
 }
 
 imconfig(t: ref Tk->Toplevel, im: ref Image)
@@ -1079,6 +1227,44 @@ renderone(idx: int, s: ref Status)
 		ins(body + "\n", "BODY");
 	rendermedia(idx, disp);
 	renderactions(idx, disp);
+	renderreactions(idx, disp);
+}
+
+# the Pleroma emoji-reaction row: one clickable chip per reaction, "<emoji> N",
+# hit-tagged r<idx>_<j> so a click toggles the user's own reaction with that
+# emoji.  Chips the user has reacted with are shaded distinctly (RXME).  Renders
+# nothing when the status has no reactions (or the server isn't Pleroma).
+renderreactions(idx: int, s: ref Status)
+{
+	if(s.reactions == nil)
+		return;
+	ins("  ", "META");
+	j := 0;
+	for(l := s.reactions; l != nil; l = tl l){
+		rx := hd l;
+		tag := "RXN";
+		bg := "#eef0f2";
+		if(rx.me){
+			tag = "RXME";
+			bg = "#cfe0ff";
+		}
+		startidx := tkcmd(window, ".view.t index {end -1c}");
+		# the emoji itself: an inline image when we have the asset, else the
+		# raw emoji text (a missing-glyph box) as a fallback
+		img := emojiimage(rx.name);
+		if(img != nil){
+			ins(" ", tag);
+			emojipanel(img, bg, idx, j);
+			ins(" " + string rx.count + " ", tag);
+		} else
+			ins(" " + rx.name + " " + string rx.count + " ", tag);
+		endidx := tkcmd(window, ".view.t index {end -1c}");
+		tkcmd(window, ".view.t tag add r" + string idx + "_" + string j +
+			" " + startidx + " " + endidx);
+		ins(" ", "META");
+		j++;
+	}
+	ins("\n", "META");
 }
 
 # the per-status action row: inline, clickable button-styled spans.  Each span
@@ -1186,6 +1372,19 @@ selectat(xy: string)
 			return;
 		}
 	}
+	# an emoji-reaction chip: r<idx>_<j> — toggle the user's reaction
+	for(l = tags; l != nil; l = tl l){
+		tag := hd l;
+		if(len tag >= 2 && tag[0] == 'r' && tag[1] >= '0' && tag[1] <= '9'){
+			(nr, rp) := sys->tokenize(tag[1:], "_");
+			if(nr >= 2){
+				selected = int hd rp;
+				highlight(selected);
+				togglereaction(int hd rp, int hd tl rp);
+			}
+			return;
+		}
+	}
 	# an inline action button: b<idx>_<code>
 	for(l = tags; l != nil; l = tl l){
 		tag := hd l;
@@ -1227,8 +1426,8 @@ doubleclick(xy: string)
 {
 	for(l := tagsat(xy); l != nil; l = tl l){
 		tag := hd l;
-		# a button or media span owns the double-click; ignore it here
-		if(len tag >= 2 && tag[0] == 'b' && tag[1] >= '0' && tag[1] <= '9')
+		# a button, reaction, or media span owns the double-click; ignore here
+		if(len tag >= 2 && (tag[0] == 'b' || tag[0] == 'r') && tag[1] >= '0' && tag[1] <= '9')
 			return;
 		if(len tag > 3 && tag[0:3] == "med")
 			return;
@@ -1252,7 +1451,7 @@ contextclick(xy: string)
 	(px, py) := toplevelxy(xy);
 	code := runmenu(i, px, py);
 	if(code != "")
-		dispatch(i, code, 0, 0);
+		dispatch(i, code, px, py);
 }
 
 # Build + post the per-post context menu and pump events until the user picks an
@@ -1269,25 +1468,95 @@ runmenu(i: int, px, py: int): string
 	t := targetidx(i);
 	if(t == nil)
 		return "";
-	labels := array[7] of string;
-	codes := array[7] of string;
+	labels := array[8] of string;
+	codes := array[8] of string;
 	labels[0] = "Reply";				codes[0] = "reply";
 	if(t.favourited){ labels[1] = "Unfavourite"; }	else { labels[1] = "Favourite"; }
 	codes[1] = "fav";
 	if(t.reblogged){ labels[2] = "Unboost"; }	else { labels[2] = "Boost"; }
 	codes[2] = "boost";
-	if(t.bookmarked){ labels[3] = "Remove bookmark"; } else { labels[3] = "Bookmark"; }
-	codes[3] = "bookmark";
-	labels[4] = "View thread";			codes[4] = "thread";
-	labels[5] = "View profile";			codes[5] = "profile";
-	labels[6] = "Copy link";			codes[6] = "copy";
+	labels[3] = "React…";				codes[3] = "react";
+	if(t.bookmarked){ labels[4] = "Remove bookmark"; } else { labels[4] = "Bookmark"; }
+	codes[4] = "bookmark";
+	labels[5] = "View thread";			codes[5] = "thread";
+	labels[6] = "View profile";			codes[6] = "profile";
+	labels[7] = "Copy link";			codes[7] = "copy";
 
-	rc := popup->post(window, (px, py), labels, 0);
+	r := pumpmenu(popup->post(window, (px, py), labels, 0));
+	if(r >= 0 && r < len codes)
+		return codes[r];
+	return "";
+}
+
+# an image-based emoji picker in its own toplevel: a grid of clickable emoji
+# images.  A popup menu can only show text, which renders as missing-glyph boxes
+# (no Inferno font covers the emoji blocks), so the picker reuses the same
+# inline-image machinery as the reaction chips.  Spawned like the other child
+# dialogs (so the feed stays live); delivers (target, chosen-emoji) on `out`,
+# with "" for the emoji when dismissed (Escape or window close).
+reactpicker(t: ref Status, out: chan of (ref Status, string))
+{
+	emoji := array[] of {
+		"👍", "🔥", "😂", "❤", "😢", "🎉", "👀", "🤔",
+		"😭", "😍", "🙏", "💯", "😎", "🤣", "👏", "🥺",
+	};
+	cols := 8;
+	(pw, pwc) := tkclient->toplevel(ctxt, nil, "React", Tkclient->Plain);
+	pchan := chan of string;
+	tk->namechan(pw, pchan, "pick");
+	tkcmd(pw, "frame .g");
+	for(k := 0; k < len emoji; k++){
+		cell := ".g.e" + string k;
+		pos := " -row " + string (k / cols) + " -column " + string (k % cols) +
+			" -padx 1 -pady 1";
+		img := emojiimage(emoji[k]);
+		if(img != nil){
+			tkcmd(pw, "panel " + cell + " -bd 1 -relief raised -width " +
+				string EMOJIPX + " -height " + string EMOJIPX + " -background white");
+			tkcmd(pw, "grid " + cell + pos);
+			tk->putimage(pw, cell, img, img);
+		} else {
+			tkcmd(pw, "button " + cell + " -text " + tk->quote(emoji[k]));
+			tkcmd(pw, "grid " + cell + pos);
+		}
+		tkcmd(pw, "bind " + cell + " <Button-1> {send pick " + string k + "}");
+	}
+	tkcmd(pw, "pack .g -padx 2 -pady 2");
+	tkclient->onscreen(pw, nil);
+	tkclient->startinput(pw, "kbd" :: "ptr" :: nil);
+	for(;;) alt {
+	key := <-pw.ctxt.kbd =>
+		if(key == 16r1b){		# Escape dismisses
+			out <-= (t, "");
+			return;		# closes by dropping pw; NOT wmctl("exit")
+		}
+		tk->keyboard(pw, key);
+	p := <-pw.ctxt.ptr =>
+		tk->pointer(pw, *p);
+	c := <-pw.ctxt.ctl or
+	c = <-pw.wreq or
+	c = <-pwc =>
+		if(c == "exit"){
+			out <-= (t, "");
+			return;
+		}
+		tkclient->wmctl(pw, c);
+	s := <-pchan =>
+		# close by dropping pw (NOT wmctl("exit"), which killgrps the app)
+		out <-= (t, emoji[int s]);
+		return;
+	}
+}
+
+# pump the main window's events while a popup menu's grab is active, returning
+# the chosen index (or <0 if dismissed).  The popup grab needs the window's
+# kbd/ptr events fed to it, so this runs synchronously on the main proc rather
+# than blocking on the result chan in a side proc (cf. wm/ftree's post()).
+pumpmenu(rc: chan of int): int
+{
 	for(;;) alt {
 	r := <-rc =>
-		if(r >= 0 && r < len codes)
-			return codes[r];
-		return "";
+		return r;
 	k := <-window.ctxt.kbd =>
 		tk->keyboard(window, k);
 	p := <-window.ctxt.ptr =>
@@ -1308,6 +1577,8 @@ dispatch(i: int, code: string, px, py: int)
 	case code {
 	"fav" or "boost" or "bookmark" =>
 		actionon(t, code);
+	"react" =>
+		spawn reactpicker(t, pickresult);
 	"reply" =>
 		pre := "";
 		if(t.account != nil)
@@ -1336,8 +1607,59 @@ dispatch(i: int, code: string, px, py: int)
 	"more" =>
 		mc := runmenu(i, px, py);
 		if(mc != "")
-			dispatch(i, mc, 0, 0);
+			dispatch(i, mc, px, py);
 	}
+}
+
+# react to / un-react from a status with emoji.  Non-optimistic: we ask the
+# server, then adopt its authoritative reaction list (simpler and race-free
+# versus the optimistic fav/boost path, and reactions are lower-frequency).
+reactdo(t: ref Status, emoji: string, add: int)
+{
+	if(t == nil)
+		return;
+	if(me == ""){
+		settitle(titlefor("(log in to react)"));
+		return;
+	}
+	verb := "reacting";
+	if(!add)
+		verb = "removing reaction";
+	settitle(titlefor("(" + verb + "…)"));
+	spawn doreact(client, t, emoji, add, reactresult);
+}
+
+# clicking an existing reaction chip toggles the user's own reaction with that
+# emoji (add it if not already reacted, remove it otherwise)
+togglereaction(i, j: int)
+{
+	t := targetidx(i);
+	if(t == nil)
+		return;
+	rl := t.reactions;
+	while(j > 0 && rl != nil){
+		rl = tl rl;
+		j--;
+	}
+	if(rl == nil)
+		return;
+	rx := hd rl;
+	reactdo(t, rx.name, !rx.me);
+}
+
+doreact(c: ref Client, target: ref Status, emoji: string, add: int,
+	out: chan of (ref Status, ref Status, string))
+{
+	ensurecs();
+	srv: ref Status;
+	err: string;
+	if(add)
+		(srv, err) = masto->react(c, target.id, emoji);
+	else
+		(srv, err) = masto->unreact(c, target.id, emoji);
+	if(err != nil)
+		sys->fprint(sys->fildes(2), "pleromussy: react: %s\n", err);
+	out <-= (target, srv, err);
 }
 
 # spec is "<statusidx>_<attachidx>"; resolve to the Attachment and view it
@@ -1512,6 +1834,15 @@ ensurecs()
 {
 	if(csup())
 		return;
+	# Only ever start ONE cs of our own.  ensurecs is called from ~10 sites
+	# (init + every fetch/media/react proc); without this guard, procs racing
+	# before cs comes up each spawn a cs, and the losers print "cs already
+	# exists" when they bind /net/cs (and become extra procs killgrp must reap on
+	# exit).  csspawned is set before the load so test-and-set is atomic under
+	# cooperative scheduling (no yield in between).
+	if(csspawned)
+		return;
+	csspawned = 1;
 	cs := load Command "/dis/ndb/cs.dis";
 	if(cs == nil)
 		return;
@@ -1559,9 +1890,17 @@ mktags()
 		" -spacing1 3 -spacing3 3");
 	# faint rule between posts
 	tkcmd(window, ".view.t tag configure SEP -font " + METAFONT + " -foreground #dcdce2");
+	# emoji-reaction chips: a rounded shaded span; RXME (the user's own
+	# reactions) is tinted blue to stand out from RXN (others')
+	tkcmd(window, ".view.t tag configure RXN -font " + METAFONT +
+		" -background #eef0f2 -relief raised -borderwidth 1");
+	tkcmd(window, ".view.t tag configure RXME -font " + METAFONT +
+		" -foreground #0a2a78 -background #cfe0ff -relief raised -borderwidth 1");
 	tkcmd(window, ".view.t tag configure SEL -background #d7e6ff");
 	tkcmd(window, ".view.t tag raise SEL");
 	tkcmd(window, ".view.t tag raise BTN");
+	tkcmd(window, ".view.t tag raise RXN");
+	tkcmd(window, ".view.t tag raise RXME");
 }
 
 tkcmd(top: ref Tk->Toplevel, s: string): string

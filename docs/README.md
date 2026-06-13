@@ -59,6 +59,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | do software 3D (raylib-in-Limbo, `$Raster3`) | [`ON_3D.md`](ON_3D.md) |
 | decode images (PNG/JPEG → Draw) | [`ON_IMAGEIO.md`](ON_IMAGEIO.md) |
 | hack on Charon (the web browser) | [`ON_CHARON.md`](ON_CHARON.md) |
+| write a Fediverse (Pleroma/Mastodon) client | [`ON_PLEROMUSSY.md`](ON_PLEROMUSSY.md) (+ [`ref/pleroma.api.md`](ref/pleroma.api.md)) |
 | do network programming / TLS | [`ON_NETWORK.md`](ON_NETWORK.md) |
 | understand 9P/Styx | [`ON_9P.md`](ON_9P.md) |
 | understand namespaces | [`ON_NAMESPACE.md`](ON_NAMESPACE.md) |

@@ -49,6 +49,16 @@ Masto: module
 		description:	string;
 	};
 
+	# A Pleroma emoji reaction aggregated over a status: the emoji, how many
+	# accounts reacted with it, and whether the authenticated user is one of
+	# them.  name is a unicode emoji (e.g. "🔥") or a :shortcode: for a custom
+	# emoji.  (Pleroma extension; absent on vanilla Mastodon servers.)
+	Reaction: adt {
+		name:	string;
+		count:	int;
+		me:	int;
+	};
+
 	# A notification: someone mentioned/boosted/favourited you, followed you,
 	# etc.  status is the related status (nil for plain follows).
 	Notification: adt {
@@ -76,6 +86,7 @@ Masto: module
 		reblogs_count:	int;
 		replies_count:	int;
 		media:		list of ref Attachment;
+		reactions:	list of ref Reaction;	# Pleroma emoji reactions (nil if none/unsupported)
 	};
 
 	# Result of one raw HTTP request.  body is the full response body wrapped
@@ -157,6 +168,16 @@ Masto: module
 	getaccount:	fn(c: ref Client, id: string): (ref Account, string);
 	accountstatuses:	fn(c: ref Client, id, max_id: string, limit: int): (list of ref Status, string, string);
 
+	# Pleroma emoji reactions (extension; require a token).
+	# statusreactions lists the aggregated reactions on a status (GET
+	# /api/v1/pleroma/statuses/<id>/reactions).  react adds the authenticated
+	# user's reaction with emoji (PUT .../reactions/<emoji>); unreact removes it
+	# (DELETE .../reactions/<emoji>).  emoji is a unicode emoji or a bare custom
+	# shortcode (no surrounding colons).  Both return the updated Status.
+	statusreactions:	fn(c: ref Client, id: string): (list of ref Reaction, string);
+	react:		fn(c: ref Client, id, emoji: string): (ref Status, string);
+	unreact:	fn(c: ref Client, id, emoji: string): (ref Status, string);
+
 	# fetchurl GETs an arbitrary http/https URL (media, avatars) with no auth,
 	# following up to a few redirects, and returns the raw body bytes.  For
 	# images, hand the bytes to $Imageio/Imageload.  err is set on failure.
@@ -166,4 +187,5 @@ Masto: module
 	mkaccount:	fn(jv: ref JSON->JValue): ref Account;
 	mkstatus:	fn(jv: ref JSON->JValue): ref Status;
 	mknotification:	fn(jv: ref JSON->JValue): ref Notification;
+	mkreaction:	fn(jv: ref JSON->JValue): ref Reaction;
 };

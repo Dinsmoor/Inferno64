@@ -127,6 +127,34 @@ init(nil: ref Draw->Context, nil: list of string)
 	else
 		sys->print("accountstatuses: %d (next=%q)\n", len sts, snext);
 
+	# Pleroma emoji reactions: read the reactions on my latest status, then
+	# round-trip react/unreact with a test emoji to exercise the write path
+	# (cleaned up so it leaves no trace on the account).
+	if(sts != nil){
+		mine := hd sts;
+		(rx, rxerr) := masto->statusreactions(c, mine.id);
+		if(rxerr != nil)
+			sys->print("reactions ERR: %s\n", rxerr);
+		else {
+			sys->print("reactions on %s: %d kinds\n", mine.id, len rx);
+			for(rl := rx; rl != nil; rl = tl rl){
+				re := hd rl;
+				sys->print("  %s x%d (me=%d)\n", re.name, re.count, re.me);
+			}
+		}
+		(s1, e1) := masto->react(c, mine.id, "🔥");
+		if(e1 != nil)
+			sys->print("react ERR: %s\n", e1);
+		else {
+			sys->print("react ok: %d reaction kinds now\n", len s1.reactions);
+			(s2, e2) := masto->unreact(c, mine.id, "🔥");
+			if(e2 != nil)
+				sys->print("unreact ERR: %s\n", e2);
+			else
+				sys->print("unreact ok: %d reaction kinds now\n", len s2.reactions);
+		}
+	}
+
 	sys->print("OK\n");
 }
 
