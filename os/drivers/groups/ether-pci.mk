@@ -12,6 +12,8 @@
 # link name (the etherNAMElink symbol's NAME) to ether-pci.conf.  Nothing
 # board-specific belongs in this file.
 
-DRIVERC    += ether-rtl8139
+# ether-mii is the shared MII/PHY helper library (not a card itself); NICs
+# that drive an external PHY — igbe — link against it.
+DRIVERC    += ether-rtl8139 ether-igbe ether-mii
 
 DRIVERCONF += ../drivers/groups/ether-pci.conf
