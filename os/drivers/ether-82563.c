@@ -24,7 +24,14 @@
 #include "ethermii.h"
 #include "pci.h"
 
-#define PCIWADDR(x)	((u32int)PADDR(x))
+/*
+ * 64-bit DMA: these parts take a full 64-bit ring/buffer address (Tdbah/
+ * Rdbah and the descriptor addr[1] high dword), so PADDR must NOT be
+ * truncated to 32 bits here — otherwise pa>>32 is always 0 and the device
+ * silently DMAs to the low 4GB only (invisible on boards whose RAM sits
+ * below 4GB, corrupting on those whose buffers do not).
+ */
+#define PCIWADDR(x)	((uvlong)PADDR(x))
 #define ROUNDUP(s, sz)	ROUND((s), (sz))
 #define NEXT(x, n)	(((x)+1)%(n))		/* ring index step, was os/pc/io.h */
 #define PREV(x, n)	(((x)-1+(n))%(n))
