@@ -21,8 +21,9 @@ The build is factored for multiple boards:
   future arch (amd64 next). l.S handles the EL2→EL1 drop and builds
   the identity map from the board's `L1MAPENT0..3`.
 - `os/drivers/` — board-agnostic drivers, one file each: uart-pl011,
-  gic-v2, the virtio-mmio transport + rng/input/net/blk drivers,
-  ramfb, screen (memory-Memimage framebuffer), devether.
+  gic-v2 / gic-v3 (board.mk picks one via `GIC=`), the virtio-mmio
+  transport + rng/input/net/blk drivers, ramfb, screen
+  (memory-Memimage framebuffer), devether, pci + the PCIe drivers.
 - `os/boards/virt64/` (this directory) — what makes a board: `board.h`
   (addresses, IRQ ids, RAM base/size, MMU map, PSCI conduit), `board.c`
   (the `boardinit`/`boardready`/`rtctime` hooks), `board.mk` (which
@@ -33,8 +34,10 @@ The build is factored for multiple boards:
   skips the board cleanly).
 
 The interrupt controller is behind a four-call seam (`intcinit`,
-`intcenable`, `intcdisable`, `intcdispatch` — see fns.h), so a GICv3
-board adds a driver, not a trap.c fork.
+`intcenable`, `intcdisable`, `intcdispatch` — see fns.h): gic-v2.c and
+gic-v3.c both sit behind it, picked at build time (`make ... GIC=v3`
+also boots qemu with `gic-version=3`), so swapping controllers is a
+driver choice, not a trap.c fork.
 
 To add a board (e.g. bpi-r4): `mkdir os/boards/bpi-r4`, write the five
 files above (start by copying this board's), drop new drivers in
@@ -377,9 +380,10 @@ is near zero and the plumbing is not:
   CPU0). MP needs per-CPU Mach/Proc — tpidr_el1 (or a reserved x18)
   plus `m`/`up` as accessor macros — mechanical, but it touches
   everything that includes dat.h, i.e. all of port/ and libinterp/.
-- **No IPIs or interrupt routing.** GICv2 needs per-CPU GICC init,
-  SGIs for cross-CPU preemption, and ITARGETSR routing; intrenable()
-  has no concept of a target CPU.
+- **No IPIs or interrupt routing.** Both GIC drivers init a single cpu:
+  gic-v2 one GICC, gic-v3 one redistributor; neither sends SGIs for
+  cross-CPU preemption nor targets SPIs at a cpu (gic-v3 routes every
+  SPI to affinity 0). intrenable() has no concept of a target CPU.
 - **Lock discipline needs an MP audit.** `_tas` is ldxr/stxr with an
   acquire-side dmb, but the release side and ilock's cross-CPU
   semantics were only ever exercised UP here. (The hosted emu had

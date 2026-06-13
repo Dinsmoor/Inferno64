@@ -7,7 +7,13 @@
 
 BOARDC  := board
 
-DRIVERC := uart-pl011 gic-v2 virtio rng-virtio input-virtio ramfb screen \
+# Interrupt controller: GIC=v2 (default) or GIC=v3.  Exactly one gic-* driver
+# is linked; v3 also needs the matching qemu machine (the run target adds
+# gic-version=3 below).  The redistributors sit in the [0,1G) device map and
+# the high ECAM block, so no extra MMU work.
+GIC     ?= v2
+
+DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb screen \
 	   devether ether-virtio sd-virtio pci ether-rtl8139 sd-nvme \
 	   sd-scsi sd-ahci devusb usbxhci usbxhcipci
 
@@ -31,8 +37,14 @@ endif
 # Default machine: PCIe ECAM is high (0x40_10000000, 256 buses), which the
 # arch MMU now maps via board.h L1MAP_HIECAM_* (T0SZ=25, [256G,257G) device
 # block).  No highmem-ecam=off needed — see board.h PCIE_ECAM_PHYS.
+# GIC=v3 selects the GICv3 driver and the matching qemu machine.
+ifeq ($(GIC),v3)
+QEMUMACH := virt,gic-version=3
+else
+QEMUMACH := virt
+endif
 run: $(KERNEL)
-	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 512 -nographic \
+	qemu-system-aarch64 -M $(QEMUMACH) -cpu cortex-a53 -m 512 -nographic \
 		$(QEMUDEVS) $(QEMUDISK) -kernel $(KERNEL)
 
 .PHONY: run

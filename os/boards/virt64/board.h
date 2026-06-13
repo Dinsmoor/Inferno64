@@ -45,8 +45,9 @@
  * MMIO map and GIC interrupt ids.
  */
 enum {
-	GICD_PHYS	= 0x08000000,	/* GICv2 distributor */
-	GICC_PHYS	= 0x08010000,	/* GICv2 cpu interface */
+	GICD_PHYS	= 0x08000000,	/* GIC distributor (v2 and v3) */
+	GICC_PHYS	= 0x08010000,	/* GICv2 cpu interface (v2 only) */
+	GICR_PHYS	= 0x080a0000,	/* GICv3 redistributors (v3 only); cpu iface is ICC_* sysregs */
 	UART0_PHYS	= 0x09000000,	/* PL011 */
 	RTC_PHYS	= 0x09010000,	/* PL031 */
 	FWCFG_PHYS	= 0x09020000,

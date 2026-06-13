@@ -58,9 +58,10 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
       ether-rtl8139, sd-nvme, sd-ahci, sd-scsi, devusb/usbxhci/usbxhcipci) is a
       first pass proven only against `qemu -M virt`. Per-driver tables of what is
       stubbed/simplified and what full hardware support needs:
-      `DEV_INPRO_DRIVERS.md`. Headline items: GICv3 (GICv2 only today), AHCI is
-      fully polled, and USB has no enumerator/HID driver yet. (The high-ECAM map
-      is done — default `qemu -M virt` now runs without `highmem-ecam=off`.)
+      `DEV_INPRO_DRIVERS.md`. Headline items: AHCI is fully polled, USB has no
+      enumerator/HID driver yet, and MSI/MSI-X needs an ITS. (Done: the high-ECAM
+      map — default `qemu -M virt` runs without `highmem-ecam=off`; and GICv3 —
+      `make ... GIC=v3` boots on `gic-version=3`, single-cpu.)
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
 - [ ] **BPI-R4 hardware bring-up** (future work; higher-level work first) —
       first real-hardware board for the native kernel: Banana Pi BPI-R4

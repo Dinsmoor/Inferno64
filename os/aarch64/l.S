@@ -46,6 +46,11 @@ _start:
 	b.ne	1f
 	mov	x1, #(1<<31)		/* HCR_EL2.RW: EL1 is aarch64 */
 	msr	hcr_el2, x1
+	/* let EL1 use the GICv3 system-register CPU interface (ICC_*).
+	 * SRE|DFB|DIB|Enable; harmless when the board's GIC is v2. */
+	mov	x1, #0xf
+	msr	ICC_SRE_EL2, x1
+	isb
 	mov	x1, #0x3c5		/* DAIF masked, EL1h */
 	msr	spsr_el2, x1
 	adr	x1, 1f

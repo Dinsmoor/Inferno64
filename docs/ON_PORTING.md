@@ -411,8 +411,8 @@ What a typical SBC needs that qemu -M virt didn't:
   until storage works, build dd-able media last.
 - **Console UART**: if not PL011, a 16550 driver (~100 lines).
 - **Interrupt controller**: GICv2 boards reuse gic-v2.c at a new base;
-  modern SoCs need a gic-v3.c (sysreg interface + redistributors) behind
-  the same four intc calls.
+  modern SoCs select gic-v3.c (`board.mk GIC=v3`), the sysreg interface +
+  redistributors behind the same four intc calls. Both ship.
 - **DMA cache coherency** — the trap nobody warns you about: qemu's
   virtio DMA is cache-coherent, so the virt64 drivers never flush.
   Real SoC DMA (SD controllers, NICs) usually is NOT: every DMA driver
@@ -537,13 +537,21 @@ of the board.)
   display over the namespace (Part II), so VGA register drivers have no
   place. Likewise legacy ISA/PCMCIA/floppy hardware.
 
-## GICv3 is the one driver 9front can't supply
+## GICv3 is the one driver 9front can't supply — so it's written fresh
 
 Every 9front `gic.c` is **GICv2**; `arm64/sysreg.h` only *names* the GICv3
-system registers. A GICv3 controller — the `ICC_*` system-register CPU
-interface plus redistributors — is written fresh behind the same four
-intc calls, with U-Boot/TF-A/Linux as the register reference. It is the
-sole interrupt-controller gap, and modern SoCs (e.g. BPI-R4) require it.
+system registers. So `os/drivers/gic-v3.c` is written fresh behind the same
+four intc calls (`intcinit/intcenable/intcdisable/intcdispatch`), with
+U-Boot/TF-A/Linux as the register reference. It brings up the distributor
+with affinity routing (`GICD_IROUTER`), wakes this cpu's redistributor —
+SGIs/PPIs (e.g. the timer PPI) live there in v3, not the distributor — and
+drives the `ICC_*` system-register CPU interface. EL1 reaches those sysregs
+only because `l.S` sets `ICC_SRE_EL2.Enable` on the EL2→EL1 drop (harmless
+on a GICv2 build). The board picks the controller: `board.mk GIC=v2`
+(default) or `GIC=v3` (which also adds `gic-version=3` to the run target).
+Single-cpu: no SMP redistributor walk and no ITS, so MSI/MSI-X is still a
+gap (INTx is delivered as a GIC SPI either way). Modern SoCs (e.g. BPI-R4)
+use the v3 path.
 
 ## Bring drivers up under qemu first
 

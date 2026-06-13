@@ -108,11 +108,16 @@ missing is everything *above* the controller.
 
 ## Kernel-wide gaps (not per-driver)
 
-- [ ] **GICv2 only.** Every 9front `gic.c` is GICv2; a GICv3 controller (the
-      `ICC_*` system-register CPU interface plus redistributors) is written fresh
-      behind the same four intc calls. It is the sole interrupt-controller gap and
-      gates MSI and modern SoCs. See `ON_PORTING.md` ("GICv3 is the one driver
-      9front can't supply").
+- **GICv2 and GICv3 (single-cpu).** Both drivers (`gic-v2.c`, `gic-v3.c`) sit
+      behind the same four intc calls; the board picks one (`board.mk GIC=v2|v3`,
+      default v2; v3's run target adds `gic-version=3`). GICv3 brings up the
+      distributor with affinity routing (`GICD_IROUTER`), wakes this cpu's
+      redistributor (SGIs/PPIs live there now, not the distributor), and drives
+      the `ICC_*` system-register CPU interface — EL1 reaches it because `l.S`
+      sets `ICC_SRE_EL2.Enable` on the EL2→EL1 drop. Remaining GICv3 gaps:
+      per-cpu redistributor init is single-cpu only (no SMP redistributor walk),
+      and there is no ITS, so MSI/MSI-X still needs the LPI/ITS path. INTx is
+      unaffected (still GIC SPI).
 - **High ECAM map — done.** The default `qemu -M virt` runs unmodified: `l.S`
       widens VA to 39 bits (`T0SZ=25`) and `board.h` maps a `[256 G, 257 G)`
       device block covering both the high ECAM and the GICv3 redistributors. See
