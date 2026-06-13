@@ -70,11 +70,16 @@ enum {					/* type 0/1 pre-defined header */
 	PciBST		= 0x0F,		/* BIST */
 
 	PciBAR0		= 0x10,		/* base address[0..5] */
+	PciCAP		= 0x34,		/* capabilities list pointer */
 	PciINTL		= 0x3C,		/* interrupt line */
 	PciINTP		= 0x3D,		/* interrupt pin */
 
 	PciSBN		= 0x19,		/* type 1: secondary bus number */
 	PciUBN		= 0x1A,		/* type 1: subordinate bus number */
+
+	PciCapMSI	= 0x05,		/* capability ids */
+	PciCapMSIX	= 0x11,
+	PciStatusCAP	= 1<<4,		/* PciPSR: capability list present */
 };
 
 enum {					/* command register (PciPCR) bits */
@@ -97,3 +102,11 @@ extern void	pcicfgw32(Pcidev*, int rno, int data);
 
 extern void	pcisetbme(Pcidev*);
 extern void	pciclrbme(Pcidev*);
+
+/*
+ * Route this device's interrupt through MSI-X (one vector) instead of INTx.
+ * On success the handler f is wired to a GICv3 LPI and 0 is returned; -1 means
+ * MSI is unavailable (no GICv3 ITS, or no MSI-X capability) and the caller
+ * should fall back to intrenable(p->intl, ...).
+ */
+extern int	pcimsienable(Pcidev*, void (*f)(Ureg*, void*), void *a, char *name);

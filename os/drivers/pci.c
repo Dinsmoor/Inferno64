@@ -272,3 +272,76 @@ pciclrbme(Pcidev *p)
 	p->pcr &= ~MASen;
 	wcfg16(p->tbdf, PciPCR, p->pcr);
 }
+
+/*
+ * Find a PCI capability by id; returns its config offset, or -1.
+ */
+static int
+pcicapfind(Pcidev *p, int capid)
+{
+	int cap, i;
+
+	if((rcfg16(p->tbdf, PciPSR) & PciStatusCAP) == 0)
+		return -1;
+	cap = rcfg8(p->tbdf, PciCAP) & ~3;
+	for(i = 0; cap >= 0x40 && i < 48; i++){
+		if(rcfg8(p->tbdf, cap) == capid)
+			return cap;
+		cap = rcfg8(p->tbdf, cap+1) & ~3;
+	}
+	return -1;
+}
+
+/*
+ * Route p's interrupt through MSI-X: allocate a GICv3 LPI for (DeviceID,0),
+ * point MSI-X table entry 0 at GITS_TRANSLATER, and enable MSI-X.  The DeviceID
+ * the ITS sees is the PCI requester id (bus<<8 | dev<<3 | fn) — qemu's virt
+ * msi-map wires the RID 1:1 to the ITS DeviceID.
+ */
+int
+pcimsienable(Pcidev *p, void (*f)(Ureg*, void*), void *a, char *name)
+{
+	int cap, ctrl, bir, intid, deviceid;
+	u32int toff;
+	uvlong tbl, translater;
+	volatile u32int *e;
+
+	cap = pcicapfind(p, PciCapMSIX);
+	if(cap < 0)
+		return -1;
+
+	deviceid = (BUSBNO(p->tbdf)<<8) | (BUSDNO(p->tbdf)<<3) | BUSFNO(p->tbdf);
+	intid = intcmsialloc(deviceid, 0, &translater);
+	if(intid < 0)
+		return -1;
+	intrenablemsi(intid, f, a, name);
+
+	/* MSI-X table: BIR + 8-byte-aligned offset within that BAR */
+	toff = rcfg32(p->tbdf, cap+4);
+	bir = toff & 7;
+	toff &= ~7u;
+	if(bir >= nelem(p->mem) || p->mem[bir].bar == 0){
+		print("pci %d.%d.%d: msi-x table bir %d unmapped (bar %#llux)\n",
+			BUSBNO(p->tbdf), BUSDNO(p->tbdf), BUSFNO(p->tbdf),
+			bir, bir < nelem(p->mem) ? p->mem[bir].bar : 0ULL);
+		return -1;
+	}
+	tbl = (p->mem[bir].bar & ~0xFULL) + toff;
+	e = (volatile u32int*)(uintptr)tbl;	/* identity-mapped device memory */
+	e[0] = (u32int)translater;		/* message address low */
+	e[1] = (u32int)(translater >> 32);	/* message address high */
+	e[2] = 0;				/* message data == EventID 0 */
+	e[3] = 0;				/* vector control: unmasked */
+	coherence();
+
+	/* enable MSI-X, clear the function mask; MSI-X writes need bus master */
+	ctrl = rcfg16(p->tbdf, cap+2);
+	ctrl |= 1<<15;				/* MSI-X Enable */
+	ctrl &= ~(1<<14);			/* Function Mask off */
+	wcfg16(p->tbdf, cap+2, ctrl);
+	pcisetbme(p);
+
+	print("pci %d.%d.%d: msi-x -> lpi %d (%s)\n",
+		BUSBNO(p->tbdf), BUSDNO(p->tbdf), BUSFNO(p->tbdf), intid, name);
+	return 0;
+}

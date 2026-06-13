@@ -20,6 +20,7 @@ void	setfsr(ulong);
 #define	idlehands()	__asm__ __volatile__("wfe" ::: "memory")
 void	intrenable(int, void (*)(Ureg*, void*), void*, int, char*);
 void	intrdisable(int, void (*)(Ureg*, void*), void*, int, char*);
+void	intrenablemsi(int, void (*)(Ureg*, void*), void*, char*);
 
 /*
  * interrupt-controller driver interface (gic-v2.c, someday gic-v3.c):
@@ -31,6 +32,7 @@ void	intcenable(int);
 void	intcdisable(int);
 void	intcdispatch(Ureg*);
 void	dispatchirq(Ureg*, int);
+int	intcmsialloc(int deviceid, int eventid, uvlong *translater);
 
 /*
  * board hooks (boards/$HWTARG/board.c): boardinit runs early, right

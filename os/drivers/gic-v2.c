@@ -78,3 +78,13 @@ intcdispatch(Ureg *ur)
 		IOREG32(GICC_PHYS, GICC_EOIR) = iar;
 	}
 }
+
+/*
+ * No ITS in GICv2: report MSI unavailable so PCI drivers fall back to INTx.
+ * (qemu's GICv2 has a v2m MSI frame, but the in-tree path is INTx-only.)
+ */
+int
+intcmsialloc(int, int, uvlong*)
+{
+	return -1;
+}

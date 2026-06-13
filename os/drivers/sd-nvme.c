@@ -66,6 +66,7 @@ struct Ctlr
 	Lock	intr;
 	u32int	ints;
 	u32int	irqc[2];
+	int	msi;		/* completion via GICv3 MSI-X (vector 0), not INTx */
 
 	Pcidev	*pci;
 	u32int	*reg;
@@ -166,7 +167,7 @@ qcmd(WS *ws, Ctlr *ctlr, int adm, u32int opc, u32int nsid, void *data, ulong len
 }
 
 static void
-nvmeintr(Ureg *, void *arg)
+nvmeintr(Ureg *ur, void *arg)
 {
 	u32int phaseshift, *e;
 	WS *ws, **wp;
@@ -174,12 +175,14 @@ nvmeintr(Ureg *, void *arg)
 	SQ *sq;
 	CQ *cq;
 
+	USED(ur);
 	ctlr = arg;
 	if(ctlr->ints == 0)
 		return;
 
 	ilock(&ctlr->intr);
-	ctlr->reg[IntMs] = ctlr->ints;
+	if(!ctlr->msi)			/* MSI-X masks per-vector, not via INTMS */
+		ctlr->reg[IntMs] = ctlr->ints;
 	for(cq = &ctlr->cq[nelem(ctlr->cq)-1]; cq >= ctlr->cq; cq--){
 		if(cq->base == nil)
 			continue;
@@ -206,7 +209,8 @@ nvmeintr(Ureg *, void *arg)
 			ctlr->reg[DBell + ((cq-ctlr->cq)*2+1 << ctlr->dstrd)] = ++cq->head & cq->mask;
 		}
 	}
-	ctlr->reg[IntMc] = ctlr->ints;
+	if(!ctlr->msi)
+		ctlr->reg[IntMc] = ctlr->ints;
 	iunlock(&ctlr->intr);
 }
 
@@ -222,6 +226,7 @@ wcmd(WS *ws, u32int *e)
 {
 	SQ *sq = ws->queue;
 	Ctlr *ctlr = sq->ctlr;
+	int spins;
 
 	if(e != nil){
 		dmaflush(1, e, 64);
@@ -238,9 +243,15 @@ wcmd(WS *ws, u32int *e)
 	while(waserror())
 		;
 	tsleep(ws->sleep, wdone, ws, 5);
-	while(!wdone(ws)){
-		nvmeintr(nil, ctlr);
-		tsleep(ws->sleep, wdone, ws, 10);
+	/*
+	 * With MSI-X the completion arrives as a real interrupt that wakes us;
+	 * rely on it for the first few waits, then fall back to polling so a
+	 * lost interrupt can't hang forever.  Without MSI (INTx) poll every wait.
+	 */
+	for(spins = 0; !wdone(ws); spins++){
+		if(!ctlr->msi || spins >= 3)
+			nvmeintr(nil, ctlr);
+		tsleep(ws->sleep, wdone, ws, ctlr->msi ? 50 : 10);
 	}
 	poperror();
 	return ws->status;
@@ -549,7 +560,8 @@ setupqueues(Ctlr *ctlr)
 
 	ilock(&ctlr->intr);
 	ctlr->ints |= 1<<(cq - ctlr->cq);
-	ctlr->reg[IntMc] = ctlr->ints;
+	if(!ctlr->msi)
+		ctlr->reg[IntMc] = ctlr->ints;
 	iunlock(&ctlr->intr);
 }
 
@@ -649,7 +661,11 @@ nvmeenable(SDev *sd)
 	ctlr = sd->ctlr;
 
 	snprint(name, sizeof(name), "%s (%s)", sd->name, sd->ifc->name);
-	intrenable(ctlr->pci->intl, nvmeintr, ctlr, BusCPU, name);
+	/* prefer MSI-X (GICv3 ITS); fall back to INTx where there is no ITS */
+	if(pcimsienable(ctlr->pci, nvmeintr, ctlr, name) == 0)
+		ctlr->msi = 1;
+	else
+		intrenable(ctlr->pci->intl, nvmeintr, ctlr, BusCPU, name);
 
 	if(waserror()){
 		print("%s: %s\n", name, up->env->errstr);
