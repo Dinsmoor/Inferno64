@@ -101,6 +101,7 @@ static char *modename[] = {
 
 typedef struct {
 	Lock;
+	Rendez	wr;		/* I/O issuer sleeps here; woken by iainterrupt */
 
 	Ctlr	*ctlr;
 	SDunit	*unit;
@@ -760,13 +761,23 @@ updatedrive(Drive *d)
 	p = d->port;
 	cause = p->isr;
 	serr = p->serror;
-	p->isr = cause;
+	/*
+	 * Acknowledge before processing: clear PxSERR, then clear ALL PxIS bits
+	 * (not just `cause`).  Writing back only the bits we read races qemu
+	 * re-posting the post-reset D2H FIS in the gap — the missed bit keeps
+	 * PxIS&PxIE asserted and pins GHC.IS into an SPI storm.  A full W1C
+	 * clear settles it; PxCI remains the source of truth for completion.
+	 */
+	p->serror = serr;
+	p->isr = ~0;
+	coherence();
 	name = "??";
 	if(d->unit && d->unit->name)
 		name = d->unit->name;
 
 	if(p->ci == 0){
 		d->portm.flag |= Fdone;
+		wakeup(&d->wr);		/* command slot done — wake the issuer */
 		pr = 0;
 	}else if(cause & Adps)
 		pr = 0;
@@ -1134,8 +1145,22 @@ iaverify(SDunit *u)
 			if(i < 4 || d->port->sstatus & 0x733)
 				break;
 			/* fall through */
-		case Dnull:
 		case Dready:
+			/*
+			 * Bring-up is done and clean; arm the per-command D2H FIS
+			 * interrupt (Adhrs).  Flush the stale bring-up FIS/error
+			 * latches first (PxSERR then PxIS then the HBA IS bit, in
+			 * that order) so the freshly unmasked PxIE doesn't see a
+			 * level that pins GHC.IS into an SPI storm.
+			 */
+			d->port->serror = d->port->serror;
+			d->port->isr = ~0;
+			coherence();
+			c->hba->isr = 1 << d->portno;
+			coherence();
+			d->port->ie = Adhrs;
+			/* fall through */
+		case Dnull:
 		case Doffline:
 			print("sdiahci: drive %d in state %s after %d resets\n",
 				d->driveno, diskstates[d->state], i);
@@ -1490,16 +1515,17 @@ iario(SDreq *r)
 		d->intick = m->ticks;
 
 		/*
-		 * Polled completion: spin until the controller clears CI.
-		 * Port interrupts are masked (see ahciconfigdrive), so the
-		 * completion is harvested here with updatedrive() — which sets
-		 * Fdone and reads PxIS (latched regardless of PxIE) — instead
-		 * of from iainterrupt.
+		 * IRQ-driven completion: sleep until iainterrupt wakes us when
+		 * the controller clears PxCI.  ahciclear is the sleep condition
+		 * (checked before sleeping, so a completion that races ahead of
+		 * the sleep is not lost); the 50ms tick bounds the wait at ~5s so
+		 * a dropped interrupt still makes progress.  Data I/O runs in
+		 * process context, unlike the polled bring-up waits.
 		 */
 		{
 			int w;
-			for(w = 0; w < 5000 && ahciclear(&as) == 0; w++)
-				delay(1);
+			for(w = 0; w < 100 && ahciclear(&as) == 0; w++)
+				tsleep(&d->wr, ahciclear, &as, 50);
 		}
 
 		ilock(d);
