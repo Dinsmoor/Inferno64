@@ -14,6 +14,7 @@
 #define BI2WD		64			/* bits per word */
 #define	BY2WD		8			/* bytes per word */
 #define	BY2V		8			/* bytes per double word */
+#define	BLOCKALIGN	64			/* Block data alignment (cache line); allocb.c */
 #define	BY2PG		4096			/* bytes per page */
 #define	WD2PG		(BY2PG/BY2WD)		/* words per page */
 #define	PGSHIFT		12			/* log(BY2PG) */
