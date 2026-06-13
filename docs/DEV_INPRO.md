@@ -54,6 +54,13 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".
+- [ ] **Native driver stubs/shims follow-up** — the `os/drivers` pool (pci,
+      ether-rtl8139, sd-nvme, sd-ahci, sd-scsi, devusb/usbxhci/usbxhcipci) is a
+      first pass proven only against `qemu -M virt`. Per-driver tables of what is
+      stubbed/simplified and what full hardware support needs:
+      `DEV_INPRO_DRIVERS.md`. Headline items: GICv3 (GICv2 only today), the
+      high-ECAM/MMIO map (needs `highmem-ecam=off`), AHCI is fully polled, and
+      USB has no enumerator/HID driver yet.
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
 - [ ] **BPI-R4 hardware bring-up** (future work; higher-level work first) —
       first real-hardware board for the native kernel: Banana Pi BPI-R4
