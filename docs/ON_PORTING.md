@@ -10,7 +10,7 @@ with different blast radii, and each has its own reference.
 | 1 | a new **host OS/libc** for hosted emu | `emu/<Host>/` (os.c, devfs, ipif…), `lib9` shims, a mkfile | emu on Linux/aarch64 | **Part I below** (file-by-file) |
 | 2 | a new **CPU architecture** (Dis VM + JIT) | `libinterp/comp-<arch>.c` + `das-<arch>.c`, `Inferno/<arch>/include/` (u.h/lib9.h/ureg.h), per-arch lib9 asm (tas, setfcr, getcallerpc), `coherence()` barriers, mkfile | aarch64 | `ON_AARCH64_PORT.md` (register map, calling convention, type widths), `ON_JIT.md`; LP64 hazards in `ON_C_IN_DIS.md` |
 | 3 | a **native kernel** on an emulated machine | `os/aarch64/` arch core + `os/boards/<board>/` + picks from `os/drivers/` | `os/boards/virt64` (qemu -M virt: full wm desktop, JIT, net, disk, TLS) | **`os/boards/virt64/README.md`** — layout, image pipeline, gcc-vs-kencc rules, debug workflow |
-| 4 | a native kernel on **real hardware** (a new board) | a new `os/boards/<board>/` + new drivers in `os/drivers/` | none yet — BPI-R4 (MediaTek MT7988A) is the parked first target | **Part II below** (what a real board costs) |
+| 4 | a native kernel on **real hardware** (a new board) | a new `os/boards/<board>/` + new drivers in `os/drivers/` | none yet — BPI-R4 (MediaTek MT7988A) is the parked first target | **Part II** (what a real board costs); **Part III** (the driver model + porting from 9front) |
 
 The levels stack: 2 underlies both 1-on-a-new-arch and 3; 3 is the proving
 ground for 4 (bring drivers up under qemu where you can, on hardware only
@@ -420,11 +420,14 @@ What a typical SBC needs that qemu -M virt didn't:
   the helpers before the first real driver, not after the first
   corruption hunt.
 - **Storage**: SDHCI where you're lucky; vendor MMC controllers (e.g.
-  MediaTek MSDC) where you're not. U-Boot's drivers are the compact
-  porting sources (hundreds of lines, vs. thousands in Linux). devsd
-  is portable — a new controller is just an SDifc.
-- **Network**: per-SoC MAC + PHY/MDIO (again: port from U-Boot, not
-  Linux). devether keeps the driver thin.
+  MediaTek MSDC) where you're not. 9front's `bcm64`/`imx8` trees carry
+  SDHCI and uSDHC (see Part III); for a controller 9front never had,
+  U-Boot's drivers are the compact porting sources (hundreds of lines,
+  vs. thousands in Linux). devsd is portable — a new controller is just
+  an SDifc.
+- **Network**: per-SoC MAC + PHY/MDIO. 9front carries several arm64 MACs
+  (`ethergenet`, `etherimx`); for one it doesn't, port from U-Boot, not
+  Linux. devether keeps the driver thin.
 - **Entropy/RTC**: SoC TRNG (often behind a TF-A SMC); boards rarely
   have an RTC — the Inferno answer is a userspace SNTP client over the
   net stack, not an I2C driver.
@@ -444,3 +447,121 @@ PSCI via `smc` (`BOARD_PSCI_SMC`), no display hardware (namespace
 display / VNC export, above). Hardware wiki:
 https://www.fw-web.de/dokuwiki/doku.php?id=en:bpi-r4:start — exact
 MMIO bases/IRQs from the Linux DTB (mt7988a.dtsi) at bring-up.
+
+---
+
+# Part III: device drivers — the Plan 9 model, and porting from 9front
+
+The native kernel and 9front are both Plan 9 kernels, so they share the
+driver model file-for-file: the seams a driver plugs into are the same
+structs and registration calls in both trees. A 9front driver is an
+**adaptation, not a rewrite** — and 9front, not U-Boot or Linux, is the
+first source for any driver it already carries. U-Boot is the source
+only for SoC-specific MACs and MMC controllers 9front never had; GICv3
+is written fresh (below). The shared seams:
+
+| Seam | Interface | Registration | Present in both trees as |
+|------|-----------|--------------|--------------------------|
+| Ethernet | `etherif.h` `Ether`, `etheriq()` | `addethercard()` | `os/drivers/devether.c`, `etherif.h` |
+| Storage | `sd.h` `SDifc` | `sdifc[]` | `os/port/devsd.c`, `sd.h` |
+| MII PHY | `ethermii.h` | `mii*()` | `os/port/ethermii.c` (≈ byte-identical) |
+
+## Two kinds of driver
+
+- **chan-devices** (`port/dev*.c`) — the `#X` filesystem device a program
+  talks to (devether, devsd, devuart, devusb…). The native kernel already
+  carries most of these in `os/port/`; they are ported once and rarely.
+- **hardware drivers** — the per-controller code that registers *beneath*
+  a chan-device (`ether*.c`, `sd*.c`, USB host controllers). This is where
+  nearly all porting work lives.
+
+Where the native tree lacks the chan-device itself, that comes first. The
+notable gap is **USB: there is no `devusb` and no host-controller stack in
+`os/`** — bringing up any USB device means porting `devusb` + a host
+controller (xHCI) + a class driver (HID) together.
+
+## Three facts govern every port
+
+1. **Dialect.** 9front is kencc; `os/` compiles with **gcc**
+   (`os/native.mk`). The in-tree virtio drivers already establish the
+   Plan 9-C-under-gcc idiom — anonymous-struct embedding (`Netif;`),
+   `USED`/`SET`, `nil`, `uchar`/`ulong` — and a port follows it. The
+   residue is mechanical.
+2. **Bus seam.** `os/drivers/etherif.h` is deliberately simplified to
+   virtio-mmio — **no ISAConf, no PCI**. A driver cannot probe a bus that
+   isn't wired up: a PCI driver needs the **devpci enumeration seam**
+   present first; an MMIO driver takes its base address from `board.h` and
+   its IRQ through the **intc** seam. Restore the bus seam before porting
+   drivers that ride it.
+3. **Width.** Port only from 9front's **64-bit** trees — `pc64`, `arm64`,
+   `bcm64`, `lx2k`, `imx8`. They are LP64-clean. The 32-bit trees (`pc`,
+   `kw`, `omap`) carry the width assumptions this fork exists to remove.
+
+## The two bus seams a hardware driver rides
+
+- **PCI.** devpci enumerates the bus; a driver matches by vendor/device
+  and maps its BARs. Under qemu this is `-M virt`'s PCIe ECAM bridge; on a
+  board it is the SoC's PCIe controller. Until devpci is in the native
+  tree, PCI drivers have nothing to attach to — it is the keystone that
+  turns the whole `pc64` driver pool from rewrite into adaptation.
+- **MMIO.** No enumeration: the driver's `reset()` probes a fixed base
+  address (from `board.h`) and registers its interrupt through intc. This
+  is how the virtio-mmio drivers already work, and how SoC peripherals
+  attach.
+
+## DMA cache coherency is per-driver discipline
+
+qemu's virtio DMA is cache-coherent, so the in-tree drivers never flush.
+Real device DMA usually is **not**. Every driver that hands a buffer to
+hardware cleans/invalidates that address range around the transfer. Write
+the dcache clean/invalidate-range helpers once; call them in every DMA
+path. (Restated from Part II because it is a property of the driver, not
+of the board.)
+
+## What carries over, by class
+
+- **Already in-tree — sync, don't port.** devether, devsd, devmnt,
+  devuart, devi2c, devpci, ethermii, ethervirtio10, sdvirtio10. Diff
+  against 9front for fixes; don't re-port.
+- **Adapt cleanly** (Plan 9 C + a bus seam): PCI NICs (`ether8169`,
+  `etherigbe`/`ether82563`), AHCI (`sdiahci`), NVMe (`sdnvme`), HD-audio
+  (`audiohda`), and the USB stack (`devusb` + `usbxhci` + an HID driver).
+- **Per-SoC, from the matching 64-bit board tree**: `ethergenet` + `sdhc`
+  (bcm64), `etherimx` + `usdhc` + `usbxhciimx` (imx8), `usbxhcilx2k` +
+  `pcilx2k` (lx2k), and so on — ported when that board is taken on.
+- **Network storage with no hardware driver**: `sdaoe` + `devaoe`
+  (ATA-over-Ethernet) is portable and needs no controller — durable block
+  storage for any netbooted board.
+- **Do not port to native**: the `vga*.c` family. The native kernel
+  renders to a `Memimage` through `screen.c` and imports/exports the
+  display over the namespace (Part II), so VGA register drivers have no
+  place. Likewise legacy ISA/PCMCIA/floppy hardware.
+
+## GICv3 is the one driver 9front can't supply
+
+Every 9front `gic.c` is **GICv2**; `arm64/sysreg.h` only *names* the GICv3
+system registers. A GICv3 controller — the `ICC_*` system-register CPU
+interface plus redistributors — is written fresh behind the same four
+intc calls, with U-Boot/TF-A/Linux as the register reference. It is the
+sole interrupt-controller gap, and modern SoCs (e.g. BPI-R4) require it.
+
+## Bring drivers up under qemu first
+
+Level 3 proves level 4 (Part II) applies per *driver class*: qemu emulates
+enough hardware — PCIe, AHCI, e1000/rtl8169, NVMe, xHCI, GICv3
+(`-M virt,gic-version=3`), intel-hda — to bring up a driver headless
+before it meets real silicon. A driver lands by being proven against the
+matching qemu `-device`, not on a board.
+
+## Porting one driver
+
+1. Copy from the **64-bit** 9front tree into `os/drivers/<name>.c`.
+2. Make the kencc→gcc dialect pass (headers, `USED`/`SET`, `nil`, anon
+   embedding) — follow an existing `os/drivers/*.c` driver as the model.
+3. Wire the bus seam: PCI driver → match through devpci; MMIO driver →
+   base in `board.h`, IRQ through intc.
+4. Add dcache clean/invalidate around every device-visible buffer.
+5. Register it (`addethercard()` / `sdifc[]` / the USB Hci table) and add
+   it to a board's `DRIVERC` in `board.mk`.
+6. Prove it against the matching qemu `-device`, headless, before any real
+   hardware.
