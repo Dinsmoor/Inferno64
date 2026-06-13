@@ -565,3 +565,20 @@ matching qemu `-device`, not on a board.
    it to a board's `DRIVERC` in `board.mk`.
 6. Prove it against the matching qemu `-device`, headless, before any real
    hardware.
+
+## MMIO register pointers are `volatile`
+
+kencc never narrows or reorders a load; gcc does. At `-O1`, gcc turns a
+sub-field extraction off a non-`volatile` MMIO dereference —
+`(ctlr->mmio[REG] >> 24) & 0xFF` — into a **single-byte** load at the
+register's high byte, and a device whose config space only answers
+full-word reads (qemu's xHCI capability registers among them) returns 0
+for that access. The full-word value reads fine; only the narrowed field
+is wrong, so the symptom is a register that "reads back as its low bits
+but zero everywhere else." Declare every pointer that addresses device
+registers `volatile u32int*` (as `ether-rtl8139`'s csr accessors do).
+A driver that only ever reads/writes whole registers — `sdnvme`,
+`sdiahci` — can get away without it; one that extracts bitfields straight
+off the MMIO dereference (xHCI's `HCSPARAMS`) cannot. Load an MMIO word
+into a local before picking it apart, and keep `coherence()` between a
+DMA buffer write and the doorbell that hands it to the device.
