@@ -101,7 +101,13 @@ ASFLAGS := -ffreestanding -fno-pic $(ARCHASFLAGS) $(INCS)
 # the board: BOARDC (its own sources), DRIVERC (picks from ../drivers),
 # and usually a `run` recipe.  The include may define targets, so pin
 # the default goal.
+#
+# DRIVERCONF: board.mk (or a driver-group manifest it includes, see
+# ../drivers/groups/*.mk) appends config fragments here; each is spliced
+# into the generated $(GENCONF) so its `link'/`misc' section registers the
+# group's drivers.  Paths are relative to this make's CWD (the arch dir).
 .DEFAULT_GOAL := all
+DRIVERCONF :=
 include $(BOARD)/board.mk
 
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
@@ -261,8 +267,8 @@ ifeq ($(strip $(ROOTTREES)),)
 $(error unknown USERSPACE '$(USERSPACE)' (have: full, headless))
 endif
 
-$(GENCONF): $(CONF) force | $(O)
-	@{ cat $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
+$(GENCONF): $(CONF) $(DRIVERCONF) force | $(O)
+	@{ cat $(DRIVERCONF) $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
 	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; echo "regenerated $@"; fi
 
 # run mkdevc/mkroot from inside $(O) so the generated #include and the

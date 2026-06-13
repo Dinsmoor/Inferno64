@@ -14,8 +14,13 @@ BOARDC  := board
 GIC     ?= v2
 
 DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb screen \
-	   devether ether-virtio sd-virtio pci ether-rtl8139 sd-nvme \
+	   devether ether-virtio sd-virtio pci sd-nvme \
 	   sd-scsi sd-ahci devusb usbxhci usbxhcipci
+
+# PCI driver families (auto-probed; cost image size only when absent).
+# The board keeps its own virtio transport drivers above; portable PCI
+# device families come from the shared manifests in ../drivers/groups.
+include ../drivers/groups/ether-pci.mk
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
