@@ -16,6 +16,7 @@ dev
 
 misc
 	sdvirtio
+	sdnvme
 
 ip
 	tcp
