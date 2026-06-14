@@ -7,7 +7,7 @@
               "-device", "virtio-rng-device"],
   "netdev_device": "virtio-net-device",
   "blk_device": "virtio-blk-device",
-  "gui_devices": ["-device", "ramfb",
+  "gui_devices": ["-device", "virtio-gpu-device",
                   "-device", "virtio-keyboard-device",
                   "-device", "virtio-tablet-device"],
   "bootsecs": 25

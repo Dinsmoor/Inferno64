@@ -20,12 +20,13 @@ rtctime(void)
 void
 boardinit(void)
 {
-	screeninit();		/* ramfb, if qemu was given -device ramfb */
+	screeninit();		/* virtio-gpu if present, else ramfb */
 }
 
 void
 boardready(void)
 {
+	vgpustart();		/* virtio-gpu scanout refresh, if that's the display */
 	virtiornginit();	/* optional: -device virtio-rng-device */
 	virtioinputinit();	/* optional: -device virtio-keyboard-device / virtio-tablet-device */
 	pciscan();		/* enumerate the PCIe host bridge, if present */

@@ -10,12 +10,15 @@
 #include <cursor.h>
 
 /*
- * Screen glue between devdraw and the ramfb framebuffer.
+ * Screen glue between devdraw and the framebuffer.
  *
  * gscreen is a Memimage whose pixels ARE the framebuffer (XRGB32:
- * b,g,r,x byte order, matching ramfb's DRM XRGB8888), so devdraw and
- * the kernel text console draw straight into scanout memory and
- * flushmemscreen is a no-op — qemu rescans the buffer every refresh.
+ * b,g,r,x byte order, matching DRM XRGB8888), so devdraw and the kernel
+ * text console draw straight into scanout memory.  The buffer comes from
+ * virtio-gpu if present, else ramfb; both flush for free as far as this
+ * file is concerned — ramfb because qemu rescans guest RAM every refresh,
+ * virtio-gpu because its own 30Hz refresh kproc transfers+flushes — so
+ * flushmemscreen is a no-op either way.
  */
 
 Memimage *gscreen;
@@ -36,7 +39,9 @@ screeninit(void)
 	uchar *fb;
 	int w, h;
 
-	fb = ramfbinit(&w, &h);
+	fb = vgpuinit(&w, &h);		/* -device virtio-gpu-device */
+	if(fb == nil)
+		fb = ramfbinit(&w, &h);	/* else -device ramfb */
 	if(fb == nil)
 		return;
 
