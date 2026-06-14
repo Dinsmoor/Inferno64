@@ -413,6 +413,10 @@ struct Td {				/* Transmit Descriptor */
 	uint	status;
 };
 
+/* hardware ring entries are 16 bytes each (ON_PORTING_HW_DRIVERS.md u32int rule) */
+_Static_assert(sizeof(Rd) == 16, "igbe receive descriptor must be 16 bytes");
+_Static_assert(sizeof(Td) == 16, "igbe transmit descriptor must be 16 bytes");
+
 enum {					/* Td control */
 	LenMASK		= 0x000FFFFF,	/* Data/Packet Length Field */
 	LenSHIFT	= 0,

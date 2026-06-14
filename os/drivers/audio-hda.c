@@ -312,6 +312,9 @@ struct Bld {
 	u32int len;
 	u32int flags;
 };
+/* hardware layout: a BDL entry is exactly 16 bytes (see u32int rule in
+ * docs/ON_PORTING_HW_DRIVERS.md) — catch any ulong-creep at compile time */
+_Static_assert(sizeof(Bld) == 16, "HDA BDL entry must be 16 bytes");
 
 struct Ctlr {
 	Ctlr *next;

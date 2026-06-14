@@ -369,6 +369,8 @@ typedef struct Rd {			/* Receive Descriptor */
 	uchar	errors;
 	u16int	special;
 } Rd;
+/* hardware ring entry is 16 bytes (ON_PORTING_HW_DRIVERS.md u32int rule) */
+_Static_assert(sizeof(Rd) == 16, "82563 receive descriptor must be 16 bytes");
 
 enum {					/* Rd status */
 	Rdd		= 0x01,		/* Descriptor Done */

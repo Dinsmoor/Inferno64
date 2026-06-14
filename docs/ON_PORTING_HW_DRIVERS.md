@@ -152,6 +152,55 @@ The residue after this pass is the driver's own register logic, untouched.
 
 ## The rules that bite
 
+### Fixed-width types for everything the hardware sees — and assert it
+
+This is the cardinal rule, and the one that makes a driver build correctly for
+**both** kernel ABIs from one source. Inferno's native kernel is 32-bit by
+origin (the legacy `os/sa1110`, `os/pc`, `os/mpc` trees, and the 9front kernels
+these drivers come from, are all ILP32); this fork adds the 64-bit LP64 kernel
+(`os/aarch64`). The trap: in ILP32 *and* in 9front, `ulong` is 32 bits, so
+upstream code freely uses `ulong` for 32-bit registers and DMA descriptors. In
+this LP64 kernel **`ulong` is 64 bits** (`u32int` is the 32-bit type — see
+`u.h`).
+
+So: type **everything the hardware reads or writes** by its exact width and
+never by a model-dependent type —
+
+- registers (the `csr32`/`csr16`/`csr8` accessors and any `volatile` overlay),
+  ring entries, and DMA descriptor fields → `u8int`/`u16int`/`u32int`/`u64int`,
+  never `ulong`/`long`/`int`/`uint`;
+- addresses → `uintptr`/`PADDR`, split into `addrlo`/`addrhi` (`u32int` each)
+  for any descriptor a 64-bit-capable part consumes (see the next rule).
+
+A `u32int`-clean driver is **simultaneously** ILP32-correct and LP64-correct,
+because `u32int` is 32 bits on both — "porting to 64-bit properly" and "staying
+32-bit-portable" are the same edit. The `audio-hda` (HDA) bring-up was entirely
+this: 9front typed the 32-bit HDA registers, the CORB/RIRB rings and the `Bld`
+buffer-descriptor as `ulong`, so `csr32`'s `(ulong*)` cast read/wrote 8 bytes
+off a 4-byte register and the ring/descriptor layout was wrong — codec
+enumeration silently found nothing. Moving them to `u32int` (as `sd-nvme`
+already did) was the whole fix.
+
+Because the bug is silent (wrong layout, no compile error), **lock the layout
+with a compile-time assertion** next to each hardware struct:
+
+	_Static_assert(sizeof(Bld) == 16, "HDA BDL entry is 16 bytes");
+	_Static_assert(sizeof(Aprdt) == 16, "AHCI PRDT entry is 16 bytes");
+	/* for a register *overlay*, whose size is not the spec stride,
+	   pin a spec-fixed field offset instead: */
+	_Static_assert(__builtin_offsetof(Aport, ci) == 0x38, "PxCI at 0x38");
+
+These fire on the 64-bit build everyone already runs daily — you do **not** need
+a 32-bit kernel to catch a re-introduced `ulong`. (`_Static_assert` and
+`__builtin_offsetof` are both in the gcc `gnu2x` dialect `os/` compiles with.)
+
+This is also why the build system needs **no ABI axis**: a board already pins
+(arch, width, hardware) via `os/<arch>/` + its `board.mk` group picks, and the
+driver *source* is width-clean by this rule. A future 32-bit board adds an
+`os/<arch>/Makefile` (toolchain only), reuses `native.mk` untouched, and the
+driver pool ports for free. Do not gate driver *files* on width with
+`ifeq ($(WIDTH),32)` — the board dimension subsumes it.
+
 ### PCIWADDR width must match the device's address registers
 
 `PCIWADDR` is the DMA address a buffer is handed to the device as. Set its width
