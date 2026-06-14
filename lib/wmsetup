@@ -54,6 +54,8 @@ mount {fedifs} /mnt/fedi >[2] /chan/wmstderr
 if {ftest -f /dis/biblefs.dis} {if {ftest -d /lib/bible} {
 	if {ftest -d /mnt/bible} {} {mkdir -p /mnt/bible}
 	mount {biblefs} /mnt/bible >[2] /chan/wmstderr
+	# per-user notes & highlights, bound in beside scripture at /mnt/bible/notes
+	if {ftest -f /dis/notefs.dis} {mount {notefs} /mnt/bible/notes >[2] /chan/wmstderr}
 }}
 
 # "Inferno is warming up" splash: pre-load/JIT-compile the programs listed in
@@ -65,6 +67,7 @@ menu Acme			{wmrun acme}
 menu Edit				{wmrun wm/edit}
 menu Charon			{wmrun charon}
 menu Pleromussy		{wmrun wm/pleromussy}
+menu Bible			{wmrun wm/bible}
 menu Manual			{wmrun wm/man}
 menu Files			{if {ftest -d $home} {wmrun wm/ftree $home} {wmrun wm/ftree /}}
 menu ''	''
@@ -73,7 +76,6 @@ menu System			'Module manager'	{wmrun wm/rt}
 menu System			'Task manager'		{wmrun wm/task}
 menu System			'Memory monitor'	{wmrun wm/memory}
 menu System			'About'			{wmrun wm/about}
-menu Misc			'Bible'			{wmrun wm/bible}
 menu Misc			'Coffee'			{wmrun wm/coffee}
 menu Misc			'Colours'			{wmrun wm/colors}
 #menu Misc			'Winctl'			{wmrun wm/winctl}

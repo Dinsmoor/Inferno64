@@ -80,7 +80,7 @@ Biblefs: module
 # Qid kinds, packed into the high byte of the 64-bit path; the low bits hold
 # the payload (book, packed book*1000+chapter, verse id, or word index).
 Qroot, Qbooksdir, Qdefinedir, Qlookup, Qsearch, Qxref, Qvotd, Qrandom,
-	Qctl, Qbookdir, Qinfo, Qchapdir, Qverse, Qword: con iota;
+	Qctl, Qbookdir, Qinfo, Qchapdir, Qverse, Qword, Qnotes: con iota;
 
 MAXREF:		con 6000;	# cap verses returned by a single lookup
 MAXSEARCH:	con 1000;	# cap search hits
@@ -981,6 +981,10 @@ dirgen(p: big): (ref Dir, string)
 		return (dir(Qid(p, 0, Sys->QTFILE), "random", 8r444), nil);
 	Qctl =>
 		return (dir(Qid(p, 0, Sys->QTFILE), "ctl", 8r444), nil);
+	Qnotes =>
+		# empty stub directory: a mount point for a per-user notefs, so the
+		# notes tree appears at /mnt/bible/notes within this same namespace.
+		return (dir(Qid(p, 0, Sys->QTDIR), "notes", 8r555), nil);
 	Qbookdir =>
 		if(pay < 1 || pay > 66 || books[pay] == nil)
 			return (nil, Enotfound);
@@ -1016,6 +1020,7 @@ children(p: big): array of big
 			mkpath(Qvotd, 0),
 			mkpath(Qrandom, 0),
 			mkpath(Qctl, 0),
+			mkpath(Qnotes, 0),
 		};
 	Qbooksdir =>
 		a := array[nbooks] of big;
@@ -1069,6 +1074,7 @@ walk(parent: big, name: string): (ref Dir, string)
 		"votd" =>	return dirgen(mkpath(Qvotd, 0));
 		"random" =>	return dirgen(mkpath(Qrandom, 0));
 		"ctl" =>	return dirgen(mkpath(Qctl, 0));
+		"notes" =>	return dirgen(mkpath(Qnotes, 0));
 		}
 	Qbooksdir =>
 		b := bookbyname(name);

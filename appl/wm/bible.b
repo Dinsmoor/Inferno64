@@ -31,12 +31,17 @@ include "tkclient.m";
 include "string.m";
 	str: String;
 
+include "tkwidgets.m";
+	tkw: Tkwidgets;
+	Scrolledlist, Notebook, Paned, Statusbar: import tkw;
+
 Bible: module
 {
 	init: fn(ctxt: ref Context, args: list of string);
 };
 
 BIBLE:	con "/mnt/bible";
+NOTES:	con "/mnt/bible/notes";
 
 # fonts: a serif body for readability, sans for the UI chrome
 BODYFONT:	con "/fonts/lucida/unicode.14.font";
@@ -46,6 +51,15 @@ UIFONT:		con "/fonts/lucidasans/unicode.8.font";
 CTXHEADFONT:	con "/fonts/lucidasans/unicode.10.font";
 
 window:	ref Tk->Toplevel;
+
+# megawidgets (Tkwidgets)
+books:	ref Scrolledlist;	# the book list (left)
+chaps:	ref Scrolledlist;	# the chapter list (left)
+ctxnb:	ref Notebook;		# right pane: Cross-refs / Dictionary tabs
+navpn:	ref Paned;		# the two stacked nav lists
+sb:	ref Statusbar;		# bottom message bar
+XT:	string;			# the Cross-refs page text-widget path
+DT:	string;			# the Dictionary page text-widget path
 
 # loaded once from /mnt/bible/books
 booknames:	array of string;	# canonical order, index 0..65
@@ -57,8 +71,8 @@ curchap:	int;			# 1-based
 curverse:	int;			# selected verse, 0 = none
 curvnums:	array of int;		# verse numbers shown in the read pane
 mode:		string;			# "read" or "search"
-navmode:	string;			# nav list contents: "books" or "chaps"
-navbook:	int;			# book whose chapters the nav list shows
+curhl:		string;			# highlight colour of the selected verse's note
+havenotes:	int;			# is /mnt/bible/notes mounted?
 
 # click targets for the result/context panes
 searchres:	array of (int, int, int);	# (bookidx, chap, verse)
@@ -70,10 +84,12 @@ init(ctxt: ref Context, nil: list of string)
 	tk = load Tk Tk->PATH;
 	tkclient = load Tkclient Tkclient->PATH;
 	str = load String String->PATH;
-	if(tk == nil || tkclient == nil || str == nil){
+	tkw = load Tkwidgets Tkwidgets->PATH;
+	if(tk == nil || tkclient == nil || str == nil || tkw == nil){
 		sys->fprint(sys->fildes(2), "wm/bible: load failed: %r\n");
 		raise "fail:load";
 	}
+	tkw->init();
 	sys->pctl(Sys->NEWPGRP, nil);
 
 	if(!loadbooks()){
@@ -81,6 +97,7 @@ init(ctxt: ref Context, nil: list of string)
 			"wm/bible: cannot read %s -- is biblefs mounted?\n", BIBLE);
 		raise "fail:nodata";
 	}
+	havenotes = isdir(NOTES);
 
 	tkclient->init();
 	winctl := chan of string;
@@ -89,19 +106,51 @@ init(ctxt: ref Context, nil: list of string)
 	nav := chan of string;		tk->namechan(window, nav, "nav");
 	gochan := chan of string;	tk->namechan(window, gochan, "go");
 	srch := chan of string;		tk->namechan(window, srch, "search");
-	navpick := chan of string;	tk->namechan(window, navpick, "navpick");
 	rsel := chan of string;		tk->namechan(window, rsel, "rsel");
 	rdsel := chan of string;	tk->namechan(window, rdsel, "rdsel");
 	xsel := chan of string;		tk->namechan(window, xsel, "xsel");
 	keyc := chan of string;		tk->namechan(window, keyc, "key");
+	nsave := chan of string;	tk->namechan(window, nsave, "nsave");
+	nclear := chan of string;	tk->namechan(window, nclear, "nclear");
+	nhl := chan of string;		tk->namechan(window, nhl, "nhl");
 
 	for(i := 0; i < len tkconfig; i++)
 		tkcmd(tkconfig[i]);
-	mktags();
 
-	navmode = "books";
-	navbook = -1;
-	shownbooks();
+	# left nav: two stacked, resizable lists (books over chapters) -- a Paned
+	# with two Scrolledlists, the layout pack could not give us before
+	navpn = Paned.new(window, ".main.nav", Tkwidgets->Vert, array[] of {380, 200});
+	tkcmd("pack .main.nav -side left -fill y");
+	books = Scrolledlist.new(window, navpn.pane(0) + ".l", 168, 0,
+		"-selectmode browse -bg white -font " + UIFONT);
+	tkcmd("pack " + books.fr + " -fill both -expand 1");
+	chaps = Scrolledlist.new(window, navpn.pane(1) + ".l", 168, 0,
+		"-selectmode browse -bg white -font " + UIFONT);
+	tkcmd("pack " + chaps.fr + " -fill both -expand 1");
+
+	# right context: a Notebook with Cross-refs and Dictionary tabs, so a
+	# definition no longer overwrites the cross-references (and vice versa)
+	tkcmd("frame .main.ctx -width 240");
+	tkcmd("pack propagate .main.ctx 0");
+	tkcmd("pack .main.ctx -side right -fill y");
+	ctxnb = Notebook.new(window, ".main.ctx.nb");
+	tkcmd("pack .main.ctx.nb -fill both -expand 1");
+	XT = ctxnb.add("xref", "Cross-refs") + ".t";
+	mkctxtext(XT);
+	tkcmd("bind " + XT + " <Button-1> {send xsel %x %y}");
+	DT = ctxnb.add("dict", "Dictionary") + ".t";
+	mkctxtext(DT);
+
+	tkcmd("pack .read -in .main -side left -fill both -expand 1");
+	tkcmd("pack .main -side top -fill both -expand 1");
+
+	# bottom: note editor strip, then the status bar
+	sb = Statusbar.new(window, ".sb");
+	tkcmd("pack .sb -side bottom -fill x");
+	tkcmd("pack .note -side bottom -fill x");
+
+	mktags();
+	books.setitems(booknames);
 
 	tkclient->onscreen(window, nil);
 	tkclient->startinput(window, "kbd" :: "ptr" :: nil);
@@ -134,8 +183,14 @@ init(ctxt: ref Context, nil: list of string)
 		dogoto();
 	<-srch =>
 		dosearch();
-	<-navpick =>
-		onnavpick();
+	<-books.ev =>
+		onbookpick();
+	<-chaps.ev =>
+		onchappick();
+	tab := <-ctxnb.ev =>
+		ctxnb.select(tab);
+	psh := <-navpn.ev =>
+		navpn.drag(psh);
 	xy := <-rsel =>
 		onreadclick(xy);
 	xy := <-rdsel =>
@@ -144,6 +199,12 @@ init(ctxt: ref Context, nil: list of string)
 		onctxclick(xy);
 	k := <-keyc =>
 		onkey(k);
+	<-nsave =>
+		onsave();
+	<-nclear =>
+		onclear();
+	col := <-nhl =>
+		onhl(col);
 	}
 }
 
@@ -172,36 +233,9 @@ tkconfig := array[] of {
 	"pack .top.sb .top.sf .top.sl -side right -padx 2",
 	"pack .top -fill x -pady 2",
 
-	# left: a single drill-down list (books -> chapters -> back).  Inferno Tk's
-	# packer won't give two stacked listboxes independent fixed heights, so one
-	# list that switches contents is the robust shape (see DEV_TK_EXTENSIONS.md).
-	"frame .nav -width 160",
-	"pack propagate .nav 0",
-	"label .nav.title -text Books -anchor w -font " + CTXHEADFONT,
-	"pack .nav.title -side top -fill x",
-	"frame .nav.lf -width 160 -height 560",
-	"pack propagate .nav.lf 0",
-	"scrollbar .nav.lf.sb -orient vertical -command {.nav.list yview}",
-	"listbox .nav.list -selectmode browse -width 18 -bg white -font " + UIFONT +
-		" -yscrollcommand {.nav.lf.sb set}",
-	"bind .nav.list <ButtonRelease-1> {send navpick}",
-	"pack .nav.lf.sb -side right -fill y",
-	"pack .nav.list -side left -fill both -expand 1",
-	"pack .nav.lf -side top -fill both -expand 1",
-
-	# right: context (cross-references / dictionary)
-	"frame .ctx -width 230",
-	"pack propagate .ctx 0",
-	"label .ctx.l -text {Context} -anchor w -font " + CTXHEADFONT,
-	"frame .ctx.tf",
-	"scrollbar .ctx.tf.sb -orient vertical -command {.ctx.t yview}",
-	"text .ctx.t -state disabled -width 26 -height 10 -bg white -wrap word -padx 4 -pady 2" +
-		" -yscrollcommand {.ctx.tf.sb set}",
-	"bind .ctx.t <Button-1> {send xsel %x %y}",
-	"pack .ctx.tf.sb -side right -fill y",
-	"pack .ctx.t -side left -fill both -expand 1",
-	"pack .ctx.l -fill x",
-	"pack .ctx.tf -fill both -expand 1",
+	# the three-pane main area; nav (Paned) and ctx (Notebook) are built in
+	# code from Tkwidgets, then packed into .main alongside the reading pane
+	"frame .main",
 
 	# center: the reading pane
 	"frame .read",
@@ -222,21 +256,50 @@ tkconfig := array[] of {
 	"pack .read.sb -side left -fill y",
 	"pack .read.t -side left -fill both -expand 1",
 
-	# assemble: nav left, ctx right, read fills the middle
-	"frame .main",
-	"pack .nav -in .main -side left -fill y",
-	"pack .ctx -in .main -side right -fill y",
-	"pack .read -in .main -side left -fill both -expand 1",
-	"pack .main -fill both -expand 1",
+	# note editor: a fixed-height strip below the reading area (a column split
+	# here would hit the same packer limits as the nav -- see DEV_TK_EXTENSIONS)
+	"frame .note -height 116",
+	"grid propagate .note 0",
+	"frame .note.bar",
+	"label .note.bar.l -text {Note} -anchor w -font " + CTXHEADFONT,
+	"button .note.bar.none -text {clear hl} -command {send nhl none}",
+	"button .note.bar.gold -text gold -command {send nhl gold}",
+	"button .note.bar.green -text green -command {send nhl green}",
+	"button .note.bar.blue -text blue -command {send nhl blue}",
+	"button .note.bar.pink -text pink -command {send nhl pink}",
+	"button .note.bar.save -text Save -command {send nsave}",
+	"button .note.bar.del -text Delete -command {send nclear}",
+	"pack .note.bar.l -side left -padx 4",
+	"pack .note.bar.none .note.bar.gold .note.bar.green .note.bar.blue .note.bar.pink -side left -padx 1",
+	"pack .note.bar.del .note.bar.save -side right -padx 2",
+	"frame .note.tf",
+	"scrollbar .note.tf.sb -orient vertical -command {.note.tf.t yview}",
+	"text .note.tf.t -height 4 -bg white -wrap word -padx 4 -pady 2 -font " + UIFONT +
+		" -yscrollcommand {.note.tf.sb set}",
+	"pack .note.tf.sb -side right -fill y",
+	"pack .note.tf.t -side left -fill both -expand 1",
+	# grid (not pack) to stack the bar over the editor reliably -- pack puts a
+	# fixed row above an expanding row side-by-side here (see DEV_TK_EXTENSIONS)
+	"grid .note.bar -row 0 -column 0 -sticky ew",
+	"grid .note.tf -row 1 -column 0 -sticky nsew",
+	"grid rowconfigure .note 1 -weight 1",
+	"grid columnconfigure .note 0 -weight 1",
 
-	"frame .bot",
-	"label .bot.msg -anchor w -font " + UIFONT,
-	"pack .bot.msg -side left -padx 4",
-	"pack .bot -fill x",
-
+	# .main / .note / .sb are packed in code once the megawidgets exist
 	"pack propagate . 0",
-	". configure -width 720 -height 640",
+	". configure -width 760 -height 680",
 };
+
+# a context-pane page: a text widget + scrollbar filling the notebook page
+mkctxtext(t: string)
+{
+	pg := t[0:len t - 2];		# strip the ".t" suffix to get the page frame
+	tkcmd("scrollbar " + pg + ".sb -orient vertical -command {" + t + " yview}");
+	tkcmd("text " + t + " -state disabled -bg white -wrap word -padx 4 -pady 2 -font " +
+		UIFONT + " -yscrollcommand {" + pg + ".sb set}");
+	tkcmd("pack " + pg + ".sb -side right -fill y");
+	tkcmd("pack " + t + " -side left -fill both -expand 1");
+}
 
 mktags()
 {
@@ -248,11 +311,21 @@ mktags()
 	tkcmd(".read.t tag configure RES -font " + BODYFONT + " -lmargin1 4 -lmargin2 16" +
 		" -spacing1 2 -spacing3 2");
 	tkcmd(".read.t tag configure REF -font " + VNUMFONT + " -foreground #3060a0");
-	tkcmd(".read.t tag raise SEL");
-	tkcmd(".ctx.t tag configure XHEAD -font " + CTXHEADFONT + " -foreground #404040 -spacing3 4");
-	tkcmd(".ctx.t tag configure XREF -font " + VNUMFONT + " -foreground #3060a0 -spacing1 2");
-	tkcmd(".ctx.t tag configure XBODY -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
-	tkcmd(".ctx.t tag configure DEF -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
+	# note highlight tints; a verse with a note but no chosen colour gets HL_note
+	tkcmd(".read.t tag configure HL_gold -background #ffe9a8");
+	tkcmd(".read.t tag configure HL_green -background #cdeec0");
+	tkcmd(".read.t tag configure HL_blue -background #c8dcf8");
+	tkcmd(".read.t tag configure HL_pink -background #f8cce0");
+	tkcmd(".read.t tag configure HL_note -background #eaeaea");
+	tkcmd(".read.t tag raise SEL");		# selection shows over any highlight
+	# context-page tags (same on both notebook pages)
+	for(p := list of {XT, DT}; p != nil; p = tl p){
+		w := hd p;
+		tkcmd(w + " tag configure XHEAD -font " + CTXHEADFONT + " -foreground #404040 -spacing3 4");
+		tkcmd(w + " tag configure XREF -font " + VNUMFONT + " -foreground #3060a0 -spacing1 2");
+		tkcmd(w + " tag configure XBODY -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
+		tkcmd(w + " tag configure DEF -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
+	}
 }
 
 #
@@ -327,12 +400,11 @@ navigateto(bi, chap, verse: int)
 	curchap = chap;
 	mode = "read";
 
-	# keep the nav list following the current book's chapters
-	if(navmode != "chaps" || navbook != bi)
-		shownchaps(bi);
-	tkcmd(".nav.list selection clear 0 end");
-	tkcmd(".nav.list selection set " + string chap);	# item 0 is "‹ Books"
-	tkcmd(".nav.list see " + string chap);
+	# keep the two nav lists in sync with where we are
+	books.select(bi);
+	if(chaps.count() != bookchaps[bi])
+		fillchaps(bi);
+	chaps.select(chap - 1);
 
 	renderchapter();
 	if(verse > 0)
@@ -365,8 +437,50 @@ renderchapter()
 		curvnums[n++] = v;
 	}
 	curvnums = curvnums[0:n];
+	applynotes();
 	tkcmd(".read.t yview 1.0");
 	tkcmd("update");
+}
+
+# tint every verse in the current chapter that has a note (by its highlight
+# colour, or HL_note for a note with no colour chosen)
+applynotes()
+{
+	if(!havenotes)
+		return;
+	vs := dirnames(NOTES + "/" + booknames[curbook] + "/" + string curchap);
+	for(i := 0; i < len vs; i++){
+		v := int vs[i];
+		if(v <= 0)
+			continue;
+		(hl, nil, nil) := parsenote(readnote(curbook, curchap, v));
+		sethighlight(v, hltag(hl));
+	}
+}
+
+# the highlight tag for a colour name ("" => the generic note tint)
+hltag(hl: string): string
+{
+	case hl {
+	"gold" =>	return "HL_gold";
+	"green" =>	return "HL_green";
+	"blue" =>	return "HL_blue";
+	"pink" =>	return "HL_pink";
+	"none" or "" =>	return "HL_note";
+	}
+	return "HL_note";
+}
+
+sethighlight(v: int, tag: string)
+{
+	r := tkcmd(".read.t tag ranges v" + string v);
+	(n, t) := sys->tokenize(r, " ");
+	if(n < 2)
+		return;
+	for(hls := list of {"HL_gold", "HL_green", "HL_blue", "HL_pink", "HL_note"}; hls != nil; hls = tl hls)
+		tkcmd(".read.t tag remove " + hd hls + " " + hd t + " " + hd tl t);
+	if(tag != "")
+		tkcmd(".read.t tag add " + tag + " " + hd t + " " + hd tl t);
 }
 
 stepchapter(d: int)
@@ -402,6 +516,7 @@ selectverse(v: int)
 	tkcmd("update");
 	setref();
 	loadxrefs();
+	loadnote();
 }
 
 setref()
@@ -423,8 +538,8 @@ loadxrefs()
 		return;
 	refstr := booknames[curbook] + " " + string curchap + ":" + string curverse;
 	tsv := query(BIBLE + "/xref", refstr);
-	ctxclear();
-	ins(".ctx.t", "Cross references\n", "XHEAD");
+	ctxclear(XT);
+	ins(XT, "Cross references for " + refstr + "\n", "XHEAD");
 	(nl, lines) := sys->tokenize(tsv, "\n");
 	ctxrefs = array[nl] of (int, int, int);
 	n := 0;
@@ -438,17 +553,17 @@ loadxrefs()
 		c := int hd tl f;
 		v := int hd tl tl f;
 		text := hd tl tl tl f;
-		startidx := tkcmd(".ctx.t index {end -1c}");
-		ins(".ctx.t", hd f + " " + string c + ":" + string v + "\n", "XREF");
-		ins(".ctx.t", elide(text, 90) + "\n", "XBODY");
-		endidx := tkcmd(".ctx.t index {end -1c}");
-		tkcmd(".ctx.t tag add x" + string n + " " + startidx + " " + endidx);
+		startidx := tkcmd(XT + " index {end -1c}");
+		ins(XT, hd f + " " + string c + ":" + string v + "\n", "XREF");
+		ins(XT, elide(text, 90) + "\n", "XBODY");
+		endidx := tkcmd(XT + " index {end -1c}");
+		tkcmd(XT + " tag add x" + string n + " " + startidx + " " + endidx);
 		ctxrefs[n++] = (bi, c, v);
 	}
 	ctxrefs = ctxrefs[0:n];
 	if(n == 0)
-		ins(".ctx.t", "(none)\n", "XBODY");
-	tkcmd(".ctx.t yview 1.0");
+		ins(XT, "(none)\n", "XBODY");
+	tkcmd(XT + " yview 1.0");
 	tkcmd("update");
 }
 
@@ -468,13 +583,14 @@ ondefine(xy: string)
 		return;
 	status("define: " + w);
 	def := readfile(BIBLE + "/define/" + w);
-	ctxclear();
-	ins(".ctx.t", "Define: " + w + "\n", "XHEAD");
+	ctxclear(DT);
+	ins(DT, "Define: " + w + "\n", "XHEAD");
 	if(def == nil)
-		ins(".ctx.t", "(no definition)\n", "DEF");
+		ins(DT, "(no definition)\n", "DEF");
 	else
-		ins(".ctx.t", def + "\n", "DEF");
-	tkcmd(".ctx.t yview 1.0");
+		ins(DT, def + "\n", "DEF");
+	tkcmd(DT + " yview 1.0");
+	ctxnb.select("dict");		# bring the Dictionary tab forward
 	tkcmd("update");
 }
 
@@ -578,7 +694,7 @@ onreadclick(xy: string)
 
 onctxclick(xy: string)
 {
-	tags := tagsat(".ctx.t", xy);
+	tags := tagsat(XT, xy);
 	for(l := tags; l != nil; l = tl l){
 		tag := hd l;
 		if(len tag >= 2 && tag[0] == 'x' && isdigit(tag[1])){
@@ -592,41 +708,27 @@ onctxclick(xy: string)
 	}
 }
 
-shownbooks()
+# load the chapter list (1..N) for a book into the chapter Scrolledlist
+fillchaps(bi: int)
 {
-	tkcmd(".nav.list delete 0 end");
-	for(i := 0; i < len booknames; i++)
-		tkcmd(".nav.list insert end " + tk->quote(booknames[i]));
-	tkcmd(".nav.title configure -text {Books}");
-	navmode = "books";
-	navbook = -1;
+	a := array[bookchaps[bi]] of string;
+	for(c := 0; c < bookchaps[bi]; c++)
+		a[c] = string (c + 1);
+	chaps.setitems(a);
 }
 
-shownchaps(bi: int)
+onbookpick()
 {
-	tkcmd(".nav.list delete 0 end");
-	tkcmd(".nav.list insert end {<< Books}");
-	for(c := 1; c <= bookchaps[bi]; c++)
-		tkcmd(".nav.list insert end " + string c);
-	tkcmd(".nav.title configure -text " + tk->quote(booknames[bi]));
-	navmode = "chaps";
-	navbook = bi;
+	i := books.cursel();
+	if(i >= 0)
+		navigateto(i, 1, 0);		# also refills the chapter list
 }
 
-onnavpick()
+onchappick()
 {
-	sel := tkcmd(".nav.list curselection");
-	if(sel == "")
-		return;
-	i := int sel;
-	if(navmode == "books"){
-		navigateto(i, 1, 0);		# shows that book's chapters too
-	} else {
-		if(i == 0)
-			shownbooks();		# the "‹ Books" item
-		else
-			navigateto(navbook, i, 0);
-	}
+	i := chaps.cursel();
+	if(i >= 0)
+		navigateto(curbook, i + 1, 0);
 }
 
 onkey(k: string)
@@ -662,6 +764,156 @@ moveverse(d: int)
 }
 
 #
+# notes & highlights (bottom editor, persisted via /mnt/bible/notes)
+#
+# A note file is a small header of "key: value" lines, a blank line, then the
+# body:
+#	highlight: gold
+#	tags: salvation love
+#
+#	<body...>
+# wm/bible owns this format; notefs stores it opaquely.
+
+notepath(bi, chap, verse: int): string
+{
+	return NOTES + "/" + booknames[bi] + "/" + string chap + "/" + string verse;
+}
+
+readnote(bi, chap, verse: int): string
+{
+	return readfile(notepath(bi, chap, verse));
+}
+
+parsenote(s: string): (string, string, string)
+{
+	hl := "";
+	tags := "";
+	# header lines until a blank line; the remainder is the body
+	i := 0;
+	while(i < len s){
+		j := i;
+		while(j < len s && s[j] != '\n')
+			j++;
+		line := s[i:j];
+		nexti := j;
+		if(nexti < len s)
+			nexti++;
+		if(line == ""){		# blank line ends the header
+			i = nexti;
+			break;
+		}
+		c := index(line, ':');
+		if(c < 0){		# no header at all: the whole thing is body
+			return (hl, tags, s);
+		}
+		key := line[0:c];
+		val := line[c+1:];
+		while(len val > 0 && val[0] == ' ')
+			val = val[1:];
+		case key {
+		"highlight" =>	hl = val;
+		"tags" =>	tags = val;
+		}
+		i = nexti;
+	}
+	return (hl, tags, s[i:]);
+}
+
+buildnote(hl, tags, body: string): string
+{
+	hdr := "";
+	if(hl != "" && hl != "none")
+		hdr += "highlight: " + hl + "\n";
+	if(tags != "")
+		hdr += "tags: " + tags + "\n";
+	if(hdr != "")
+		return hdr + "\n" + body;
+	return body;
+}
+
+# load the selected verse's note into the bottom editor
+loadnote()
+{
+	tkcmd(".note.tf.t delete 1.0 end");
+	curhl = "";
+	if(curverse == 0){
+		tkcmd(".note.bar.l configure -text {Note}");
+		return;
+	}
+	rs := booknames[curbook] + " " + string curchap + ":" + string curverse;
+	tkcmd(".note.bar.l configure -text " + tk->quote("Note " + rs));
+	if(!havenotes)
+		return;
+	(hl, nil, body) := parsenote(readnote(curbook, curchap, curverse));
+	curhl = hl;
+	if(body != "")
+		ins(".note.tf.t", body, "");
+}
+
+# write the selected verse's note (empty body + no highlight removes it)
+savenote()
+{
+	if(curverse == 0)
+		return;
+	body := tkcmd(".note.tf.t get 1.0 {end -1c}");
+	path := notepath(curbook, curchap, curverse);
+	if(body == "" && (curhl == "" || curhl == "none")){
+		sys->remove(path);		# notefs drops an empty note
+		return;
+	}
+	text := buildnote(curhl, "", body);
+	fd := sys->open(path, Sys->OWRITE|Sys->OTRUNC);
+	if(fd == nil){
+		status("cannot save note: " + sys->sprint("%r"));
+		return;
+	}
+	d := array of byte text;
+	sys->write(fd, d, len d);
+}
+
+onsave()
+{
+	if(curverse == 0){
+		status("select a verse first");
+		return;
+	}
+	savenote();
+	sethighlight(curverse, hltag(curhl));
+	status("note saved: " + booknames[curbook] + " " + string curchap + ":" + string curverse);
+}
+
+onclear()
+{
+	if(curverse == 0)
+		return;
+	curhl = "";
+	tkcmd(".note.tf.t delete 1.0 end");
+	sys->remove(notepath(curbook, curchap, curverse));
+	sethighlight(curverse, "");
+	status("note deleted");
+}
+
+onhl(col: string)
+{
+	if(curverse == 0){
+		status("select a verse first");
+		return;
+	}
+	if(col == "none")
+		curhl = "";
+	else
+		curhl = col;
+	savenote();			# persist the colour change immediately
+	sethighlight(curverse, hltag(curhl));
+}
+
+isdir(path: string): int
+{
+	(ok, d) := sys->stat(path);
+	return ok >= 0 && (d.mode & Sys->DMDIR);
+}
+
+#
 # tk + io helpers
 #
 
@@ -670,9 +922,9 @@ ins(w, s, tag: string)
 	tkcmd(w + " insert end " + tk->quote(s) + " " + tag);
 }
 
-ctxclear()
+ctxclear(w: string)
 {
-	tkcmd(".ctx.t delete 1.0 end");
+	tkcmd(w + " delete 1.0 end");
 }
 
 tagsat(w, xy: string): list of string
@@ -687,7 +939,7 @@ tagsat(w, xy: string): list of string
 
 status(s: string)
 {
-	tkcmd(".bot.msg configure -text " + tk->quote(s));
+	sb.msg(s);
 }
 
 tkcmd(s: string): string
@@ -703,6 +955,14 @@ elide(s: string, n: int): string
 	if(len s <= n)
 		return s;
 	return s[0:n] + "…";
+}
+
+index(s: string, c: int): int
+{
+	for(i := 0; i < len s; i++)
+		if(s[i] == c)
+			return i;
+	return -1;
 }
 
 isdigit(c: int): int

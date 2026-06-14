@@ -42,11 +42,14 @@ the namespace. `-d datadir` overrides the data directory (default `/lib/bible`);
     votd                    read: the verse of the day (deterministic by date)
     random                  read: a random verse per open
     ctl                     read: server status
+    notes/                  empty stub: a mount point for a per-user notefs
 ```
 
 `books/` and `define/` are walked by path. `define/` is walk-only: it resolves
 `define/<word>` but its `readdir` is empty (the dictionary has thousands of
-entries and is not meant to be listed).
+entries and is not meant to be listed). `notes/` is an empty stub directory so a
+per-user [notefs](#notefs--per-user-notes) can be mounted there, putting your
+notes in the same namespace as scripture.
 
 ## Record format
 
@@ -107,29 +110,53 @@ on the order of the verse text plus the indices.
 data model of its own: every action is a file operation against `/mnt/bible`.
 Navigation reads the `books` tree, a chapter is one read of `lookup`,
 search and cross-references are the `search`/`xref` query files, and a
-right-clicked word is read from `define/<word>`. Launch it from the wm `Misc`
-menu, or:
+right-clicked word is read from `define/<word>`. Launch it from the wm menu
+(**Bible**), or:
 
 	mount {biblefs} /mnt/bible
 	wm/bible
 
-Layout: a left drill-down list (books, then a book's chapters, then a
-`<< Books` item to go back), a centre reading pane (serif body, superscript
-verse numbers), and a right context pane (cross-references, or a dictionary
-entry). It opens on the verse of the day. The toolbar has Prev/Next chapter, a
-`Go:` reference box (`john3:16`, `1cor13:4-7`, `ps23`, …), and a `Search:` box.
+Layout: a left nav of two resizable lists (books over that book's chapters), a
+centre reading pane (serif body, superscript verse numbers), a right context
+pane with **Cross-refs** and **Dictionary** tabs, and a bottom note editor. It
+opens on the verse of the day. The toolbar has Prev/Next chapter, a `Go:`
+reference box (`john3:16`, `1cor13:4-7`, `ps23`, …), and a `Search:` box.
 
 Interactions: click a verse to select it and load its cross-references; click a
 cross-reference or a search result to jump there; right-click a word for its
-1828 Webster definition; keys `j`/`k` move the selected verse, `n`/`p` page
-chapters, `/` focuses search.
+1828 Webster definition (opens the Dictionary tab); keys `j`/`k` move the
+selected verse, `n`/`p` page chapters, `/` focuses search. The note editor saves
+to `/mnt/bible/notes`; the colour buttons highlight the selected verse and a
+note's highlight tints that verse in the reading pane.
 
-The single drill-down list and several fixed-size frame wrappers are forced by
-Inferno Tk packer limitations (no `panedwindow`, unreliable `-width`/`-height`
-on `listbox`/`entry`); those gaps are logged in
-[DEV_TK_EXTENSIONS](DEV_TK_EXTENSIONS.md) as candidates for a reusable widget
-library. Notes/highlights (a per-user `notefs` bound in at `/mnt/bible/notes`)
-are the next phase.
+The reader is built on the [`Tkwidgets`](ON_TK_WIDGETS.md) megawidgets — the
+two-pane nav is a `Paned` of two `Scrolledlist`s, the context pane a `Notebook`,
+the bottom bar a `Statusbar` — which replaced the hand-rolled scaffolding the
+earlier Tk packer limitations had forced.
+
+## notefs — per-user notes
+
+`notefs` (`appl/cmd/notefs.b`) is a small writable file server, mounted onto the
+`notes/` stub at `/mnt/bible/notes`, that puts your annotations in the same
+namespace as scripture:
+
+```
+/mnt/bible/books/John/3/16      the verse        (biblefs, read-only, shareable)
+/mnt/bible/notes/John/3/16      your note on it  (notefs, per-user, writable)
+```
+
+Notes persist as plain files under `$home/lib/bible/notes/<Book>/<chap>/<verse>`
+(so acme/grep/the plumber compose with them and they survive a restart). Any
+`<Book>/<chap>/<verse>` path is walkable whether or not a note exists yet, so a
+client just opens the path and writes — no `mkdir` dance; writing an empty note
+removes it. `readdir` lists only the books/chapters/verses that *have* notes,
+which is how the reader marks annotated verses. `recent` reads back the noted
+references, newest first.
+
+notefs holds the file contents opaque; `wm/bible` owns the little frontmatter (a
+`highlight:`/`tags:` header, a blank line, then the body). Keeping notes in a
+separate per-user server leaves biblefs pure and shareable (it can be imported
+from a beefy host) while your private notes stay local.
 
 ## Qid encoding
 

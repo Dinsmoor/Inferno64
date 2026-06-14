@@ -34,6 +34,7 @@ TARG=\
 	auhdr.dis\
 	basename.dis\
 	biblefs.dis\
+	notefs.dis\
 	bind.dis\
 	# bit2gif.dis\
 	bytes.dis\
@@ -231,6 +232,7 @@ auhdr.dis: auplay.dis
 # this comment ABOVE the rules: a comment directly after a "target: deps" line
 # is taken as that target's (empty) recipe and suppresses the %.dis build.
 biblefs.dis: $MODDIR/styxservers.m
+notefs.dis: $MODDIR/styxservers.m
 dbfs.dis: $MODDIR/styxservers.m
 fedifs.dis: $MODDIR/styxservers.m $MODDIR/masto.m $MODDIR/json.m
 animtest.dis: $MODDIR/imageio.m
