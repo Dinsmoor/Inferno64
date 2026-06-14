@@ -1,7 +1,9 @@
 implement Init;
 
 #
-# qemu -M virt (aarch64) init: bind the core devices, run the shell.
+# native-kernel init (shared by every os/boards target): bind the core
+# devices, mount writable scratch, run the shell.  The kernel itself
+# prints the precise arch/board banner during boot, so this stays neutral.
 #
 
 include "sys.m";
@@ -20,7 +22,7 @@ init()
 {
 	sys = load Sys Sys->PATH;
 
-	sys->print("**\n** Inferno native aarch64 (qemu -M virt)\n**\n");
+	sys->print("**\n** Inferno native\n**\n");
 
 	sys->bind("#c", "/dev", Sys->MREPL);
 	sys->bind("#e", "/env", Sys->MREPL|Sys->MCREATE);
