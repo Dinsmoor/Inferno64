@@ -106,16 +106,24 @@ def netdev(hostfwd=None, device=None):
     return ["-netdev", n, "-device", f"{device},netdev=n0"]
 
 
+def netdev_opt():
+    """netdev args if the board declares a NIC, else nothing — so GUI-only
+    boards (no PCI/net, e.g. pc64) still run the display tests."""
+    return netdev() if PROF.get("netdev_device") else []
+
+
 # ---- the tests -----------------------------------------------------
 
 def test_boot():
-    """Boots to sh; devices probe; psci answers."""
+    """Boots to sh; devices probe; the board's boot markers appear."""
     g = Guest()
     g.run([("echo boot-marker", 3)])
     out = g.output()
     g.close()
     assert "boot-marker" in out, "no shell prompt traffic"
-    assert "psci" in out, "no psci banner"
+    # board-specific positive markers (e.g. aarch64 "psci", amd64 "conf pc64")
+    for m in PROF.get("boot_markers", []):
+        assert m in out, f"missing boot marker {m!r}"
     assert "panic" not in out, "panic during boot"
 
 
@@ -384,17 +392,11 @@ def test_impexp():
     assert "hello-from-hosted-emu" in out, "guest could not read the host export"
 
 
-def test_gui():
-    """The wm desktop comes up on the board's display: QMP screendump must
-    show a real image (many distinct colours), not a flat/black framebuffer."""
-    if not PROF.get("gui_devices"):
-        raise SkipTest(f"board {HWTARG} declares no qemu display devices")
-    qmp = tempfile.mktemp(prefix="ktest-qmp-")
-    gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
-    # wm + warmup settle
-    g = Guest(extra=gui + netdev(), bootsecs=PROF.get("bootsecs", 25) + 20)
+def qmp_open(path):
+    """Connect to a guest's QMP socket; return (socket, cmd) with caps
+    negotiated.  cmd(name, **args) issues one command and returns its reply."""
     s = socket.socket(socket.AF_UNIX)
-    s.connect(qmp)
+    s.connect(path)
     f = s.makefile("rw")
 
     def cmd(c, **args):
@@ -407,16 +409,84 @@ def test_gui():
 
     f.readline()  # greeting
     cmd("qmp_capabilities")
+    return s, cmd
+
+
+def _screendump_pixels(cmd):
+    """Take a QMP screendump and return its raw PPM pixel bytes."""
     ppm = tempfile.mktemp(prefix="ktest-", suffix=".ppm")
     cmd("screendump", filename=ppm)
     time.sleep(1)
-    g.close()
     with open(ppm, "rb") as fh:
         data = fh.read()
     os.unlink(ppm)
-    pix = data.split(b"\n", 3)[3]
+    return data.split(b"\n", 3)[3]
+
+
+def test_usb():
+    """The C xHCI host controller + the usbd HID enumerator: attach a USB
+    keyboard and require usbd to enumerate it over the kernel's #u.  Like the
+    audio/storage cells, this is here to gate the *C driver* (xHCI BAR map,
+    transfer rings, the #u device) end to end -- usbd reports enumeration to
+    the console, so a live HID keyboard shows up in the boot output."""
+    devs = PROF.get("usb_devices")
+    if not devs:
+        raise SkipTest(f"board {HWTARG} declares no qemu usb device")
+    g = Guest(extra=devs, bootsecs=PROF.get("bootsecs", 25) + 15)
+    g.run([("echo usb-marker", 2)])
+    out = g.output()
+    g.close()
+    assert "usb-marker" in out
+    assert "HID keyboard live" in out or "class 3" in out, \
+        "usbd did not enumerate the USB HID keyboard — xHCI driver path broken"
+
+
+def test_gui():
+    """The wm desktop comes up on the board's display: QMP screendump must
+    show a real image (many distinct colours), not a flat/black framebuffer."""
+    if not PROF.get("gui_devices"):
+        raise SkipTest(f"board {HWTARG} declares no qemu display devices")
+    qmp = tempfile.mktemp(prefix="ktest-qmp-")
+    gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
+    # wm + warmup settle
+    g = Guest(extra=gui + netdev_opt(), bootsecs=PROF.get("bootsecs", 25) + 20)
+    s, cmd = qmp_open(qmp)
+    pix = _screendump_pixels(cmd)
+    s.close()
+    g.close()
     colours = set(pix[i:i+3] for i in range(0, min(len(pix), 3*1024*768), 3))
     assert len(colours) > 16, f"flat framebuffer ({len(colours)} colours) — no desktop"
+
+
+def test_cursor():
+    """The software mouse cursor draws and tracks a relative pointer.  On a
+    board with a relative pointer (PS/2, virtio-mouse) the kernel composites
+    a software cursor onto the scanout (an absolute pointer instead lets qemu
+    draw the host cursor — `sw_cursor` flags which boards have the software
+    one).  Inject relative motion over QMP and require the framebuffer to
+    change: a cursor that is missing, frozen, or has wandered off-screen
+    (the bugs the backing-buffer cursor + screen clamp fixed) would leave the
+    scanout identical."""
+    if not PROF.get("gui_devices"):
+        raise SkipTest(f"board {HWTARG} declares no qemu display devices")
+    if not PROF.get("sw_cursor"):
+        raise SkipTest(f"board {HWTARG} has no software cursor (absolute pointer)")
+    qmp = tempfile.mktemp(prefix="ktest-qmp-")
+    gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
+    g = Guest(extra=gui + netdev_opt(), bootsecs=PROF.get("bootsecs", 25) + 20)
+    s, cmd = qmp_open(qmp)
+    # the cursor boots centred over the desktop; nudge it and see the scanout move
+    before = _screendump_pixels(cmd)
+    for _ in range(4):
+        cmd("human-monitor-command", **{"command-line": "mouse_move 40 40"})
+        time.sleep(0.2)
+    after = _screendump_pixels(cmd)
+    s.close()
+    g.close()
+    diff = sum(1 for a, b in zip(before, after) if a != b)
+    assert diff > 30, \
+        f"cursor did not move the framebuffer ({diff} bytes changed) — " \
+        "missing, frozen, or off-screen"
 
 
 # ---- runner --------------------------------------------------------
@@ -426,7 +496,8 @@ class SkipTest(Exception):
 
 
 ALL = [test_boot, test_net, test_igbe, test_dns, test_disk, test_nvme,
-       test_ahci, test_audio, test_tls, test_impexp, test_gui]
+       test_ahci, test_audio, test_usb, test_tls, test_impexp,
+       test_gui, test_cursor]
 
 
 def main():

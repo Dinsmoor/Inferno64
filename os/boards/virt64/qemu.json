@@ -5,6 +5,8 @@
   "machine": ["-M", "virt", "-cpu", "cortex-a53", "-m", "512",
               "-global", "virtio-mmio.force-legacy=false",
               "-device", "virtio-rng-device"],
+  "boot_markers": ["psci"],
+  "usb_devices": ["-device", "qemu-xhci", "-device", "usb-kbd"],
   "netdev_device": "virtio-net-device",
   "blk_device": "virtio-blk-device",
   "nvme_unit": "sdN0",

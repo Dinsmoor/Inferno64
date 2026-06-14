@@ -1,8 +1,10 @@
 {
-  "_comment": "qemu test profile for tests/kernel — how to boot pc64 headlessly. Serial-only during bring-up; gui_devices fill in once ramfb+PS/2 land.",
+  "_comment": "qemu test profile for tests/kernel — how to boot pc64 headlessly. ramfb + i8042 PS/2 provide the display and a relative pointer (software cursor); the board has no PCI net/storage yet, so those tests skip.",
   "arch": "amd64",
   "qemu": "qemu-system-x86_64",
   "machine": ["-M", "q35", "-m", "512"],
-  "gui_devices": [],
+  "boot_markers": ["conf pc64"],
+  "gui_devices": ["-vga", "none", "-device", "ramfb"],
+  "sw_cursor": true,
   "bootsecs": 25
 }
