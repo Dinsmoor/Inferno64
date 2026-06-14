@@ -78,13 +78,18 @@ export ROOT
 # Vendored-library cache (no third-party tools -- just make + the compiler +
 # coreutils).  These are large third-party C trees that change only when their
 # source is manually updated, yet they dominate the C build time.  For these,
-# _emu skips the nuke+rebuild when a CONTENT signature of everything that could
-# affect the archive is unchanged (see mkfiles/libcache.sh); any edit/add/remove
-# of a vendored file, a header, a build flag, the ABI, or the compiler busts the
-# signature and forces a full rebuild -- so a dependency update can't be served
-# stale.  Everything else (incl. the toolchain-coupled limbo/libinterp/emu and
-# the whole .dis tree) always rebuilds.  `make all NOCACHE=1` forces a full
-# rebuild of these too; `make nuke`/`clean` drop the stamps.
+# _emu keys each build on a CONTENT signature of everything that could affect the
+# archive (see mkfiles/libcache.sh) and keeps a per-signature SLOT of the built
+# .a under $(OBJDIR)/libcache.  A signature match restores that archive instead
+# of rebuilding; any edit/add/remove of a vendored file, a header, a build flag,
+# the ABI, or the compiler is a new signature -> a fresh build into a new slot,
+# so a dependency update can't be served stale.  Because the slots are keyed by
+# signature, the debug and release builds of a lib coexist -- a `make check` that
+# flips debug->release->debug restores the debug archive on the way back rather
+# than rebuilding it a third time.  Everything else (incl. the toolchain-coupled
+# limbo/libinterp/emu and the whole .dis tree) always rebuilds.  `make all
+# NOCACHE=1` forces a full rebuild of these too; `make nuke`/`clean` drop the
+# slot cache.
 # The vendored third-party C trees.  Not every CONF links all of them -- a
 # headless/router profile drops the graphics/media/TLS ones -- so the actually
 # built + content-cached subset is derived from the chosen CONF below (see the
@@ -262,16 +267,19 @@ _emu: $(MK)
 			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) clean); \
 			(cd $(ROOT)/$$dir && $(MK) $(EMUARGS) install); \
 		elif [ "$${cached#* $$dir }" != "$$cached" ]; then \
-			stamp=`PROFILE='$(PROFILE)' CONF='$(CONF)' SYSTARG='$(SYSTARG)' OBJTYPE='$(OBJTYPE)' sh $(LIBCACHE) stampfile $$dir`; \
-			sig=`PROFILE='$(PROFILE)' CONF='$(CONF)' SYSTARG='$(SYSTARG)' OBJTYPE='$(OBJTYPE)' sh $(LIBCACHE) sig $$dir`; \
-			if [ -f "$$stamp" ] && [ "`cat "$$stamp"`" = "$$sig" ] && [ -f $(ROOT)/$(OBJDIR)/lib/$$dir.a ]; then \
-				echo "=== $$dir (cached: unchanged, skipping rebuild) ==="; \
+			slot=`PROFILE='$(PROFILE)' CONF='$(CONF)' SYSTARG='$(SYSTARG)' OBJTYPE='$(OBJTYPE)' sh $(LIBCACHE) slot $$dir`; \
+			if [ -d "$$slot" ] && ls "$$slot"/*.o >/dev/null 2>&1; then \
+				echo "=== $$dir (cached: restoring objects for this profile/ABI) ==="; \
+				cp "$$slot"/*.o $(ROOT)/$$dir/; \
+				touch $(ROOT)/$$dir/*.o; \
+				(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
 				continue; \
 			fi; \
 			echo "=== $$dir (vendored: cache miss -> full rebuild) ==="; \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke); \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) install); \
-			echo "$$sig" > "$$stamp"; \
+			mkdir -p "$$slot"; \
+			cp $(ROOT)/$$dir/*.o "$$slot"/; \
 		else \
 			echo "=== $$dir ==="; \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) nuke); \
@@ -301,7 +309,7 @@ clean:
 	done
 	@echo "--- clean $(APPLDIR) ---"
 	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) clean) || true
-	@rm -f $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
+	@rm -rf $(ROOT)/$(OBJDIR)/libcache $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
 
 nuke:
 	@set -e; \
@@ -315,7 +323,7 @@ nuke:
 	done
 	@echo "--- nuke $(APPLDIR) ---"
 	@(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke) || true
-	@rm -f $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
+	@rm -rf $(ROOT)/$(OBJDIR)/libcache $(ROOT)/$(OBJDIR)/lib/.sig-* 2>/dev/null || true
 
 # Run a single section's unit tests, e.g. `make test_lib9_unit`.
 test_%_unit:
