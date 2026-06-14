@@ -1,0 +1,66 @@
+1	Genesis	OT	Law
+2	Exodus	OT	Law
+3	Leviticus	OT	Law
+4	Numbers	OT	Law
+5	Deuteronomy	OT	Law
+6	Joshua	OT	History
+7	Judges	OT	History
+8	Ruth	OT	History
+9	1 Samuel	OT	History
+10	2 Samuel	OT	History
+11	1 Kings	OT	History
+12	2 Kings	OT	History
+13	1 Chronicles	OT	History
+14	2 Chronicles	OT	History
+15	Ezra	OT	History
+16	Nehemiah	OT	History
+17	Esther	OT	History
+18	Job	OT	Wisdom
+19	Psalms	OT	Wisdom
+20	Proverbs	OT	Wisdom
+21	Ecclesiastes	OT	Wisdom
+22	Song of Solomon	OT	Wisdom
+23	Isaiah	OT	Prophets
+24	Jeremiah	OT	Prophets
+25	Lamentations	OT	Prophets
+26	Ezekiel	OT	Prophets
+27	Daniel	OT	Prophets
+28	Hosea	OT	Prophets
+29	Joel	OT	Prophets
+30	Amos	OT	Prophets
+31	Obadiah	OT	Prophets
+32	Jonah	OT	Prophets
+33	Micah	OT	Prophets
+34	Nahum	OT	Prophets
+35	Habakkuk	OT	Prophets
+36	Zephaniah	OT	Prophets
+37	Haggai	OT	Prophets
+38	Zechariah	OT	Prophets
+39	Malachi	OT	Prophets
+40	Matthew	NT	Gospels
+41	Mark	NT	Gospels
+42	Luke	NT	Gospels
+43	John	NT	Gospels
+44	Acts	NT	Acts
+45	Romans	NT	Epistles
+46	1 Corinthians	NT	Epistles
+47	2 Corinthians	NT	Epistles
+48	Galatians	NT	Epistles
+49	Ephesians	NT	Epistles
+50	Philippians	NT	Epistles
+51	Colossians	NT	Epistles
+52	1 Thessalonians	NT	Epistles
+53	2 Thessalonians	NT	Epistles
+54	1 Timothy	NT	Epistles
+55	2 Timothy	NT	Epistles
+56	Titus	NT	Epistles
+57	Philemon	NT	Epistles
+58	Hebrews	NT	Epistles
+59	James	NT	Epistles
+60	1 Peter	NT	Epistles
+61	2 Peter	NT	Epistles
+62	1 John	NT	Epistles
+63	2 John	NT	Epistles
+64	3 John	NT	Epistles
+65	Jude	NT	Epistles
+66	Revelation	NT	Apocalyptic

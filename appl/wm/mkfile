@@ -12,6 +12,7 @@ DIRS=\
 TARG=\
 	about.dis\
 	avi.dis\
+	bible.dis\
 	bounce.dis\
 	brutus.dis\
 	c4.dis\

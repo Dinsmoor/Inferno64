@@ -46,6 +46,16 @@ ndb/cs &
 if {ftest -d /mnt/fedi} {} {mkdir -p /mnt/fedi}
 mount {fedifs} /mnt/fedi >[2] /chan/wmstderr
 
+# The King James Bible as a file tree, shared by every client (the shell, acme,
+# grep, the plumber, a wm/bible GUI).  A scripture reference is a path, e.g.
+# /mnt/bible/books/John/3/16.  No database engine at run time -- biblefs serves
+# flat data from /lib/bible.  Mounted only when both the module and its data are
+# present, so a slimmer build that omits them boots cleanly.
+if {ftest -f /dis/biblefs.dis} {if {ftest -d /lib/bible} {
+	if {ftest -d /mnt/bible} {} {mkdir -p /mnt/bible}
+	mount {biblefs} /mnt/bible >[2] /chan/wmstderr
+}}
+
 # "Inferno is warming up" splash: pre-load/JIT-compile the programs listed in
 # $home/lib/warmup (else /lib/warmup) so they launch instantly later.
 wmrun wm/warmup
@@ -63,6 +73,7 @@ menu System			'Module manager'	{wmrun wm/rt}
 menu System			'Task manager'		{wmrun wm/task}
 menu System			'Memory monitor'	{wmrun wm/memory}
 menu System			'About'			{wmrun wm/about}
+menu Misc			'Bible'			{wmrun wm/bible}
 menu Misc			'Coffee'			{wmrun wm/coffee}
 menu Misc			'Colours'			{wmrun wm/colors}
 #menu Misc			'Winctl'			{wmrun wm/winctl}

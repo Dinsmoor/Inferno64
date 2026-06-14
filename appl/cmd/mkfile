@@ -33,6 +33,7 @@ TARG=\
 	auplay.dis\
 	auhdr.dis\
 	basename.dis\
+	biblefs.dis\
 	bind.dis\
 	# bit2gif.dis\
 	bytes.dis\
@@ -229,6 +230,7 @@ auhdr.dis: auplay.dis
 # rebuild instead of failing the runtime link typecheck (load -> nil).  Keep
 # this comment ABOVE the rules: a comment directly after a "target: deps" line
 # is taken as that target's (empty) recipe and suppresses the %.dis build.
+biblefs.dis: $MODDIR/styxservers.m
 dbfs.dis: $MODDIR/styxservers.m
 fedifs.dis: $MODDIR/styxservers.m $MODDIR/masto.m $MODDIR/json.m
 animtest.dis: $MODDIR/imageio.m
