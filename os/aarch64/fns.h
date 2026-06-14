@@ -64,6 +64,7 @@ void	screeninit(void);
 void	screensize(int*, int*);
 void	virtioinputinit(void);
 int	segflush(void*, ulong);
+extern int	hostcursor;	/* an absolute-pointer driver sets 1: suppress the software cursor */
 extern void	(*screenputs)(char*, int);
 void	setpanic(void);
 void	trapinit(void);

@@ -71,6 +71,7 @@ void	pciscan(void);
 void	screeninit(void);
 void	screensize(int*, int*);
 int	segflush(void*, ulong);
+extern int	hostcursor;	/* an absolute-pointer driver sets 1: suppress the software cursor */
 extern void	(*screenputs)(char*, int);
 void	setpanic(void);
 void	trapinit(void);
