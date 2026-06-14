@@ -295,7 +295,7 @@ $(O)/conf.c: ../port/mkdevc $(GENCONF)
 ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(GENCONF) 2>/dev/null)
 
 $(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot ../port/data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
-	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
+	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/fd $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
 	cd $(O) && AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath ../port/data2s)" sh ../../port/mkroot $(HWTARG).gen
 
 ../init/virtinit.dis: ../init/virtinit.b
