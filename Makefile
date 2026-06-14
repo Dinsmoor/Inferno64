@@ -340,6 +340,39 @@ emu-disptrcheck:
 	(cd $(ROOT)/emu/$(SYSTARG) && $(MK) $(EMUARGS) install) && \
 	echo "DISPTRCHECK emu installed at $(ROOT)/$(OBJDIR)/bin/$(CONF); run 'make all' to revert."
 
+# Native-kernel images.  `make image-<board>` builds a board's kernel image
+# with the CPU arch chosen from the board's own manifest -- you never name the
+# arch.  The board declares `ARCH := <arch>` in os/boards/<board>/board.mk;
+# this reads it and dispatches to os/<arch> (where the toolchain/ABI lives),
+# building i<board>.elf.  The usual knobs pass straight through (they are
+# command-line vars, so make forwards them to the sub-make automatically):
+#   make image-virt64                       os/aarch64/ivirt64.elf
+#   make image-virt64 USERSPACE=headless GIC=v3
+#   make boards                             list buildable boards + their arch
+# Adding a board or an arch needs no change here: get the manifest right
+# (board.mk ARCH + DRIVERC/group picks, a matching os/<arch>/Makefile) and the
+# image builds.
+image-%:
+	@board=$*; mk=os/boards/$$board/board.mk; \
+	if [ ! -f "$$mk" ]; then echo "no such board: $$board (try 'make boards')" >&2; exit 2; fi; \
+	arch=`sed -n 's/^ARCH[ 	]*:=[ 	]*\([A-Za-z0-9_]*\).*/\1/p' "$$mk"`; \
+	if [ -z "$$arch" ]; then echo "board $$board declares no 'ARCH :=' in $$mk" >&2; exit 2; fi; \
+	if [ ! -f os/$$arch/Makefile ]; then \
+		echo "board $$board wants arch '$$arch' but os/$$arch/ does not exist yet" >&2; exit 2; fi; \
+	echo "==> image $$board (arch $$arch)"; \
+	$(MAKE) -C os/$$arch image HWTARG=$$board
+
+boards:
+	@printf "  %-16s %-10s %s\n" board arch image; \
+	for mk in os/boards/*/board.mk; do \
+		[ -f "$$mk" ] || continue; \
+		b=`basename \`dirname "$$mk"\``; \
+		a=`sed -n 's/^ARCH[ 	]*:=[ 	]*\([A-Za-z0-9_]*\).*/\1/p' "$$mk"`; \
+		printf "  %-16s %-10s i%s.elf\n" "$$b" "$${a:-?}" "$$b"; \
+	done
+
+.PHONY: boards
+
 # Quick reference.  `make help` -> this.
 help:
 	@echo "Inferno build -- make wraps mk (mk compiles per component; make"
@@ -352,6 +385,10 @@ help:
 	@echo "  make bleedingedge  full build, -O3 -march=native"
 	@echo "  make run        full build (RUNPROFILE=$(RUNPROFILE)) + launch the GUI desktop"
 	@echo "                  (headless box? 'make all && scripts/headless_vnc.sh' runs it over VNC)"
+	@echo
+	@echo "Native kernel images (the os/ kernel, not hosted emu):"
+	@echo "  make image-<board>   build a board's image; arch auto-picked from its manifest"
+	@echo "  make boards          list buildable boards and their arch"
 	@echo
 	@echo "Verify / maintain:"
 	@echo "  make check      per-platform build+test gate (run before pushing)"

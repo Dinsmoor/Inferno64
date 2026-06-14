@@ -48,6 +48,18 @@ does, the fact belongs in board.h or behind a hook.
 
 ## Building the image
 
+From the repo root — the board's arch is read from its manifest
+(`board.mk` `ARCH := aarch64`), so you never name the arch:
+
+```sh
+make image-virt64                          # → os/aarch64/ivirt64.elf
+make image-virt64 USERSPACE=headless GIC=v3   # knobs pass straight through
+make boards                                # list buildable boards + their arch
+```
+
+Or build inside the arch dir directly (equivalent; the root verb just
+dispatches here):
+
 ```sh
 cd os/aarch64
 make                 # → ivirt64.elf (this IS the image: one self-contained ELF)
@@ -57,6 +69,10 @@ make USERSPACE=headless  # smaller baked root: no fonts/icons/man (36MB → 20MB
 make PARANOID=0      # faster kernel: skip the pool free-tree audit on every alloc/free
 make clean           # removes every board's build-*/ and i*.elf
 ```
+
+A board built in the wrong arch dir (`cd os/arm && make HWTARG=virt64`)
+fails immediately with a message pointing at `make image-virt64` — the
+ARCH/KARCH cross-check in `native.mk`.
 
 There is no disk or initrd: the kernel ELF embeds its entire root
 filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.

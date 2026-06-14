@@ -110,6 +110,16 @@ ASFLAGS := -ffreestanding -fno-pic $(ARCHASFLAGS) $(INCS)
 DRIVERCONF :=
 include $(BOARD)/board.mk
 
+# The board's declared ARCH must match this arch dir's KARCH — otherwise we'd
+# build one arch's drivers with another's toolchain/ABI.  Fail loudly with the
+# right command instead.  (`make image-$(HWTARG)` from the repo root picks the
+# arch dir from ARCH automatically, so this only trips a hand-run wrong cd.)
+ifneq ($(ARCH),)
+ifneq ($(ARCH),$(KARCH))
+$(error board '$(HWTARG)' is ARCH=$(ARCH) but this is os/$(KARCH); build it with `make image-$(HWTARG)` from the repo root)
+endif
+endif
+
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
