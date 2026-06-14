@@ -33,7 +33,7 @@ include "string.m";
 
 include "tkwidgets.m";
 	tkw: Tkwidgets;
-	Scrolledlist, Notebook, Paned, Statusbar: import tkw;
+	Scrolledlist, Scrolledtext, Notebook, Paned, Statusbar: import tkw;
 
 Bible: module
 {
@@ -74,6 +74,12 @@ mode:		string;			# "read" or "search"
 curhl:		string;			# highlight colour of the selected verse's note
 havenotes:	int;			# is /mnt/bible/notes mounted?
 
+# Prev/Next navigation history (browser-style back/forward over focused verses)
+hist:		array of (int, int, int);	# (book, chap, verse) visited, in order
+histn:		int;			# number of valid entries
+histpos:	int;			# index of the current entry (-1 = empty)
+traversing:	int;			# set while Prev/Next replays history (don't re-record)
+
 # click targets for the result/context panes
 searchres:	array of (int, int, int);	# (bookidx, chap, verse)
 ctxrefs:	array of (int, int, int);
@@ -106,9 +112,7 @@ init(ctxt: ref Context, nil: list of string)
 	nav := chan of string;		tk->namechan(window, nav, "nav");
 	gochan := chan of string;	tk->namechan(window, gochan, "go");
 	srch := chan of string;		tk->namechan(window, srch, "search");
-	rsel := chan of string;		tk->namechan(window, rsel, "rsel");
 	rdsel := chan of string;	tk->namechan(window, rdsel, "rdsel");
-	xsel := chan of string;		tk->namechan(window, xsel, "xsel");
 	keyc := chan of string;		tk->namechan(window, keyc, "key");
 	nsave := chan of string;	tk->namechan(window, nsave, "nsave");
 	nclear := chan of string;	tk->namechan(window, nclear, "nclear");
@@ -128,23 +132,39 @@ init(ctxt: ref Context, nil: list of string)
 		"-selectmode browse -bg white -font " + UIFONT);
 	tkcmd("pack " + chaps.fr + " -fill both -expand 1");
 
-	# right context: a Notebook with Cross-refs and Dictionary tabs, so a
-	# definition no longer overwrites the cross-references (and vice versa)
+	# right context: a Notebook with Cross-refs and Dictionary tabs (each a
+	# Scrolledtext), so a definition no longer overwrites the cross-references
 	tkcmd("frame .main.ctx -width 240");
 	tkcmd("pack propagate .main.ctx 0");
 	tkcmd("pack .main.ctx -side right -fill y");
 	ctxnb = Notebook.new(window, ".main.ctx.nb");
 	tkcmd("pack .main.ctx.nb -fill both -expand 1");
-	XT = ctxnb.add("xref", "Cross-refs") + ".t";
-	mkctxtext(XT);
-	tkcmd("bind " + XT + " <Button-1> {send xsel %x %y}");
-	DT = ctxnb.add("dict", "Dictionary") + ".t";
-	mkctxtext(DT);
+	CTXOPTS := "-state disabled -bg white -wrap word -padx 4 -pady 2";
+	xst := Scrolledtext.new(window, ctxnb.add("xref", "Cross-refs") + ".st", 0, 0, CTXOPTS);
+	tkcmd("pack " + xst.fr + " -fill both -expand 1");
+	XT = xst.t;
+	dst := Scrolledtext.new(window, ctxnb.add("dict", "Dictionary") + ".st", 0, 0, CTXOPTS);
+	tkcmd("pack " + dst.fr + " -fill both -expand 1");
+	DT = dst.t;
 
+	# centre reading pane (a read-only Scrolledtext)
+	rt := Scrolledtext.new(window, ".read", 0, 0,
+		"-state disabled -bg white -wrap word -padx 8 -pady 4");
 	tkcmd("pack .read -in .main -side left -fill both -expand 1");
+	tkcmd("bind .read.t <Button-3> {send rdsel %x %y}");	# right-click: define
+	tkcmd("bind .read.t <Key-\uE012> {send key up}");
+	tkcmd("bind .read.t <Key-\uE013> {send key down}");
+	tkcmd("bind .read.t <Key-j> {send key down}");
+	tkcmd("bind .read.t <Key-k> {send key up}");
+	tkcmd("bind .read.t <Key-n> {send key next}");
+	tkcmd("bind .read.t <Key-p> {send key prev}");
+	tkcmd("bind .read.t <Key-/> {send key search}");
 	tkcmd("pack .main -side top -fill both -expand 1");
 
-	# bottom: note editor strip, then the status bar
+	# bottom: note editor (editable Scrolledtext) strip, then the status bar
+	noteed := Scrolledtext.new(window, ".note.tf", 0, 0,
+		"-bg white -wrap word -padx 4 -pady 2 -font " + UIFONT);
+	tkcmd("grid .note.tf -row 1 -column 0 -sticky nsew");
 	sb = Statusbar.new(window, ".sb");
 	tkcmd("pack .sb -side bottom -fill x");
 	tkcmd("pack .note -side bottom -fill x");
@@ -158,6 +178,7 @@ init(ctxt: ref Context, nil: list of string)
 
 	# open on the verse of the day, falling back to Genesis 1:1
 	mode = "read";
+	histpos = -1;
 	(b, c, v) := votd();
 	if(b < 0){
 		b = 0; c = 1; v = 0;
@@ -175,8 +196,8 @@ init(ctxt: ref Context, nil: list of string)
 		tkclient->wmctl(window, s);
 	cm := <-nav =>
 		case cm {
-		"prev" =>	stepchapter(-1);
-		"next" =>	stepchapter(1);
+		"prev" =>	histback();
+		"next" =>	histfwd();
 		"search" =>	dosearch();
 		}
 	<-gochan =>
@@ -191,12 +212,16 @@ init(ctxt: ref Context, nil: list of string)
 		ctxnb.select(tab);
 	psh := <-navpn.ev =>
 		navpn.drag(psh);
-	xy := <-rsel =>
+	xy := <-rt.ev =>
 		onreadclick(xy);
 	xy := <-rdsel =>
 		ondefine(xy);
-	xy := <-xsel =>
+	xy := <-xst.ev =>
 		onctxclick(xy);
+	<-dst.ev =>		# Dictionary page clicks: nothing to follow
+		;
+	<-noteed.ev =>		# note editor focus click: nothing to do
+		;
 	k := <-keyc =>
 		onkey(k);
 	<-nsave =>
@@ -237,27 +262,11 @@ tkconfig := array[] of {
 	# code from Tkwidgets, then packed into .main alongside the reading pane
 	"frame .main",
 
-	# center: the reading pane
-	"frame .read",
-	"scrollbar .read.sb -orient vertical -command {.read.t yview}",
-	"text .read.t -state disabled -bg white -wrap word -padx 8 -pady 4" +
-		" -yscrollcommand {.read.sb set}",
-	"bind .read.t <Button-1> {focus .read.t; send rsel %x %y}",
-	# right-click a word for its dictionary definition (Button-3 doesn't also
-	# fire Button-1, so it never races with verse selection / cross-refs)
-	"bind .read.t <Button-3> {send rdsel %x %y}",
-	"bind .read.t <Key-\uE012> {send key up}",
-	"bind .read.t <Key-\uE013> {send key down}",
-	"bind .read.t <Key-j> {send key down}",
-	"bind .read.t <Key-k> {send key up}",
-	"bind .read.t <Key-n> {send key next}",
-	"bind .read.t <Key-p> {send key prev}",
-	"bind .read.t <Key-/> {send key search}",
-	"pack .read.sb -side left -fill y",
-	"pack .read.t -side left -fill both -expand 1",
+	# the reading pane (.read), context pages, and note editor are Scrolledtext
+	# megawidgets built in code; their bindings/tags are set up there too
 
-	# note editor: a fixed-height strip below the reading area (a column split
-	# here would hit the same packer limits as the nav -- see DEV_TK_EXTENSIONS)
+	# note editor: a fixed-height strip below the reading area, the bar gridded
+	# above the editor (a Scrolledtext, added in code at row 1)
 	"frame .note -height 116",
 	"grid propagate .note 0",
 	"frame .note.bar",
@@ -272,16 +281,9 @@ tkconfig := array[] of {
 	"pack .note.bar.l -side left -padx 4",
 	"pack .note.bar.none .note.bar.gold .note.bar.green .note.bar.blue .note.bar.pink -side left -padx 1",
 	"pack .note.bar.del .note.bar.save -side right -padx 2",
-	"frame .note.tf",
-	"scrollbar .note.tf.sb -orient vertical -command {.note.tf.t yview}",
-	"text .note.tf.t -height 4 -bg white -wrap word -padx 4 -pady 2 -font " + UIFONT +
-		" -yscrollcommand {.note.tf.sb set}",
-	"pack .note.tf.sb -side right -fill y",
-	"pack .note.tf.t -side left -fill both -expand 1",
-	# grid (not pack) to stack the bar over the editor reliably -- pack puts a
-	# fixed row above an expanding row side-by-side here (see DEV_TK_EXTENSIONS)
+	# bar gridded at row 0; the editor (Scrolledtext .note.tf) is gridded at
+	# row 1 in code.  grid (not pack) stacks them reliably (see DEV_TK_EXTENSIONS)
 	"grid .note.bar -row 0 -column 0 -sticky ew",
-	"grid .note.tf -row 1 -column 0 -sticky nsew",
 	"grid rowconfigure .note 1 -weight 1",
 	"grid columnconfigure .note 0 -weight 1",
 
@@ -289,17 +291,6 @@ tkconfig := array[] of {
 	"pack propagate . 0",
 	". configure -width 760 -height 680",
 };
-
-# a context-pane page: a text widget + scrollbar filling the notebook page
-mkctxtext(t: string)
-{
-	pg := t[0:len t - 2];		# strip the ".t" suffix to get the page frame
-	tkcmd("scrollbar " + pg + ".sb -orient vertical -command {" + t + " yview}");
-	tkcmd("text " + t + " -state disabled -bg white -wrap word -padx 4 -pady 2 -font " +
-		UIFONT + " -yscrollcommand {" + pg + ".sb set}");
-	tkcmd("pack " + pg + ".sb -side right -fill y");
-	tkcmd("pack " + t + " -side left -fill both -expand 1");
-}
 
 mktags()
 {
@@ -407,11 +398,61 @@ navigateto(bi, chap, verse: int)
 	chaps.select(chap - 1);
 
 	renderchapter();
-	if(verse > 0)
-		selectverse(verse);
-	else
+	if(verse > 0){
+		selectverse(verse);		# records via selectverse
+	}else{
 		curverse = 0;
-	setref();
+		setref();
+		record();
+	}
+}
+
+#
+# Prev/Next navigation history (back/forward over the verses we have focused)
+#
+
+# remember the current location, unless we are replaying history
+record()
+{
+	if(traversing)
+		return;
+	if(histpos >= 0){
+		(pb, pc, pv) := hist[histpos];
+		if(pb == curbook && pc == curchap && pv == curverse)
+			return;		# no move; don't duplicate
+	}
+	histn = histpos + 1;		# drop any forward entries (browser semantics)
+	if(hist == nil || histn >= len hist){
+		a := array[(histn + 1) * 2] of (int, int, int);
+		for(i := 0; i < histn; i++)
+			a[i] = hist[i];
+		hist = a;
+	}
+	hist[histn] = (curbook, curchap, curverse);
+	histn++;
+	histpos = histn - 1;
+}
+
+histback()
+{
+	if(histpos <= 0)
+		return;
+	traversing = 1;
+	histpos--;
+	(b, c, v) := hist[histpos];
+	navigateto(b, c, v);
+	traversing = 0;
+}
+
+histfwd()
+{
+	if(histpos < 0 || histpos >= histn - 1)
+		return;
+	traversing = 1;
+	histpos++;
+	(b, c, v) := hist[histpos];
+	navigateto(b, c, v);
+	traversing = 0;
 }
 
 renderchapter()
@@ -517,6 +558,7 @@ selectverse(v: int)
 	setref();
 	loadxrefs();
 	loadnote();
+	record();
 }
 
 setref()
@@ -686,7 +728,7 @@ onreadclick(xy: string)
 	for(l := tags; l != nil; l = tl l){
 		tag := hd l;
 		if(len tag >= 2 && tag[0] == 'v' && isdigit(tag[1])){
-			selectverse(int tag[1:]);
+			selectverse(int tag[1:]);	# records via selectverse
 			return;
 		}
 	}

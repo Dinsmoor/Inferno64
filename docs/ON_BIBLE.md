@@ -119,8 +119,9 @@ right-clicked word is read from `define/<word>`. Launch it from the wm menu
 Layout: a left nav of two resizable lists (books over that book's chapters), a
 centre reading pane (serif body, superscript verse numbers), a right context
 pane with **Cross-refs** and **Dictionary** tabs, and a bottom note editor. It
-opens on the verse of the day. The toolbar has Prev/Next chapter, a `Go:`
-reference box (`john3:16`, `1cor13:4-7`, `ps23`, …), and a `Search:` box.
+opens on the verse of the day. The toolbar has **Prev/Next** (browser-style
+back/forward over the verses you have focused), a `Go:` reference box
+(`john3:16`, `1cor13:4-7`, `ps23`, …), and a `Search:` box.
 
 Interactions: click a verse to select it and load its cross-references; click a
 cross-reference or a search result to jump there; right-click a word for its
@@ -130,9 +131,10 @@ to `/mnt/bible/notes`; the colour buttons highlight the selected verse and a
 note's highlight tints that verse in the reading pane.
 
 The reader is built on the [`Tkwidgets`](ON_TK_WIDGETS.md) megawidgets — the
-two-pane nav is a `Paned` of two `Scrolledlist`s, the context pane a `Notebook`,
-the bottom bar a `Statusbar` — which replaced the hand-rolled scaffolding the
-earlier Tk packer limitations had forced.
+two-pane nav is a `Paned` of two `Scrolledlist`s, the context tabs and reading
+and note panes are `Notebook`/`Scrolledtext`, and the bottom bar a `Statusbar` —
+which replaced the hand-rolled scaffolding the earlier Tk packer limitations had
+forced.
 
 ## notefs — per-user notes
 
