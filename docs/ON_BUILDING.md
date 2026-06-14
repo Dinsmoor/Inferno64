@@ -73,6 +73,48 @@ while the LP64 port matures. Develop on `debug` and benchmark *relative* numbers
 there; use `release`/`bleedingedge` for a fast binary and absolute figures.
 `make all` records the profile it built in `Linux/$OBJTYPE/.buildmode`.
 
+## Build configurations (CONF) — what goes *in* the emu
+
+`PROFILE` is *how* the C is compiled; **`CONF`** is *what* is in the emu — which
+devices, builtin modules, and C libraries get linked. A CONF is the conf file
+`emu/$SYSTARG/<conf>` (sections: `dev`, `lib`, `mod`, `port`, `code`, `root`).
+Three are maintained:
+
+| CONF | target | links | binary |
+|---|---|---|---|
+| `emu` (default) | full GUI desktop | Tk, Draw, FreeType, mbedTLS/TLS, `$Imageio` (stb+WebP), Raster3 | ~12 MB |
+| `emu-g` | headless + image decode (the `make check` / `tests/dis` build) | no Tk/Draw/FreeType/TLS; keeps `$Imageio` (stb+WebP) | ~5 MB |
+| `emu-wrt` | router / embedded | lean net stack only — no graphics, media, image decode, or TLS | ~2.8 MB |
+
+Convenience targets (each a full coherent `make all` under the chosen CONF):
+
+```
+make            # CONF=emu     full GUI (default)
+make headless   # CONF=emu-g   headless, keeps image decode
+make router     # CONF=emu-wrt lean router build
+make CONF=emu-g all      # equivalent long form; PROFILE= still applies
+```
+
+**Only the vendored C libraries a CONF actually links are compiled.** The four
+third-party trees — `libfreetype`, `libmbedtls`, `libstb`, `libwebp` — are
+GUI/media/TLS code that a lean build doesn't need (and that you specifically do
+*not* want in a router image: stb/WebP are untrusted-input parsers). The
+Makefile derives the build set from the chosen conf file's `lib` section (the
+same file the link reads, so it can't drift): `make router` compiles **none** of
+the four, `make headless` builds only `libstb`/`libwebp`, `make` builds all four.
+The content-cache (`CACHED_LIBS`) tracks that subset automatically.
+
+Everything else — the Inferno runtime (`lib9`, `libinterp`, `libdraw`, …), the
+Limbo compiler, and the whole `.dis` tree — is built for every CONF (the `.dis`
+tree is CONF-independent; trimming the *shipped* root is a separate packaging
+concern, cf. `os/native.mk`'s `ROOTTREES`).
+
+A lean conf must **stub** the symbols its omitted subsystems would have provided,
+in its `code` section (e.g. `emu-wrt` stubs `tkfont`/`tkstylus`/`gkscanid`/
+`setpointer` and `strtochan`) — otherwise the always-linked `main.c`/`devcons.c`
+references would drag the whole Tk+Draw stack back in. Copy `emu-g`'s `code`
+section as the template when adding a new graphics-less CONF.
+
 ## Native kernel images for boards
 
 Everything above builds the hosted **emu**. The native kernel — Inferno running

@@ -58,6 +58,7 @@ port
 	cache
 	chan
 	dev
+	devtab
 	dial
 	dis
 	discall
@@ -79,8 +80,15 @@ port
 	uqid
 
 code
-	int dontcompile = 1;
 	unsigned long strtochan(char *s) {return 0;}
+	/* stubs for symbols the graphics/Tk subsystem would provide -- this is a
+	 * GUI-less build, so the -f/-S font/stylus options and the raw-scan
+	 * keyboard name are no-ops (same pattern as emu-g).  Without these the
+	 * main.c / devcons.c references would drag the whole Tk+Draw stack in. */
+	void setpointer(int x, int y){USED(x); USED(y);}
+	int tkstylus;
+	char* tkfont;
+	char* gkscanid;		/* raw scan format name; nil => disabled (no GUI) */
 
 init
 	emuinit

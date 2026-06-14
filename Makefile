@@ -85,11 +85,12 @@ export ROOT
 # stale.  Everything else (incl. the toolchain-coupled limbo/libinterp/emu and
 # the whole .dis tree) always rebuilds.  `make all NOCACHE=1` forces a full
 # rebuild of these too; `make nuke`/`clean` drop the stamps.
-CACHED_LIBS := libfreetype libmbedtls libstb
-LIBCACHE    := $(ROOT)/mkfiles/libcache.sh
-ifneq ($(NOCACHE),)
-CACHED_LIBS :=
-endif
+# The vendored third-party C trees.  Not every CONF links all of them -- a
+# headless/router profile drops the graphics/media/TLS ones -- so the actually
+# built + content-cached subset is derived from the chosen CONF below (see the
+# EMUDIRS block).  CACHED_LIBS therefore can't list a lib the CONF doesn't build.
+VENDORED_ALL := libfreetype libmbedtls libstb libwebp
+LIBCACHE     := $(ROOT)/mkfiles/libcache.sh
 
 # Build order.  Derived (not hand-copied) from the top-level mkfile's EMUDIRS
 # block so `mk` and this wrapper can never disagree about what gets built -- a
@@ -97,9 +98,31 @@ endif
 # staleness class this build exists to prevent.  The order there encodes deps:
 # utils/iyacc<limbo<libinterp, utils/{data2c,ndate}<emu.  If this extraction
 # ever yields an empty list (mkfile reformatted), the build fails loudly below.
-EMUDIRS := $(shell awk '/^EMUDIRS=/{f=1} f{l=$$0; sub(/^EMUDIRS=/,"",l); gsub(/\\/,"",l); print l} f&&$$0!~/\\$$/{exit}' $(ROOT)/mkfile)
-ifeq ($(strip $(EMUDIRS)),)
+EMUDIRS_ALL := $(shell awk '/^EMUDIRS=/{f=1} f{l=$$0; sub(/^EMUDIRS=/,"",l); gsub(/\\/,"",l); print l} f&&$$0!~/\\$$/{exit}' $(ROOT)/mkfile)
+ifeq ($(strip $(EMUDIRS_ALL)),)
 $(error could not extract EMUDIRS from $(ROOT)/mkfile -- check the EMUDIRS block format)
+endif
+
+# CONF-scoped build set.  A vendored lib (VENDORED_ALL) is compiled only when the
+# chosen CONF's `lib' section actually links it; every other dir (the Inferno
+# runtime) is always built.  The set is derived from the active (uncommented)
+# entries of emu/$(SYSTARG)/$(CONF) -- the SAME conf file the emu link reads --
+# so the build set can never drift from what actually gets linked.
+#   CONF=emu      -> all four vendored libs   (full GUI)
+#   CONF=emu-g    -> libstb libwebp           (headless + image decode)
+#   CONF=emu-wrt  -> none                     (router: no graphics/media/TLS)
+# A vendored lib the CONF omits is never compiled (faster, and it keeps the
+# untrusted image/font parsers out of a lean image entirely).
+CONF_LIBS := $(shell awk '$$0=="lib"{inlib=1;next} /^[^ \t#]/{inlib=0} inlib && /^[ \t]/ && $$0!~/^[ \t]*#/{print $$1}' $(ROOT)/emu/$(SYSTARG)/$(CONF))
+ifeq ($(strip $(CONF_LIBS)),)
+$(error could not read the lib section of emu/$(SYSTARG)/$(CONF) -- is CONF=$(CONF) a valid conf file?)
+endif
+EMUDIRS := $(foreach d,$(EMUDIRS_ALL),$(if $(filter $d,$(VENDORED_ALL)),$(if $(filter $(patsubst lib%,%,$d),$(CONF_LIBS)),$d,),$d))
+
+# Content-cache exactly the vendored libs this CONF builds (NOCACHE=1 disables).
+CACHED_LIBS := $(filter $(VENDORED_ALL),$(EMUDIRS))
+ifneq ($(NOCACHE),)
+CACHED_LIBS :=
 endif
 
 # The Limbo source tree.  appl/mkfile descends (via mksubdirs) into acme,
@@ -107,7 +130,7 @@ endif
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run help warn-running-emu
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run help warn-running-emu headless router
 
 # Bare `make` builds the system.  Without this, GNU make's default goal would be
 # the first target in the file ($(MK), the mk-bootstrap path target), so `make`
@@ -162,6 +185,20 @@ warn-running-emu:
 #   make bleedingedge   -g -O3 -march=native, no instrumentation (host-tuned)
 debug release bleedingedge:
 	@$(MAKE) PROFILE=$@ all
+
+# Trimmed-CONF convenience targets: a full coherent build under a leaner emu
+# configuration.  These select a different emu/$(SYSTARG)/<conf>; the Makefile
+# then compiles ONLY the vendored libs that conf links (see the EMUDIRS block),
+# so e.g. `make router` never builds libstb/libwebp/libfreetype/libmbedtls.
+#   make headless   CONF=emu-g    headless: no Tk/Draw/freetype/TLS; keeps $Imageio
+#   make router     CONF=emu-wrt  router:   lean net stack, no graphics/media/image/TLS
+# Both still build the full .dis tree (it is CONF-independent); trimming the
+# shipped root/.dis set is a separate packaging concern (cf. os/native.mk
+# ROOTTREES).  Override the profile as usual, e.g. make router PROFILE=release.
+headless:
+	@$(MAKE) CONF=emu-g all
+router:
+	@$(MAKE) CONF=emu-wrt all
 
 # The easy "just try it" path: do a full coherent build (quietly) and open the
 # Inferno graphical desktop.  It ALWAYS rebuilds (a full `make all`, which is
@@ -258,7 +295,7 @@ _dis: $(MK)
 
 clean:
 	@set -e; \
-	for dir in $(EMUDIRS); do \
+	for dir in $(EMUDIRS_ALL); do \
 		echo "--- clean $$dir ---"; \
 		(cd $(ROOT)/$$dir && $(MK) $(MKARGS) clean) || true; \
 	done
@@ -268,7 +305,7 @@ clean:
 
 nuke:
 	@set -e; \
-	for dir in $(EMUDIRS); do \
+	for dir in $(EMUDIRS_ALL); do \
 		echo "--- nuke $$dir ---"; \
 		if [ "$$dir" = "emu" ]; then \
 			(cd $(ROOT)/$$dir && $(MK) $(MKARGS) clean) || true; \
@@ -350,6 +387,9 @@ help:
 	@echo "  make            full coherent build (== make all), debug profile"
 	@echo "  make release    full build, -O2 portable baseline, no instrumentation"
 	@echo "  make bleedingedge  full build, -O3 -march=native"
+	@echo "  make headless   lean build, CONF=emu-g  (no GUI/TLS; keeps image decode)"
+	@echo "  make router     lean build, CONF=emu-wrt (net stack only; no graphics/media/TLS)"
+	@echo "                  (trimmed CONFs compile ONLY the vendored libs they link)"
 	@echo "  make run        full build (RUNPROFILE=$(RUNPROFILE)) + launch the GUI desktop"
 	@echo "                  (headless box? 'make all && scripts/headless_vnc.sh' runs it over VNC)"
 	@echo
@@ -364,6 +404,6 @@ help:
 	@echo "Every build is a full nuke+rebuild of BOTH halves (C side + .dis tree)"
 	@echo "on purpose: it is the only coherent build (a stale .dis against a freshly"
 	@echo "built ABI is a real, debugged crash class).  Half builds (make emu / make"
-	@echo "dis) are gated behind FORCE=1.  The heavy vendored libs (freetype, mbedtls,"
-	@echo "stb) are skipped when a content signature shows them unchanged; any edit to"
-	@echo "their source/headers/flags rebuilds them.  NOCACHE=1 forces a full rebuild."
+	@echo "dis) are gated behind FORCE=1.  The vendored libs (freetype, mbedtls, stb,"
+	@echo "webp) are content-cached -- skipped when unchanged -- and only the subset the"
+	@echo "chosen CONF links is built at all (CONF=$(CONF) -> $(CACHED_LIBS)).  NOCACHE=1 forces a rebuild."
