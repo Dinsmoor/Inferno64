@@ -150,6 +150,91 @@ Scrolledlist.select(sl: self ref Scrolledlist, i: int)
 	tk->cmd(sl.top, "update");
 }
 
+# ---------------------------------------------------------------- Scrolledtext
+
+Scrolledtext.new(top: ref Toplevel, path: string, w, h: int, opts: string): ref Scrolledtext
+{
+	st := ref Scrolledtext;
+	st.top = top;
+	st.fr = path;
+	st.t = path + ".t";
+	st.ev = chan of string;
+	evn := uniq("tkwst");
+	tk->namechan(top, st.ev, evn);
+
+	sb := path + ".sb";
+	tk->cmd(top, "frame " + path);
+	# a tiny requested size (-width/-height 1, before opts so a caller can
+	# override) keeps the grid-master frame from demanding the text widget's
+	# ~80-char default and overflowing a smaller parent; the grid weights below
+	# make it fill whatever space it is actually given, and -wrap then wraps at
+	# the real width
+	tk->cmd(top, "text " + st.t + " -width 1 -height 1 -yscrollcommand {" + sb + " set} " + opts);
+	tk->cmd(top, "scrollbar " + sb + " -orient vertical -command {" + st.t + " yview}");
+	# same grid+weights recipe as Scrolledlist, so a fixed-size frame's w/h is
+	# honoured and the text otherwise fills its parent
+	tk->cmd(top, "grid " + st.t + " -row 0 -column 0 -sticky nsew");
+	tk->cmd(top, "grid " + sb + " -row 0 -column 1 -sticky ns");
+	tk->cmd(top, "grid rowconfigure " + path + " 0 -weight 1");
+	tk->cmd(top, "grid columnconfigure " + path + " 0 -weight 1");
+	if(w > 0 || h > 0){
+		tk->cmd(top, sys->sprint("%s configure -width %d -height %d", path, w, h));
+		tk->cmd(top, "grid propagate " + path + " 0");
+	}
+	tk->cmd(top, "bind " + st.t + " <Button-1> {focus " + st.t + "; send " + evn + " %x %y}");
+	return st;
+}
+
+Scrolledtext.clear(st: self ref Scrolledtext)
+{
+	tk->cmd(st.top, st.t + " delete 1.0 end");
+}
+
+Scrolledtext.insert(st: self ref Scrolledtext, s, tags: string)
+{
+	tk->cmd(st.top, st.t + " insert end " + tk->quote(s) + " " + tags);
+}
+
+Scrolledtext.get(st: self ref Scrolledtext): string
+{
+	return tk->cmd(st.top, st.t + " get 1.0 {end -1c}");
+}
+
+Scrolledtext.see(st: self ref Scrolledtext, idx: string)
+{
+	tk->cmd(st.top, st.t + " see " + idx);
+}
+
+Scrolledtext.atend(st: self ref Scrolledtext): string
+{
+	return tk->cmd(st.top, st.t + " index {end -1c}");
+}
+
+Scrolledtext.tagconfig(st: self ref Scrolledtext, tag, opts: string)
+{
+	tk->cmd(st.top, st.t + " tag configure " + tag + " " + opts);
+}
+
+Scrolledtext.tagadd(st: self ref Scrolledtext, tag, i1, i2: string)
+{
+	tk->cmd(st.top, st.t + " tag add " + tag + " " + i1 + " " + i2);
+}
+
+Scrolledtext.tagremove(st: self ref Scrolledtext, tag, i1, i2: string)
+{
+	tk->cmd(st.top, st.t + " tag remove " + tag + " " + i1 + " " + i2);
+}
+
+Scrolledtext.tagranges(st: self ref Scrolledtext, tag: string): string
+{
+	return tk->cmd(st.top, st.t + " tag ranges " + tag);
+}
+
+Scrolledtext.tagsat(st: self ref Scrolledtext, x, y: string): string
+{
+	return tk->cmd(st.top, st.t + " tag names @" + x + "," + y);
+}
+
 # ------------------------------------------------------------------- Notebook
 
 Notebook.new(top: ref Toplevel, path: string): ref Notebook

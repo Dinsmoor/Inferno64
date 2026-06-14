@@ -96,6 +96,33 @@ Methods: `setitems`, `insert`, `clear`, `count`, `get(i)`, `cursel`,
 `select(i)`. The item count is tracked in Limbo because the listbox cannot
 report it unambiguously (`index end` returns `0` for both empty and one item).
 
+## Scrolledtext — a text widget that honours its size and wraps
+
+The text-widget sibling of `Scrolledlist`: a `text` + vertical scrollbar in one
+frame, sized the same way (`w`/`h` container pixels, `0` = fill the parent).
+`opts` is extra text options; omit `-state disabled` for an editable pane. It
+gives the text a tiny *requested* size, so in fill mode it wraps to the width it
+is actually given instead of forcing its container to the text widget's ~80-char
+default (which overflows a narrow column). The text widget's built-in wheel and
+page-key bindings still apply.
+
+```limbo
+xt := Scrolledtext.new(win, ".ctx", 0, 0, "-state disabled -wrap word -bg white");
+tk->cmd(win, "pack .ctx -fill both -expand 1");
+xt.tagconfig("HEAD", "-foreground #404040");
+xt.clear();
+xt.insert("Romans 5:8\n", "HEAD");
+xt.insert("But God commendeth his love toward us...\n", "");
+...
+e := <-xt.ev =>                    # "<x> <y>" on Button-1 (widget focused first)
+    tags := xt.tagsat(...);       # hit-test a clicked tag
+```
+
+Methods: `clear`, `insert(s, tags)`, `get`, `see(idx)`, `atend` (the
+`{end -1c}` index), `tagconfig`/`tagadd`/`tagremove`/`tagranges`, and
+`tagsat(x, y)`. `Button-1` focuses the widget and fires `ev` with the click
+coordinates so the owner can hit-test tags (e.g. a clickable cross-reference).
+
 ## Notebook — tabbed pages
 
 A strip of tab buttons over a stack of pages; only the selected page shows.
@@ -201,7 +228,7 @@ dependency line on `module/tkwidgets.m`.
 
 | File | Purpose |
 |------|---------|
-| `module/tkwidgets.m` | the API: Scrolledlist, Notebook, Paned, Tree, Statusbar, Progressbar |
+| `module/tkwidgets.m` | the API: Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar |
 | `appl/lib/tkwidgets.b` | implementation |
 | `appl/wm/tkwdemo.b` | demo + `-test` headless self-check |
 | `docs/DEV_TK_EXTENSIONS.md` | running log of remaining Tk gaps |

@@ -33,27 +33,13 @@ workaround used (if any), and a sketch of what a reusable element would be.
 ## Filled (now in Tkwidgets — see ON_TK_WIDGETS.md)
 
 `Notebook` (tabs), `Paned` (resizable panes with draggable sashes),
-`Scrolledlist` (listbox + scrollbar with an honoured size), `Tree` (collapsible
-tree), `Statusbar`, and `Progressbar`. The reliable-sizing problem the old
+`Scrolledlist` (listbox + scrollbar with an honoured size), `Scrolledtext`
+(text + scrollbar, sized and wrapping correctly), `Tree` (collapsible tree),
+`Statusbar`, and `Progressbar`. The reliable-sizing problem the old
 panedwindow/listbox entries described is solved by laying these out with `grid`
 (`-weight`/`-minsize`/`-sticky`) instead of `pack`.
 
 ## Log
-
-### Scrolledtext — a text widget + scrollbar with an honoured size (HIGH VALUE)
-- Needed by: wm/bible — hand-rolled the *same* text+scrollbar-in-a-sized-frame
-  **three times** (the reading pane, the two Notebook context pages, the note
-  editor).  It is the obvious sibling of `Scrolledlist` and its absence is felt
-  immediately once you adopt the suite.
-- Today: nothing; you build `frame`(fixed `-width`/`-height` + `grid/pack
-  propagate 0`) + `text` (`-fill both -expand 1`/grid `-sticky nsew`) +
-  `scrollbar` by hand each time.
-- Reusable shape: `Scrolledtext.new(top, path, w, h, opts): ref Scrolledtext`
-  mirroring `Scrolledlist` — fields `fr`/`t`/`ev` (a click event carrying the
-  `@x,y` like the listbox does, so apps can hit-test tags), methods
-  `clear`/`insert(s, tags)`/`get`/`see`/`tagconfig`/`tagadd`.  An editable
-  variant (or an `-editable` opt) would also cover note/compose editors.
-- Effort/notes: small; same grid+weights recipe Scrolledlist already uses.
 
 ### "use grid" footgun — mixing pack and grid in one master fails opaquely
 - Not a missing widget; a doc/ergonomics gap.  ON_TK_WIDGETS says "reach for

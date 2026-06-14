@@ -61,6 +61,31 @@ Tkwidgets: module
 		select:		fn(sl: self ref Scrolledlist, i: int);
 	};
 
+	# Scrolledtext: a text widget + vertical scrollbar in one frame, sized the
+	# way Scrolledlist sizes a listbox (w/h container pixels, 0 = fill parent).
+	# `opts` is extra text options, e.g. "-wrap word -state disabled -bg white"
+	# (omit -state disabled for an editable pane).  Button-1 focuses the widget
+	# and fires `ev` with "<x> <y>" so the owner can hit-test tags; the text
+	# widget's built-in wheel/page bindings still apply.
+	Scrolledtext: adt {
+		top:	ref Tk->Toplevel;
+		fr:	string;			# container frame (you pack/grid this)
+		t:	string;			# the text widget path
+		ev:	chan of string;		# "<x> <y>" on Button-1 (widget focused first)
+
+		new:		fn(top: ref Tk->Toplevel, path: string, w, h: int, opts: string): ref Scrolledtext;
+		clear:		fn(st: self ref Scrolledtext);
+		insert:		fn(st: self ref Scrolledtext, s, tags: string);
+		get:		fn(st: self ref Scrolledtext): string;
+		see:		fn(st: self ref Scrolledtext, idx: string);
+		atend:		fn(st: self ref Scrolledtext): string;		# index {end -1c}
+		tagconfig:	fn(st: self ref Scrolledtext, tag, opts: string);
+		tagadd:		fn(st: self ref Scrolledtext, tag, i1, i2: string);
+		tagremove:	fn(st: self ref Scrolledtext, tag, i1, i2: string);
+		tagranges:	fn(st: self ref Scrolledtext, tag: string): string;
+		tagsat:		fn(st: self ref Scrolledtext, x, y: string): string;	# tag names @x,y
+	};
+
 	# Notebook: a strip of tab buttons over a stack of pages; only the
 	# selected page is shown.  add() returns the page's frame path: fill it
 	# with your widgets.  On `ev` (a tab was clicked) call select(name).

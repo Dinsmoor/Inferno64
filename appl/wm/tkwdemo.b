@@ -18,7 +18,7 @@ include "tkclient.m";
 	tkclient: Tkclient;
 include "tkwidgets.m";
 	tkw: Tkwidgets;
-	Scrolledlist, Notebook, Paned, Tree, Statusbar, Progressbar: import tkw;
+	Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar: import tkw;
 
 Tkwdemo: module
 {
@@ -30,6 +30,7 @@ nb: ref Notebook;
 pn: ref Paned;
 tr: ref Tree;
 sl: ref Scrolledlist;
+st: ref Scrolledtext;
 sb: ref Statusbar;
 pb: ref Progressbar;
 prog := 0.0;
@@ -98,6 +99,8 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		i := sl.cursel();
 		if(i >= 0)
 			sb.msg("list row " + string i + ": " + sl.get(i));
+	<-st.ev =>		# text-pane click: nothing to do in the demo
+		;
 	cmd := <-demo =>
 		case cmd {
 		"step" =>
@@ -131,8 +134,9 @@ build(demo: chan of string)
 	for(i := 0; i < len items; i++)
 		items[i] = sys->sprint("item %d", i);
 	sl.setitems(items);
-	tk->cmd(window, "label " + pn.pane(1) + ".l -text {Drag the grey sash <-> to resize.} -anchor nw");
-	tk->cmd(window, "pack " + pn.pane(1) + ".l -fill both -expand 1");
+	st = Scrolledtext.new(window, pn.pane(1) + ".st", 0, 0, "-wrap word -bg white");
+	tk->cmd(window, "pack " + st.fr + " -fill both -expand 1");
+	st.insert("Drag the grey sash <-> to resize.  This is a Scrolledtext: a text widget with a scrollbar that honours its size and wraps to its width.\n", "");
 
 	# page 2: a collapsible Tree
 	p2 := nb.add("tree", "Tree");
@@ -167,6 +171,10 @@ selftest()
 	nb.select("prog");
 	if(sl.count() != 20)
 		sys->fprint(sys->fildes(2), "tkwdemo: bad list count %d\n", sl.count());
+	st.clear();
+	st.insert("hello", "");
+	if(st.get() != "hello")
+		sys->fprint(sys->fildes(2), "tkwdemo: scrolledtext get got %q\n", st.get());
 }
 
 # build a minimal display context so -test works without a window manager
