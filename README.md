@@ -64,6 +64,14 @@ And there are many other autonomously documented Inferno subsystems there —
 [namespaces](docs/ON_NAMESPACE.md), and [the JIT](docs/ON_JIT.md) — again, check
 out [`docs/README.md`](docs/README.md)
 
+> **Note — the native (`os/`) kernel is uniprocessor.** On every board, however
+> many cores the hardware has, it boots and runs on one; the others are left
+> parked. You get real *concurrency* (many procs, channels, the scheduler) but
+> no *parallelism*, and the locking is uniprocessor-grade — do not assume two
+> things run at once. See [the kernel doc](docs/ON_KERNEL.md#uniprocessor-model-all-boards).
+> (This is a native-kernel property only; hosted `emu` uses the host OS's
+> threads and does run across cores.)
+
 ## Testing
 
 One of the goals of this fork is a proper test suite (see Goals below), and it
