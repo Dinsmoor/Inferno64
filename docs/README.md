@@ -60,6 +60,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | decode images (PNG/JPEG → Draw) | [`ON_IMAGEIO.md`](ON_IMAGEIO.md) |
 | hack on Charon (the web browser) | [`ON_CHARON.md`](ON_CHARON.md) |
 | write a Fediverse (Pleroma/Mastodon) client | [`ON_PLEROMUSSY.md`](ON_PLEROMUSSY.md) (+ [`ref/pleroma.api.md`](ref/pleroma.api.md)) |
+| serve the Fediverse as a file tree | [`ON_FEDIFS.md`](ON_FEDIFS.md) |
 | do network programming / TLS | [`ON_NETWORK.md`](ON_NETWORK.md) |
 | understand 9P/Styx | [`ON_9P.md`](ON_9P.md) |
 | understand namespaces | [`ON_NAMESPACE.md`](ON_NAMESPACE.md) |

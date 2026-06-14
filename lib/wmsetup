@@ -29,6 +29,21 @@ fn cd {
 
 plumber >/chan/wmstdout >[2=1]
 
+# Connection server: name resolution for dialtls, started ONCE for the whole
+# session.  Apps must not spawn their own cs -- a per-app cs detaches into its
+# own pgrp (cs.b does FORKFD|NEWPGRP), survives the app's killgrp, and pins the
+# app's inherited wm connection open, so the wm never reaps the closed window
+# (the "hang on close").  Started here, every wmrun child inherits /net/cs and
+# pleromussy's ensurecs() becomes a no-op.
+ndb/cs &
+
+# The Fediverse as a file tree, shared by every client (the GUI, the shell,
+# acme, grep, the plumber).  fedifs is the sole holder of the OAuth token at
+# run time; clients of /mnt/fedi never see it.  Hosts appear as subdirectories
+# the first time they are walked, e.g. /mnt/fedi/nicecrew.digital/home.
+if {ftest -d /mnt/fedi} {} {mkdir -p /mnt/fedi}
+mount {fedifs} /mnt/fedi >[2] /chan/wmstderr
+
 # "Inferno is warming up" splash: pre-load/JIT-compile the programs listed in
 # $home/lib/warmup (else /lib/warmup) so they launch instantly later.
 wmrun wm/warmup

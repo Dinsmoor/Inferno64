@@ -17,6 +17,19 @@ data isfile     $0
 plumb alwaysstart auplay
 plumb start /dis/auplay.dis $file
 
+# fediverse @user@host handles go to wm/pleromussy
+kind is text
+data matches '@[a-zA-Z0-9_]+@[a-zA-Z0-9_.\-]+'
+plumb to fedi
+plumb start /dis/wm/pleromussy.dis $0
+
+# fediverse status/profile URLs go to wm/pleromussy (before the generic URL
+# rule below, so a notice link opens in the client rather than the browser)
+kind is text
+data matches 'https?://[a-zA-Z0-9_.\-]+/(notice/|objects/|users/|@)[a-zA-Z0-9_@/.\-]+'
+plumb to fedi
+plumb start /dis/wm/pleromussy.dis $0
+
 # URLs go to wm/charon
 kind is text
 data matches '(https?|ftp|file|gopher|mailto|news|nntp|telnet|wais|prospero)://[a-zA-Z0-9_@]+([.:][a-zA-Z0-9_@]+)*/?[a-zA-Z0-9_?#~&/\-]+([:.][a-zA-Z0-9_?#~&/\-]+)*'

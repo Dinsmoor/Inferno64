@@ -96,6 +96,16 @@ with `savesession`; reload with `loadsession`. The store is JSON at
 on demand (`<user>` from `/dev/user`). The token is a credential: never echo it,
 log it, or place it on a command line.
 
+The password grant is what Pleroma accepts but modern Mastodon increasingly
+**rejects**. The fallback is the **authorization-code ("oob") flow**:
+`beginoob(c, scope)` registers an app and returns `(client_id, client_secret,
+authorize_url, err)`; the user opens `authorize_url` (the instance's own login
+page — the app never sees the password), approves, and is shown a one-time code;
+`finishoob(c, client_id, client_secret, code, scope)` exchanges it for a
+`Session`. `authorizeurl`/`codelogin` are the low-level pieces. The `scope` must
+match between the two calls. Both flows share the `OOB` redirect and `DEFSCOPE`
+(`"read write follow"`) constants.
+
 ### Verbs
 
 `instance`, `verifycredentials`, `publictimeline`, `hometimeline`,
@@ -104,6 +114,11 @@ ancestors + descendants), `notifications`, `poststatus`, and `statusaction`
 (favourite/unfavourite/reblog/unreblog/bookmark/unbookmark → the updated
 `Status`). Timeline verbs return `(statuses, next_max_id, err)`; the `next` is
 parsed from the RFC 5988 `rel="next"` `Link:` header for pagination.
+
+`resolve(c, q)` looks up an arbitrary fediverse URL or `@user@host` handle via
+the server's search (GET /api/v2/search?resolve=true) and returns whichever of
+`(status, account)` the query named — a notice URL yields a `Status`, a profile
+URL or handle yields an `Account`. It backs the plumber integration below.
 
 ### Pleroma emoji reactions
 
@@ -218,6 +233,37 @@ appended posts go at the *end*, so existing line indices stay put).
 - **Reaction chips** under a post are clickable (both the emoji image and its
   count): a click toggles your own reaction with that emoji. "React…" opens the
   image emoji picker (see *Inline emoji images*).
+- **Keyboard navigation** (no clicking required): the feed widget `.view.t` is
+  focused at start-up (and on any click), and bindings move a selection through
+  the posts — `j`/`↓` next, `k`/`↑` previous, `g` top, `Enter`/`t` open thread,
+  `f` favourite, `b` boost, `r` reply, `u` view profile, `m` load older. `keynav`
+  dispatches each to the same `dispatch(selected, …)` the buttons use; `movesel`
+  clamps and scrolls the selection into view.
+
+> **Arrow keys are private-use runes.** Inferno Tk's `bind` grammar has no
+> `Up`/`Down` keysyms; the arrows arrive as the private-use runes U+E012 (Up) /
+> U+E013 (Down) from `include/keyboard.h` (as in `wm/sh`). Binding `<Key-Up>`
+> would silently never fire. `j`/`k` are the portable fallback.
+
+- **Bottom status bar** (`.bot`): a short transient message on the left
+  (`settitle` → `.bot.msg`; "(loading…)"/errors) and the **focused post's URL**
+  in a selectable/snarfable `entry` on the right (`.bot.url`, set by
+  `updatefocusbar` on each selection change; click selects-all). Inferno Tk
+  widget `-width` is in **pixels**, not characters — don't constrain `.bot.msg`
+  or it clips ("Public" → "Pul").
+- **Pagination is contextual, not a toolbar button.** **Refresh** reloads the
+  current view from newest (and re-fetches a thread's context, so new replies
+  appear). Older posts load via the inline **"↓ load older posts ↓"** row at the
+  end of a timeline/profile (hit-tagged `more`, handled in `selectat`) or the `m`
+  key — both call `loadolder`. There is no "More" toolbar button.
+- **Thread tree.** The thread view indents each post by its reply depth so the
+  conversation reads as a tree: `threaddepths` walks `in_reply_to_id` within the
+  thread set to a depth per row (`rowdepth`), and `renderblock` applies a depth
+  tag `D<d>` (increasing `-lmargin`, capped at `MAXDEPTH`) in place of the flat
+  `POST` margins.
+- **Single-instance dialogs.** The Accounts chooser and login dialog are guarded
+  by `acctopen`/`loginopen` (set on spawn, cleared when the result channel
+  fires) so a button can't stack multiple copies.
 
 > **Context-menu idiom: press-drag-release.** A wm menu posts on button
 > **press**, so the per-post menu binds `<Button-3>` press; the user holds,
@@ -238,12 +284,84 @@ event loop. Their result channels are **buffered `chan[1]`** so a helper proc
 that child mid-operation (an unbuffered send would block forever and leak the
 proc).
 
+### Plumber integration
+
+pleromussy is a **plumb target**: a fediverse URL or `@user@host` handle
+clicked anywhere (acme, Charon, the shell, the wm Log) is routed to it. The
+rules in `/lib/plumbing` match those patterns (placed *above* the generic URL
+rule, so a notice link opens in the client rather than the browser) and
+`plumb to fedi` / `plumb start /dis/wm/pleromussy.dis $0`. The app opens the
+`fedi` receive port (`Plumbmsg->init(1, "fedi", 0)`) and a `plumbreader` proc
+loops on `Msg.recv()`; each message spawns `doresolve`, which calls
+`masto->resolve` off the event loop (both `recv` and the resolve fetch block,
+so neither runs on the UI proc) and hands the resolved id back to the loop on
+`plumbnav`, which navigates to the thread or profile. When launched cold with a
+link argument, `init` recognises it (`islink`), derives the host from it
+(`hostfromlink`), and resolves it once the window is up.
+
+### Relationship to fedifs
+
+The `Masto` library is also wrapped, GUI-free, by **`fedifs`** (see
+[`ON_FEDIFS.md`](ON_FEDIFS.md)) — a `styxservers` file server that publishes the
+account as `/mnt/fedi/<host>/…`. fedifs is the system's shared, scriptable,
+network-transparent door to the Fediverse and the sole holder of the bearer
+token at run time.
+
+The GUI **discovers and switches accounts through the fedifs namespace**. The
+**Accounts** toolbar button opens a chooser (`acctchooser`) listing every
+account — the entries under `/mnt/fedi` unioned with the on-disk session store
+(`masto->sessiondir()`), so a `fedilogin`/`ctl` login shows up alongside a GUI
+one — with the active account marked (`•`), a **Log out** button per row, and an
+**Add account…** entry. Picking one calls `switchaccount`, which rebuilds the
+`Client` from that label's saved session and reloads the current view; **Add
+account…** opens the login dialog; **Log out** (`logoutacct`) deletes the saved
+session (and tells a mounted fedifs to drop its token), moving to another account
+or anonymous if it was the active one. There is no separate Login button — login
+is "Add account…".
+
+The login dialog offers two paths. The default is the password grant
+(`dologin` → `masto->login`). The **Browser login** button runs the OAuth
+authorization-code flow for instances that reject the password grant: `dobeginoob`
+stages the authorize URL, the dialog opens it in Charon (`launchcharon` —
+`load`s `/dis/charon.dis` in its own proc, sharing the Draw context) and switches
+in place to a code-paste field showing the (snarfable) URL; `dofinishoob`
+exchanges the pasted code, then `verify_credentials` learns the handle so the
+account still persists under its `user@host` label.
+
+Each row shows a handle, not a bare host: `acctdisplay` prefers the username
+stored in the session (`Session.acct`, persisted in the JSON), then the `user@`
+part of a `user@host` label, then the label. Old sessions saved as a bare host
+have no stored handle until they are opened once — `backfillacct` records the
+verified `acct` on the first `verify_credentials`, so they show a username
+thereafter.
+
+The current account is an **account label** (`acctlabel`): a bare host or a
+`user@host` handle. `host` (what we dial) is `hostfromlabel(acctlabel)`. A GUI
+login persists under `user@host` (`dologin` sets `sess.host` to the label), so
+several accounts can share one instance — exactly the keys `fedifs` serves as
+subtrees. At start-up, with no host on the command line, the GUI opens the first
+saved account. The **window-manager title bar** shows the identity and page —
+`Pleromussy — as @user on Home` (`wmtitle`, via `tkclient->settitle`); the
+in-window title label is just the page plus transient status.
+
+The GUI still makes its own `Masto` calls for the data path (timelines, threads,
+media); migrating those reads/writes onto `/mnt/fedi` too — so the GUI holds no
+token at all — needs fedifs to serve structured JSON and is the remaining step.
+
 ## Gotchas
 
-- **`cs` bootstrap.** A bare/`wm` emu has no `/net/cs` at app start, so `dialtls`
-  fails with "invalid IP address". `ensurecs()` loads `/dis/ndb/cs.dis` and
-  polls `/net/cs` before any fetch. If `cs` is already a boot service, it's a
-  no-op.
+- **`cs` is a boot service.** `/lib/wmsetup` starts `ndb/cs &` once for the
+  whole session, so every wm app inherits `/net/cs` and `dialtls` resolves.
+  `ensurecs()` is now a *dormant fallback*: it short-circuits on `csup()` when
+  `/net/cs` is already served (always, under wm) and only loads its own
+  `/dis/ndb/cs.dis` when pleromussy is run stand-alone. **Do not** go back to a
+  per-app `cs`: a `cs` spawned by the app does `FORKFD|NEWPGRP` (cs.b), so it
+  copies — and pins open — the app's inherited `/chan/wmctl` connection and then
+  survives the app's `killgrp` in its own process group; the dangling reference
+  keeps the wm from ever seeing the disconnect, so the closed window is never
+  reaped (a "hang on close" whose proc group is already gone). `startcs()`
+  guards the stand-alone path by dropping all but fds 0/1/2 (`pctl(NEWFD, …)`)
+  before loading cs.
 - **Anonymous public timeline may 401.** Some instances (e.g. nicecrew.digital)
   restrict the unauthenticated public timeline; anonymous use then needs a token
   anyway. The app opens the login dialog automatically when no session is saved.
@@ -259,6 +377,16 @@ proc).
 - **`tkcmd` doesn't repaint.** Setting a label's text doesn't force a redraw;
   append `"; update"` (or a separate `update`) when a status label must change
   immediately.
+- **Every `Masto` consumer must depend on `masto.m`.** Changing the `masto.m`
+  interface (e.g. a field on `Session`/`Status`, a new verb) changes the module
+  *type hash*. A consumer `.dis` not rebuilt against it keeps the old hash and
+  fails the runtime **link typecheck** on `load Masto` (`load Masto` → nil, then
+  a `[Masto] Broken: "dereference of nil"` if the nil isn't checked). The mkfiles
+  now list the dependency for every consumer (`appl/cmd/mkfile`:
+  mastotest/mastologin/mastoextra/mediatest/fedifs; `appl/wm/mkfile`:
+  pleromussy), so `make all` rebuilds them together. When iterating by hand,
+  recompile the library **and** all consumers — don't compile `masto.b` to a
+  scratch path and forget to install `dis/lib/masto.dis`.
 
 ## Deferred Pleroma extras
 

@@ -32,6 +32,10 @@ include "popup.m";
 include "string.m";
 	str: String;
 
+include "plumbmsg.m";
+	plumbmsg: Plumbmsg;
+	Msg: import plumbmsg;
+
 include "masto.m";
 	masto: Masto;
 	Status, Account, Attachment, Notification, Client, Session: import masto;
@@ -99,12 +103,14 @@ Snap: adt {
 ctxt:	ref Draw->Context;	# the draw context, for spawning child windows
 window: ref Tk->Toplevel;
 client: ref Client;
-host:	string;			# current instance hostname
+host:	string;			# current instance hostname (the host we dial)
+acctlabel: string;		# active account label = host or user@host (session key)
 view:	string;			# "public", "home" or "notifs"
 me:	string;			# acct of the logged-in user, "" if anonymous
 statuses: list of ref Status;	# accumulated timeline, newest first
 statusarr: array of ref Status;	# flattened view, parallel to per-block s<i> tags
 selected: int;			# index into statusarr, -1 = nothing selected
+rowdepth: array of int;		# thread reply-depth per row (nil = flat view)
 
 # which renderer owns the view right now, so post-action re-renders and Back
 # target the right content instead of always snapping to the timeline
@@ -136,6 +142,14 @@ postresult: chan of ref Status;
 actionresult: chan of (ref Status, string, ref Status);
 reactresult: chan of (ref Status, ref Status, string);
 pickresult: chan of (ref Status, string);
+# account switcher: the chooser delivers the chosen label here ("" = cancel,
+# "+add" = open the login dialog).  whoami carries verify_credentials results.
+acctresult: chan of string;
+whoami: chan of ref Account;
+# the plumber delivers a clicked fediverse link here as (kind, id), kind 0 =
+# status (open its thread), 1 = account (open its profile); the id is resolved
+# off the event loop by plumbreader so the resolve fetch never blocks the UI.
+plumbnav: chan of (int, string);
 
 # Emoji-as-image.  No Inferno font covers the emoji blocks (lucidasans/unicode
 # stops at U+FB1E), so each emoji in a reaction chip is drawn as a small inline
@@ -150,37 +164,63 @@ emojiseq: int;
 # to spawn duplicates (see ensurecs)
 csspawned: int;
 
+# guards so a button can't open a second copy of a single-instance dialog
+acctopen: int;		# the account chooser is open
+loginopen: int;		# the login dialog is open
+
 BODYFONT:	con "/fonts/lucidasans/unicode.8.font";
 NAMEFONT:	con "/fonts/lucidasans/unicode.10.font";
 METAFONT:	con "/fonts/lucidasans/unicode.7.font";
 
 tkconfig := array[] of {
 	"frame .top",
-	"button .top.public -text Public -command {send nav public}",
+	# feeds + back on the left, actions on the right
 	"button .top.home -text Home -command {send nav home}",
+	"button .top.public -text Public -command {send nav public}",
 	"button .top.notifs -text Notifs -command {send nav notifs}",
-	"button .top.new -text {New post} -command {send nav compose}",
 	"button .top.back -text {◂ Back} -command {send nav back}",
-	"label .top.title -text {pleromussy} -anchor w",
+	"button .top.new -text {New post} -command {send nav compose}",
 	"button .top.refresh -text Refresh -command {send nav refresh}",
-	"button .top.more -text {More posts} -command {send nav more}",
-	"button .top.login -text Login -command {send nav login}",
-	"pack .top.login .top.more .top.refresh -side right",
-	"pack .top.public .top.home .top.notifs .top.new .top.back -side left",
-	"pack .top.title -side left -fill x -expand 1 -padx 4",
+	"button .top.accts -text Accounts -command {send nav accounts}",
+	"pack .top.accts .top.refresh .top.new -side right",
+	"pack .top.home .top.public .top.notifs .top.back -side left",
 	"pack .top -fill x",
 	"frame .view",
 	"text .view.t -state disabled -width 0 -height 0 -bg white -wrap word"+
 		" -yscrollcommand {.view.yscroll set} -padx 2 -pady 2",
-	"bind .view.t <Button-1> {send sel %x %y}",
+	"bind .view.t <Button-1> {focus .view.t; send sel %x %y}",
 	"bind .view.t <Double-Button-1> {send dsel %x %y}",
 	"bind .view.t <Button-3> {send ctx %x %y}",
+	# keyboard navigation of the timeline (no clicking required).  Inferno Tk's
+	# bind grammar has no Up/Down keysyms; the arrows arrive as the private-use
+	# runes Up=0xE012 / Down=0xE013 (see include/keyboard.h), as in wm/sh.
+	"bind .view.t <Key-\uE012> {send key up}",	# Up arrow
+	"bind .view.t <Key-\uE013> {send key down}",	# Down arrow
+	"bind .view.t <Key-j> {send key down}",
+	"bind .view.t <Key-k> {send key up}",
+	"bind .view.t <Key-\n> {send key open}",
+	"bind .view.t <Key-t> {send key open}",
+	"bind .view.t <Key-f> {send key fav}",
+	"bind .view.t <Key-b> {send key boost}",
+	"bind .view.t <Key-r> {send key reply}",
+	"bind .view.t <Key-u> {send key profile}",
+	"bind .view.t <Key-g> {send key top}",
+	"bind .view.t <Key-m> {send key more}",
 	"scrollbar .view.yscroll -orient vertical -command {.view.t yview}",
 	"pack .view.yscroll -fill y -side left",
 	"pack .view.t -expand 1 -fill both",
+	# bottom status bar: a short message on the left, the focused post URL
+	# in a selectable (snarfable) entry filling the rest
+	"frame .bot",
+	"label .bot.msg -anchor w",
+	"entry .bot.url -bg white",
+	"bind .bot.url <Button-1> {.bot.url select 0 end; focus .bot.url}",
+	"pack .bot.msg -side left -padx 4",
+	"pack .bot.url -side left -fill x -expand 1 -padx 4 -pady 1",
+	"pack .bot -side bottom -fill x",
 	"pack .view -expand 1 -fill both",
 	"pack propagate . 0",
-	". configure -width 620 -height 660",
+	". configure -width 640 -height 660",
 };
 
 logincfg := array[] of {
@@ -194,7 +234,9 @@ logincfg := array[] of {
 	"frame .b",
 	"button .b.ok -text Login -command {send b login}",
 	"button .b.cancel -text Cancel -command {send b cancel}",
+	"button .b.oob -text {Browser login} -command {send b oob}",
 	"pack .b.cancel .b.ok -side right",
+	"pack .b.oob -side left",
 	"bind .user <Key-\n> {focus .pass}",
 	"bind .pass <Key-\n> {send b login}",
 	"pack .hl .host .ul .user .pl .pass .status .b -fill x -side top -padx 4 -pady 2",
@@ -241,6 +283,9 @@ MAXIMGH:	con 700;
 EMOJIDIR:	con "/icons/emoji";
 EMOJIPX:	con 16;
 
+# deepest thread reply-indent level (deeper replies share the last margin)
+MAXDEPTH:	con 6;
+
 init(actxt: ref Draw->Context, argv: list of string)
 {
 	sys = load Sys Sys->PATH;
@@ -266,16 +311,43 @@ init(actxt: ref Draw->Context, argv: list of string)
 	selected = -1;
 
 	host = "nicecrew.digital";
+	acctlabel = "";
 	view = "public";
+	explicit := 0;			# a host/account was named on the command line
+	pendingplumb := "";		# a link we were launched to open (from the plumber)
 	for(a := tl argv; a != nil; a = tl a){
 		case hd a {
 		"-home" =>	view = "home";
 		"-public" =>	view = "public";
-		* =>		host = hd a;
+		* =>
+			arg := hd a;
+			if(islink(arg)){
+				pendingplumb = arg;
+				if((h := hostfromlink(arg)) != ""){
+					host = h;
+					acctlabel = h;
+					explicit = 1;
+				}
+			} else {
+				host = arg;
+				acctlabel = arg;
+				explicit = 1;
+			}
 		}
 	}
 
-	sess := masto->loadsession(host);
+	# with no host named, open the first saved account (via the fedifs
+	# namespace, so a fedilogin/ctl login shows up); else the default host.
+	if(!explicit){
+		accts := accounts();
+		if(accts != nil)
+			acctlabel = hd accts;
+		else
+			acctlabel = host;
+	}
+	host = hostfromlabel(acctlabel);
+
+	sess := masto->loadsession(acctlabel);
 	token := "";
 	if(sess != nil)
 		token = sess.token;
@@ -292,6 +364,8 @@ init(actxt: ref Draw->Context, argv: list of string)
 	tk->namechan(window, dsel, "dsel");
 	ctx := chan of string;
 	tk->namechan(window, ctx, "ctx");
+	keyc := chan of string;
+	tk->namechan(window, keyc, "key");
 	# clicks on an embedded emoji-image panel can't reach .view.t's tag
 	# hit-test, so each panel sends "<i> <j>" here to toggle that reaction
 	rtog := chan of string;
@@ -301,6 +375,7 @@ init(actxt: ref Draw->Context, argv: list of string)
 	mktags();
 	tkclient->onscreen(window, nil);
 	tkclient->startinput(window, "kbd" :: "ptr" :: nil);
+	tkcmd(window, "focus .view.t");		# so timeline key bindings fire
 
 	results = chan of ref Result;
 	notifresults = chan of ref NResult;
@@ -310,17 +385,30 @@ init(actxt: ref Draw->Context, argv: list of string)
 	actionresult = chan of (ref Status, string, ref Status);
 	reactresult = chan of (ref Status, ref Status, string);
 	pickresult = chan of (ref Status, string);
+	plumbnav = chan of (int, string);
+	acctresult = chan[1] of string;
+	whoami = chan of ref Account;
 	loginresult := chan of ref Session;
-	whoami := chan of ref Account;
 	nextid = "";
 	curview = "timeline";
+
+	# Become a plumb target: a fediverse URL or @user@host handle clicked
+	# anywhere (acme, charon, the shell, the wm Log) is routed by the plumber
+	# to our "fedi" port and opened here.  See lib/plumbing.
+	plumbmsg = load Plumbmsg Plumbmsg->PATH;
+	if(plumbmsg != nil && plumbmsg->init(1, "fedi", 0) >= 0)
+		spawn plumbreader();
+	if(pendingplumb != "")		# launched to open a specific link
+		spawn doresolve(pendingplumb);
 
 	settitle(titlefor("(loading…)"));
 	spawn fetch(client, view, "", 0, results);
 	if(token != "")			# verify the saved session, show who we are
 		spawn verify(client, whoami);
-	else				# no saved session: offer to log in
+	else {				# no saved session: offer to log in
+		loginopen = 1;
 		spawn logindialog(host, loginresult);
+	}
 
 	for(;;) alt {
 	s := <-window.ctxt.kbd =>
@@ -343,6 +431,8 @@ init(actxt: ref Draw->Context, argv: list of string)
 		doubleclick(xy);
 	xy := <-ctx =>
 		contextclick(xy);
+	kc := <-keyc =>
+		keynav(kc);
 	rt := <-rtog =>
 		(nr, rp) := sys->tokenize(rt, " ");
 		if(nr >= 2){
@@ -386,25 +476,14 @@ init(actxt: ref Draw->Context, argv: list of string)
 			* =>		spawn fetch(client, view, "", 0, results);
 			}
 		"more" =>
-			case curview {
-			"thread" =>
-				settitle(titlefor("(thread has no more pages)"));
-			* =>
-				if(nextid == "")
-					settitle(titlefor("(no more posts)"));
-				else {
-					settitle(titlefor("(loading more…)"));
-					case curview {
-					"notifs" =>	spawn fetchnotifs(client, nextid, 1, notifresults);
-					"profile" =>	if(profacc != nil) spawn fetchprofile(client, profacc.id, nextid, 1, navgen, profresults);
-					* =>		spawn fetch(client, view, nextid, 1, results);
-					}
-				}
-			}
+			loadolder();
 		"back" =>
 			goback();
-		"login" =>
-			spawn logindialog(host, loginresult);
+		"accounts" =>
+			if(!acctopen){
+				acctopen = 1;
+				spawn acctchooser(accounts(), acctresult);
+			}
 		"compose" =>
 			spawn composedialog("", "", postresult);
 		}
@@ -437,15 +516,40 @@ init(actxt: ref Draw->Context, argv: list of string)
 	(ptarget, pemoji) := <-pickresult =>
 		if(pemoji != "")
 			reactdo(ptarget, pemoji, 1);
+	lbl := <-acctresult =>
+		acctopen = 0;		# the chooser has closed
+		if(lbl == "+add"){
+			if(!loginopen){
+				loginopen = 1;
+				spawn logindialog(host, loginresult);
+			}
+		} else if(len lbl > 0 && lbl[0] == '-')
+			logoutacct(lbl[1:]);
+		else if(lbl != "" && lbl != acctlabel)
+			switchaccount(lbl);
+	(kind, id) := <-plumbnav =>
+		# a plumbed link resolved to a status or account; navigate to it
+		navgen++;
+		if(kind == 0)
+			spawn fetchthread(client, id, navgen, threadresults);
+		else
+			spawn fetchprofile(client, id, "", 0, navgen, profresults);
 	newsess := <-loginresult =>
+		loginopen = 0;		# the login dialog has closed
 		if(newsess != nil){
-			host = newsess.host;
+			# dologin set newsess.host to the account label (user@host)
+			acctlabel = newsess.host;
+			host = hostfromlabel(acctlabel);
 			me = "";
 			client = masto->client(host, newsess.token);
 			if((serr := masto->savesession(newsess)) != nil)
 				settitle(titlefor("[save: " + serr + "]"));
 			else {
 				selected = -1;
+				navgen++;
+				curview = "timeline";
+				if(view == "notifs")
+					view = "home";
 				settitle(titlefor("(loading…)"));
 				spawn fetch(client, view, "", 0, results);
 				spawn verify(client, whoami);
@@ -454,6 +558,7 @@ init(actxt: ref Draw->Context, argv: list of string)
 	acc := <-whoami =>
 		if(acc != nil){
 			me = acc.acct;
+			backfillacct(acctlabel, acc.acct);
 			settitle(titlefor(""));
 		}
 	r := <-results =>
@@ -534,11 +639,11 @@ init(actxt: ref Draw->Context, argv: list of string)
 
 # build the title bar text for the current host/view, including the logged-in
 # account when known, plus an optional status suffix
+# the in-window status line: the page plus a transient status (identity lives
+# in the wm title bar now, see wmtitle)
 titlefor(extra: string): string
 {
-	t := host + " — " + view;
-	if(me != "")
-		t += "  (@" + me + ")";
+	t := pagename();
 	if(extra != "")
 		t += "  " + extra;
 	return t;
@@ -632,7 +737,11 @@ logindialog(h: string, out: chan of ref Session)
 	tkclient->startinput(lw, "kbd" :: "ptr" :: nil);
 
 	netresult := chan[1] of ref Session;	# buffered: see mediaviewer
+	oobresult := chan[1] of (string, string, string, string);	# cid,csec,url,err
 	busy := 0;
+	oobmode := 0;				# 1 once we are in code-paste mode
+	oobcid := "";				# the staged OAuth app credentials
+	oobcsec := "";
 	for(;;) alt {
 	k := <-lw.ctxt.kbd =>
 		tk->keyboard(lw, k);
@@ -661,9 +770,57 @@ logindialog(h: string, out: chan of ref Session)
 					spawn dologin(eh, eu, ep, netresult);
 				}
 			}
+		"oob" =>
+			# OAuth authorization-code fallback for instances that reject
+			# the password grant: register an app, open the instance's own
+			# authorize page in Charon, and switch to code-paste mode.
+			if(!busy && !oobmode){
+				eh := tkcmd(lw, ".host get");
+				if(eh == "")
+					tkcmd(lw, ".status configure -text {enter the instance hostname first}");
+				else {
+					tkcmd(lw, ".status configure -text {registering with " + eh + "…}");
+					busy = 1;
+					spawn dobeginoob(eh, oobresult);
+				}
+			}
+		"finish" =>
+			if(!busy && oobmode){
+				eh := tkcmd(lw, ".host get");
+				code := tkcmd(lw, ".code get");
+				if(code == "")
+					tkcmd(lw, ".status configure -text {paste the code shown by the browser}");
+				else {
+					tkcmd(lw, ".status configure -text {finishing login…}");
+					busy = 1;
+					spawn dofinishoob(eh, oobcid, oobcsec, code, netresult);
+				}
+			}
 		"cancel" =>
 			out <-= nil;
 			return;
+		}
+	(ocid, ocsec, ourl, oerr) := <-oobresult =>
+		busy = 0;
+		if(oerr != "" || ourl == "")
+			tkcmd(lw, ".status configure -text {browser login unavailable: " + oerr + "}");
+		else {
+			oobcid = ocid; oobcsec = ocsec; oobmode = 1;
+			launchcharon(ourl);
+			# repurpose the dialog for code paste: drop user/pass, show the
+			# (snarfable) URL and a code field, retask the OK button.
+			tkcmd(lw, "pack forget .ul .user .pl .pass");
+			tkcmd(lw, "entry .url -bg white");
+			tkcmd(lw, ".url insert 0 " + tk->quote(ourl));
+			tkcmd(lw, "bind .url <Button-1> {.url select 0 end; focus .url}");
+			tkcmd(lw, "label .cl -text {Paste code from browser:} -anchor w");
+			tkcmd(lw, "entry .code -bg white");
+			tkcmd(lw, "bind .code <Key-\n> {send b finish}");
+			tkcmd(lw, "pack .url .cl .code -before .status -fill x -side top -padx 4 -pady 2");
+			tkcmd(lw, ".b.ok configure -text Finish -command {send b finish}");
+			tkcmd(lw, ".b.oob configure -state disabled");
+			tkcmd(lw, "focus .code");
+			tkcmd(lw, ".status configure -text {approve in the browser, then paste the code}");
 		}
 	sess := <-netresult =>
 		busy = 0;
@@ -676,7 +833,9 @@ logindialog(h: string, out: chan of ref Session)
 	}
 }
 
-# run the OAuth password grant off the dialog's UI thread; nil on any error
+# run the OAuth password grant off the dialog's UI thread; nil on any error.
+# On success the session's host is set to the account label (user@host) so it
+# persists as its own account, letting several accounts share one instance.
 dologin(h, user, pass: string, out: chan of ref Session)
 {
 	ensurecs();
@@ -684,7 +843,294 @@ dologin(h, user, pass: string, out: chan of ref Session)
 	(sess, err) := masto->login(c, user, pass, "");
 	if(err != nil)
 		sys->fprint(sys->fildes(2), "pleromussy: login: %s\n", err);
+	if(sess != nil){
+		sess.host = localpart(user) + "@" + h;
+		sess.acct = localpart(user);	# best-effort handle; refined on verify
+	}
 	out <-= sess;
+}
+
+# stage the OAuth authorization-code flow off the UI thread: register an app and
+# build the authorize URL.  Delivers (client_id, client_secret, url, err).
+dobeginoob(h: string, out: chan of (string, string, string, string))
+{
+	ensurecs();
+	c := masto->client(h, "");
+	out <-= masto->beginoob(c, "");
+}
+
+# complete the authorization-code flow with the pasted code, then learn the
+# handle so the account persists under its user@host label (like dologin).
+dofinishoob(h, cid, csec, code: string, out: chan of ref Session)
+{
+	ensurecs();
+	c := masto->client(h, "");
+	(sess, err) := masto->finishoob(c, cid, csec, code, "");
+	if(err != nil)
+		sys->fprint(sys->fildes(2), "pleromussy: oob login: %s\n", err);
+	if(sess != nil){
+		c.token = sess.token;
+		(acc, nil) := masto->verifycredentials(c);
+		if(acc != nil){
+			sess.acct = localpart(acc.acct);
+			sess.host = localpart(acc.acct) + "@" + h;
+		} else
+			sess.host = h;		# fall back to the bare host as the label
+	}
+	out <-= sess;
+}
+
+# open a URL in Charon (its own proc/fd set, sharing our Draw context), used to
+# show the instance's OAuth authorize page during browser login.
+launchcharon(url: string)
+{
+	spawn runcharon(url);
+}
+
+runcharon(url: string)
+{
+	sys->pctl(Sys->NEWFD, 0 :: 1 :: 2 :: nil);
+	ch := load Command "/dis/charon.dis";
+	if(ch == nil){
+		sys->fprint(sys->fildes(2), "pleromussy: cannot load charon\n");
+		return;
+	}
+	ch->init(ctxt, "charon" :: url :: nil);
+}
+
+# the real hostname to dial from an account label: the part after the last '@'
+hostfromlabel(label: string): string
+{
+	for(i := len label - 1; i >= 0; i--)
+		if(label[i] == '@')
+			return label[i+1:];
+	return label;
+}
+
+# the local username part of a typed handle (before the first '@')
+localpart(s: string): string
+{
+	if(len s > 0 && s[0] == '@')
+		s = s[1:];
+	for(i := 0; i < len s; i++)
+		if(s[i] == '@')
+			return s[0:i];
+	return s;
+}
+
+# the available accounts: the live fedifs namespace (so a fedilogin/ctl login
+# shows up) unioned with the on-disk session store (so a just-saved GUI account
+# appears even if a running fedifs has not re-enumerated it yet)
+accounts(): list of string
+{
+	out := listdir("/mnt/fedi", 0);
+	for(l := listdir(masto->sessiondir(), 1); l != nil; l = tl l)
+		out = addonce(out, hd l);
+	return out;
+}
+
+addonce(l: list of string, s: string): list of string
+{
+	for(p := l; p != nil; p = tl p)
+		if(hd p == s)
+			return l;
+	return s :: l;
+}
+
+listdir(path: string, stripjson: int): list of string
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	out: list of string;
+	for(;;){
+		(n, d) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(i := 0; i < n; i++){
+			nm := d[i].name;
+			if(nm == "." || nm == "..")
+				continue;
+			if(stripjson){
+				if(len nm > 5 && nm[len nm-5:] == ".json")
+					out = nm[0:len nm-5] :: out;
+			} else
+				out = nm :: out;
+		}
+	}
+	return out;
+}
+
+# switch the active account: rebuild the client from the selected label's saved
+# session and reload the current view for it
+switchaccount(label: string)
+{
+	acctlabel = label;
+	host = hostfromlabel(label);
+	sess := masto->loadsession(label);
+	token := "";
+	if(sess != nil)
+		token = sess.token;
+	client = masto->client(host, token);
+	me = "";
+	history = nil;			# back history belongs to the old account
+	navgen++;
+	nextid = "";
+	selected = -1;
+	if(curview != "notifs")
+		curview = "timeline";
+	settitle(titlefor("(loading…)"));
+	if(curview == "notifs")
+		spawn fetchnotifs(client, "", 0, notifresults);
+	else
+		spawn fetch(client, view, "", 0, results);
+	if(token != "")
+		spawn verify(client, whoami);
+}
+
+# log out an account: drop its saved session (and tell a mounted fedifs to drop
+# its in-memory token too).  If it was the active account, move to another or
+# fall back to anonymous on the same host.
+logoutacct(label: string)
+{
+	masto->deletesession(label);
+	fd := sys->open("/mnt/fedi/" + label + "/ctl", Sys->OWRITE);	# best-effort
+	if(fd != nil){
+		b := array of byte "logout";
+		sys->write(fd, b, len b);
+	}
+	if(label != acctlabel)
+		return;
+	next := "";
+	for(l := accounts(); l != nil; l = tl l)
+		if(hd l != label){
+			next = hd l;
+			break;
+		}
+	if(next != "")
+		switchaccount(next);
+	else {
+		me = "";
+		client = masto->client(host, "");
+		navgen++;
+		selected = -1;
+		settitle(titlefor("(logged out)"));
+		spawn fetch(client, view, "", 0, results);
+	}
+}
+
+# record the verified handle into a saved session that lacks one, so the
+# account chooser can show a username for accounts saved as a bare host
+backfillacct(label, acct: string)
+{
+	if(label == "" || acct == "")
+		return;
+	sess := masto->loadsession(label);
+	if(sess != nil && sess.acct == ""){
+		sess.acct = acct;
+		masto->savesession(sess);
+	}
+}
+
+# Account chooser in its own toplevel: a button per account (the active one
+# marked), plus Add account… and Cancel.  Delivers the chosen label on out,
+# "+add" to open the login dialog, or "" on cancel/close.
+acctchooser(accts: list of string, out: chan of string)
+{
+	acc := array[len accts] of string;
+	j := 0;
+	for(l := accts; l != nil; l = tl l)
+		acc[j++] = hd l;
+
+	(cw, cwc) := tkclient->toplevel(ctxt, nil, "Pleromussy: Accounts", Tkclient->Plain);
+	b := chan of string;
+	tk->namechan(cw, b, "b");
+	tkcmd(cw, "label .l -text {Choose account:} -anchor w");
+	tkcmd(cw, "pack .l -fill x -side top -padx 4 -pady 2");
+	for(i := 0; i < len acc; i++){
+		rf := ".r" + string i;
+		mark := "  ";
+		if(acc[i] == acctlabel)
+			mark = "• ";	# bullet marks the active account
+		tkcmd(cw, "frame " + rf);
+		tkcmd(cw, "button " + rf + ".sel -text " + tk->quote(mark + acctdisplay(acc[i])) +
+			" -anchor w -command {send b a" + string i + "}");
+		tkcmd(cw, "button " + rf + ".out -text {Log out} -command {send b L" + string i + "}");
+		tkcmd(cw, "pack " + rf + ".out -side right");
+		tkcmd(cw, "pack " + rf + ".sel -side left -fill x -expand 1");
+		tkcmd(cw, "pack " + rf + " -fill x -side top -padx 4 -pady 1");
+	}
+	tkcmd(cw, "frame .bf");
+	tkcmd(cw, "button .bf.add -text {Add account…} -command {send b add}");
+	tkcmd(cw, "button .bf.cancel -text Cancel -command {send b cancel}");
+	tkcmd(cw, "pack .bf.cancel .bf.add -side right");
+	tkcmd(cw, "pack .bf -fill x -side top -padx 4 -pady 2");
+	tkcmd(cw, "pack propagate . 0");
+	tkcmd(cw, ". configure -width 360 -height " + string (104 + 30*len acc));
+	tkclient->onscreen(cw, nil);
+	tkclient->startinput(cw, "kbd" :: "ptr" :: nil);
+
+	for(;;) alt {
+	k := <-cw.ctxt.kbd =>
+		tk->keyboard(cw, k);
+	p := <-cw.ctxt.ptr =>
+		tk->pointer(cw, *p);
+	c := <-cw.ctxt.ctl or
+	c = <-cw.wreq or
+	c = <-cwc =>
+		if(c == "exit"){
+			out <-= "";
+			return;
+		}
+		tkclient->wmctl(cw, c);
+	cmd := <-b =>
+		case cmd {
+		"cancel" =>
+			out <-= "";
+			return;
+		"add" =>
+			out <-= "+add";
+			return;
+		* =>
+			# a<i> = select that account, L<i> = log it out
+			if(len cmd > 1 && (cmd[0] == 'a' || cmd[0] == 'L')){
+				idx := int cmd[1:];
+				if(idx >= 0 && idx < len acc){
+					if(cmd[0] == 'L')
+						out <-= "-" + acc[idx];
+					else
+						out <-= acc[idx];
+					return;
+				}
+			}
+		}
+	}
+}
+
+# a friendly display name for an account label: prefer the stored handle, then
+# the user@host's user, else the bare label
+acctdisplay(label: string): string
+{
+	h := hostfromlabel(label);
+	sess := masto->loadsession(label);
+	if(sess != nil && sess.acct != "")
+		return "@" + sess.acct + " (" + h + ")";
+	u := userfromlabel(label);
+	if(u != "")
+		return "@" + u + " (" + h + ")";
+	return label;
+}
+
+# the username part of a "user@host" label ("" for a bare host)
+userfromlabel(label: string): string
+{
+	s := label;
+	if(len s > 0 && s[0] == '@')
+		s = s[1:];
+	for(i := len s - 1; i >= 0; i--)
+		if(s[i] == '@')
+			return s[0:i];
+	return "";
 }
 
 # Compose window in its own toplevel + event loop.  inreply is the id being
@@ -1065,6 +1511,27 @@ goback()
 	settitle(titlefor(""));
 }
 
+# load the next (older) page of the current view and append it.  This is the
+# only pagination affordance now (the inline "load older posts" row and the `m`
+# key both call it); Refresh, by contrast, reloads the view from newest.
+loadolder()
+{
+	if(curview == "thread"){
+		settitle(titlefor("(whole thread shown — Refresh pulls new replies)"));
+		return;
+	}
+	if(nextid == ""){
+		settitle(titlefor("(no older posts)"));
+		return;
+	}
+	settitle(titlefor("(loading older…)"));
+	case curview {
+	"notifs" =>	spawn fetchnotifs(client, nextid, 1, notifresults);
+	"profile" =>	if(profacc != nil) spawn fetchprofile(client, profacc.id, nextid, 1, navgen, profresults);
+	* =>		spawn fetch(client, view, nextid, 1, results);
+	}
+}
+
 # the text index at the top of the viewport, captured before a rebuild so the
 # scroll position can be restored afterward (so "More posts" pagination, which
 # appends at the end and rebuilds the widget, doesn't jump back to the top)
@@ -1099,7 +1566,16 @@ renderblock(i: int, s: ref Status)
 	renderone(i, s);
 	endidx := tkcmd(window, ".view.t index {end -1c}");
 	tkcmd(window, ".view.t tag add s" + string i + " " + startidx + " " + endidx);
-	tkcmd(window, ".view.t tag add POST " + startidx + " " + endidx);
+	# in the thread view a depth tag indents the post into a reply tree; other
+	# views use the flat POST margins
+	ptag := "POST";
+	if(rowdepth != nil && i < len rowdepth){
+		d := rowdepth[i];
+		if(d > MAXDEPTH)
+			d = MAXDEPTH;
+		ptag = "D" + string d;
+	}
+	tkcmd(window, ".view.t tag add " + ptag + " " + startidx + " " + endidx);
 	# the separator newline sits OUTSIDE the s<i> range so clicking it is inert
 	ins(SEPRULE, "SEP");
 }
@@ -1110,19 +1586,34 @@ SEPRULE: con "──────────────────────
 # status's block with a unique s<i> tag so clicks can be mapped back to it
 redraw()
 {
+	rowdepth = nil;
 	statusarr = l2a(statuses);
 	tkcmd(window, ".view.t delete 1.0 end");
 	for(i := 0; i < len statusarr; i++)
 		renderblock(i, statusarr[i]);
+	appendmorerow();
 	if(selected >= 0 && selected < len statusarr)
 		highlight(selected);
 	tkcmd(window, "update");
+}
+
+# append a clickable "load older posts" row when more pages exist (hit-tagged
+# "more", handled in selectat); the only pagination control besides the m key
+appendmorerow()
+{
+	if(nextid == "")
+		return;
+	startidx := tkcmd(window, ".view.t index {end -1c}");
+	ins("↓ load older posts ↓\n", "MORE");
+	endidx := tkcmd(window, ".view.t index {end -1c}");
+	tkcmd(window, ".view.t tag add more " + startidx + " " + endidx);
 }
 
 # the notifications view: a header line per notification, plus the related
 # status as a normal (selectable) block when there is one
 rendernotifs()
 {
+	rowdepth = nil;
 	tkcmd(window, ".view.t delete 1.0 end");
 	tmp := array[len notifs] of ref Status;
 	n := 0;
@@ -1137,6 +1628,7 @@ rendernotifs()
 			ins("\n", "META");
 	}
 	statusarr = tmp[0:n];
+	appendmorerow();
 	if(selected >= 0 && selected < len statusarr)
 		highlight(selected);
 	tkcmd(window, "update");
@@ -1173,6 +1665,7 @@ renderthread()
 {
 	tkcmd(window, ".view.t delete 1.0 end");
 	statusarr = threadarr;
+	rowdepth = threaddepths(threadarr);	# indent replies into a tree
 	for(i := 0; i < len threadarr; i++)
 		renderblock(i, threadarr[i]);
 	if(selected >= 0 && selected < len statusarr)
@@ -1180,10 +1673,42 @@ renderthread()
 	tkcmd(window, "update");
 }
 
+# reply-depth of each status in a thread: follow in_reply_to_id within the
+# thread set; a post whose parent isn't in the set sits at depth 0
+threaddepths(arr: array of ref Status): array of int
+{
+	d := array[len arr] of {* => 0};
+	for(i := 0; i < len arr; i++)
+		d[i] = depthof(arr, i, 0);
+	return d;
+}
+
+depthof(arr: array of ref Status, i, guard: int): int
+{
+	if(arr[i] == nil || guard > 64)
+		return 0;
+	pid := arr[i].in_reply_to_id;
+	if(pid == "")
+		return 0;
+	pi := idindex(arr, pid);
+	if(pi < 0 || pi == i)
+		return 0;
+	return 1 + depthof(arr, pi, guard+1);
+}
+
+idindex(arr: array of ref Status, id: string): int
+{
+	for(i := 0; i < len arr; i++)
+		if(arr[i] != nil && arr[i].id == id)
+			return i;
+	return -1;
+}
+
 # the profile view: an account header (name/handle/bio) then that account's
 # statuses as selectable blocks
 renderprofile()
 {
+	rowdepth = nil;
 	tkcmd(window, ".view.t delete 1.0 end");
 	if(profacc != nil){
 		nm := profacc.display_name;
@@ -1199,6 +1724,7 @@ renderprofile()
 	statusarr = l2a(profarr);
 	for(i := 0; i < len statusarr; i++)
 		renderblock(i, statusarr[i]);
+	appendmorerow();
 	if(selected >= 0 && selected < len statusarr)
 		highlight(selected);
 	tkcmd(window, "update");
@@ -1364,8 +1890,14 @@ selectat(xy: string)
 {
 	tags := tagsat(xy);
 	(px, py) := toplevelxy(xy);
+	# the inline "load older posts" row
+	for(l := tags; l != nil; l = tl l)
+		if(hd l == "more"){
+			loadolder();
+			return;
+		}
 	# a media line takes priority: open the attachment rather than select
-	for(l := tags; l != nil; l = tl l){
+	for(l = tags; l != nil; l = tl l){
 		tag := hd l;
 		if(len tag > 3 && tag[0:3] == "med"){
 			openmedia(tag[3:]);
@@ -1709,6 +2241,44 @@ highlight(i: int)
 		tkcmd(window, ".view.t tag add SEL " + hd t + " " + hd tl t);
 		tkcmd(window, ".view.t see " + hd t);
 	}
+	updatefocusbar(i);
+}
+
+# keyboard navigation of the timeline: move the selection, open/act on it
+keynav(cmd: string)
+{
+	have := selected >= 0 && selected < len statusarr;
+	case cmd {
+	"down" =>	movesel(1);
+	"up" =>		movesel(-1);
+	"top" =>
+		if(len statusarr > 0){
+			selected = 0;
+			highlight(0);
+		}
+	"open" =>	if(have) dispatch(selected, "thread", 0, 0);
+	"fav" =>	if(have) dispatch(selected, "fav", 0, 0);
+	"boost" =>	if(have) dispatch(selected, "boost", 0, 0);
+	"reply" =>	if(have) dispatch(selected, "reply", 0, 0);
+	"profile" =>	if(have) dispatch(selected, "profile", 0, 0);
+	"more" =>	loadolder();
+	}
+}
+
+# move the selection by d posts (clamped), highlighting and scrolling to it
+movesel(d: int)
+{
+	if(len statusarr == 0)
+		return;
+	ni := selected + d;
+	if(selected < 0)
+		ni = 0;
+	if(ni < 0)
+		ni = 0;
+	if(ni >= len statusarr)
+		ni = len statusarr - 1;
+	selected = ni;
+	highlight(selected);
 }
 
 # begin a fav/boost/bookmark on a given status: toggle optimistically,
@@ -1829,6 +2399,70 @@ l2a(l: list of ref Status): array of ref Status
 	return a;
 }
 
+# Receive plumbed links and turn them into navigation.  recv() blocks, and so
+# does the resolve fetch, so both run here off the event loop; the result is
+# handed to the loop on plumbnav.  The message data is a fediverse URL (from
+# the URL plumb rule) or an @user@host handle — masto->resolve maps either to a
+# status or an account via the server's search.
+plumbreader()
+{
+	for(;;){
+		m := Msg.recv();
+		if(m == nil)
+			return;
+		q := string m.data;
+		if(q != "")
+			spawn doresolve(q);	# resolve off this proc; don't stall recv
+	}
+}
+
+# resolve one link/handle and hand the result to the event loop
+doresolve(q: string)
+{
+	ensurecs();
+	(st, acc, nil) := masto->resolve(client, q);
+	if(st != nil)
+		plumbnav <-= (0, st.id);
+	else if(acc != nil)
+		plumbnav <-= (1, acc.id);
+}
+
+# does this argument look like something we can resolve (URL or @user@host)?
+islink(s: string): int
+{
+	if(len s > 0 && s[0] == '@')
+		return 1;
+	for(i := 0; i+2 < len s; i++)
+		if(s[i] == ':' && s[i+1] == '/' && s[i+2] == '/')
+			return 1;
+	return 0;
+}
+
+# pull the host out of a scheme://host/... URL or an @user@host handle
+hostfromlink(s: string): string
+{
+	# @user@host
+	if(len s > 0 && s[0] == '@'){
+		for(i := len s - 1; i > 0; i--)
+			if(s[i] == '@')
+				return s[i+1:];
+		return "";
+	}
+	# scheme://host/...
+	st := 0;
+	for(i := 0; i+2 < len s; i++)
+		if(s[i] == ':' && s[i+1] == '/' && s[i+2] == '/'){
+			st = i+3;
+			break;
+		}
+	if(st == 0)
+		return "";
+	e := st;
+	while(e < len s && s[e] != '/')
+		e++;
+	return s[st:e];
+}
+
 # start ndb/cs if /net/cs isn't already being served, and wait for it
 ensurecs()
 {
@@ -1843,12 +2477,26 @@ ensurecs()
 	if(csspawned)
 		return;
 	csspawned = 1;
+	spawn startcs();
+	for(i := 0; i < 50 && !csup(); i++)
+		sys->sleep(100);
+}
+
+# Start cs with a clean file-descriptor table.  cs does FORKFD|NEWPGRP (cs.b),
+# which would otherwise *copy* — and so pin open — our /chan/wmctl connection to
+# the window manager.  Because cs detaches into its own process group it
+# survives the killgrp we issue when our window closes; that dangling reference
+# then keeps the wm from ever seeing us disconnect, so it never reaps our window
+# — the "hang on close".  Dropping all but the standard fds (cs builds its own
+# service channels and uses the namespace, not inherited fds) breaks the
+# reference so the close is clean.
+startcs()
+{
+	sys->pctl(Sys->NEWFD, 0 :: 1 :: 2 :: nil);
 	cs := load Command "/dis/ndb/cs.dis";
 	if(cs == nil)
 		return;
-	spawn cs->init(nil, "cs" :: nil);
-	for(i := 0; i < 50 && !csup(); i++)
-		sys->sleep(100);
+	cs->init(nil, "cs" :: nil);
 }
 
 csup(): int
@@ -1873,7 +2521,57 @@ ins(s, tag: string)
 
 settitle(s: string)
 {
-	tkcmd(window, ".top.title configure -text " + tk->quote(s));
+	tkcmd(window, ".bot.msg configure -text " + tk->quote(s));
+	tkclient->settitle(window, wmtitle());	# the wm title bar shows the identity
+}
+
+# show the focused post's URL in the snarfable bottom entry
+updatefocusbar(i: int)
+{
+	tkcmd(window, ".bot.url delete 0 end");
+	u := focusurl(i);
+	if(u != "")
+		tkcmd(window, ".bot.url insert 0 " + tk->quote(u));
+}
+
+# the canonical URL of the post at index i (the boosted post for a boost)
+focusurl(i: int): string
+{
+	if(i < 0 || i >= len statusarr)
+		return "";
+	s := statusarr[i];
+	if(s == nil)
+		return "";
+	if(s.reblog != nil)
+		s = s.reblog;
+	if(s.url != "")
+		return s.url;
+	return s.uri;
+}
+
+# a human page name for the current view
+pagename(): string
+{
+	case curview {
+	"notifs" =>	return "Notifications";
+	"thread" =>	return "Thread";
+	"profile" =>	return "Profile";
+	* =>
+		if(view == "home")
+			return "Home";
+		return "Public";
+	}
+}
+
+# the window-manager title bar: "Pleromussy — as @user on Page"
+wmtitle(): string
+{
+	who := acctlabel;
+	if(me != "")
+		who = "@" + me;
+	if(who == "")
+		return "Pleromussy";
+	return "Pleromussy — as " + who + " on " + pagename();
 }
 
 mktags()
@@ -1897,6 +2595,17 @@ mktags()
 	tkcmd(window, ".view.t tag configure RXME -font " + METAFONT +
 		" -foreground #0a2a78 -background #cfe0ff -relief raised -borderwidth 1");
 	tkcmd(window, ".view.t tag configure SEL -background #d7e6ff");
+	# the inline "load older posts" affordance
+	tkcmd(window, ".view.t tag configure MORE -font " + METAFONT +
+		" -foreground #1a4ba0 -justify center -spacing1 4 -spacing3 4");
+	# thread reply-depth: D<d> indents a reply by its depth in the chain so the
+	# thread reads as a tree (used in place of POST in the thread view)
+	for(d := 0; d <= MAXDEPTH; d++){
+		m := 8 + d*16;
+		tkcmd(window, ".view.t tag configure D" + string d +
+			" -lmargin1 " + string m + " -lmargin2 " + string m +
+			" -rmargin 8 -spacing1 3 -spacing3 3");
+	}
 	tkcmd(window, ".view.t tag raise SEL");
 	tkcmd(window, ".view.t tag raise BTN");
 	tkcmd(window, ".view.t tag raise RXN");

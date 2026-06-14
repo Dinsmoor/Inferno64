@@ -165,12 +165,18 @@ verifycredentials(c: ref Client): (ref Account, string)
 	return (a, nil);
 }
 
+# OAuth out-of-band redirect (the instance shows the code instead of
+# redirecting) and the default scope set, shared by the password and
+# authorization-code flows.
+OOB:		con "urn:ietf:wg:oauth:2.0:oob";
+DEFSCOPE:	con "read write follow";
+
 registerapp(c: ref Client, name: string): (string, string, string)
 {
 	body := json->jvobject(
 		("client_name", json->jvstring(name)) ::
-		("redirect_uris", json->jvstring("urn:ietf:wg:oauth:2.0:oob")) ::
-		("scopes", json->jvstring("read write follow")) :: nil);
+		("redirect_uris", json->jvstring(OOB)) ::
+		("scopes", json->jvstring(DEFSCOPE)) :: nil);
 	r := api(c, "POST", "/api/v1/apps", nil, body);
 	if(r.err != "")
 		return ("", "", r.err);
@@ -185,7 +191,7 @@ registerapp(c: ref Client, name: string): (string, string, string)
 passwordlogin(c: ref Client, client_id, client_secret, user, pass, scope: string): (string, string)
 {
 	if(scope == "")
-		scope = "read write follow";
+		scope = DEFSCOPE;
 	body := json->jvobject(
 		("grant_type", json->jvstring("password")) ::
 		("client_id", json->jvstring(client_id)) ::
@@ -212,7 +218,63 @@ login(c: ref Client, user, pass, scope: string): (ref Session, string)
 	(tok, e2) := passwordlogin(c, cid, csec, user, pass, scope);
 	if(e2 != nil)
 		return (nil, e2);
-	return (ref Session(c.host, tok, cid, csec), nil);
+	return (ref Session(c.host, tok, cid, csec, ""), nil);
+}
+
+#
+# Authorization-code ("oob") flow: the fallback for instances that reject the
+# resource-owner password grant.  The user authenticates in a browser against
+# the instance's own /oauth/authorize page (so the app never sees the password)
+# and is shown a one-time code to paste back.
+#
+
+authorizeurl(c: ref Client, client_id, scope: string): string
+{
+	if(scope == "")
+		scope = DEFSCOPE;
+	return "https://" + c.host + "/oauth/authorize" +
+		"?client_id=" + urlencode(client_id) +
+		"&redirect_uri=" + urlencode(OOB) +
+		"&response_type=code" +
+		"&scope=" + urlencode(scope);
+}
+
+codelogin(c: ref Client, client_id, client_secret, code, scope: string): (string, string)
+{
+	if(scope == "")
+		scope = DEFSCOPE;
+	body := json->jvobject(
+		("grant_type", json->jvstring("authorization_code")) ::
+		("client_id", json->jvstring(client_id)) ::
+		("client_secret", json->jvstring(client_secret)) ::
+		("redirect_uri", json->jvstring(OOB)) ::
+		("code", json->jvstring(code)) ::
+		("scope", json->jvstring(scope)) :: nil);
+	r := api(c, "POST", "/oauth/token", nil, body);
+	if(r.err != "")
+		return ("", r.err);
+	if(r.code != 200)
+		return ("", apierr("code login", r));
+	(jv, jerr) := json->readjson(r.body);
+	if(jv == nil)
+		return ("", "json: " + jerr);
+	return (jstr(jv, "access_token"), nil);
+}
+
+beginoob(c: ref Client, scope: string): (string, string, string, string)
+{
+	(cid, csec, e1) := registerapp(c, "pleromussy");
+	if(e1 != nil)
+		return ("", "", "", e1);
+	return (cid, csec, authorizeurl(c, cid, scope), nil);
+}
+
+finishoob(c: ref Client, client_id, client_secret, code, scope: string): (ref Session, string)
+{
+	(tok, e2) := codelogin(c, client_id, client_secret, code, scope);
+	if(e2 != nil)
+		return (nil, e2);
+	return (ref Session(c.host, tok, client_id, client_secret, ""), nil);
 }
 
 #
@@ -243,7 +305,7 @@ loadsession(host: string): ref Session
 	tok := jstr(jv, "access_token");
 	if(tok == "")
 		return nil;
-	return ref Session(host, tok, jstr(jv, "client_id"), jstr(jv, "client_secret"));
+	return ref Session(host, tok, jstr(jv, "client_id"), jstr(jv, "client_secret"), jstr(jv, "acct"));
 }
 
 savesession(s: ref Session): string
@@ -258,10 +320,18 @@ savesession(s: ref Session): string
 	jv := json->jvobject(
 		("access_token", json->jvstring(s.token)) ::
 		("client_id", json->jvstring(s.client_id)) ::
-		("client_secret", json->jvstring(s.client_secret)) :: nil);
+		("client_secret", json->jvstring(s.client_secret)) ::
+		("acct", json->jvstring(s.acct)) :: nil);
 	txt := array of byte jv.text();
 	if(sys->write(fd, txt, len txt) != len txt)
 		return sys->sprint("write %s: %r", path);
+	return "";
+}
+
+deletesession(host: string): string
+{
+	if(sys->remove(sessionpath(host)) < 0)
+		return sys->sprint("remove %s: %r", sessionpath(host));
 	return "";
 }
 
@@ -391,6 +461,41 @@ statuscontext(c: ref Client, id: string): (list of ref Status, list of ref Statu
 	if(!jv.isobject())
 		return (nil, nil, "expected a JSON object");
 	return (statusarray(jget(jv, "ancestors")), statusarray(jget(jv, "descendants")), nil);
+}
+
+resolve(c: ref Client, q: string): (ref Status, ref Account, string)
+{
+	query := ("q", q) :: ("resolve", "true") :: ("limit", "1") :: nil;
+	r := api(c, "GET", "/api/v2/search", query, nil);
+	if(r.err != "")
+		return (nil, nil, r.err);
+	if(r.code != 200)
+		return (nil, nil, apierr("search", r));
+	(jv, jerr) := json->readjson(r.body);
+	if(jv == nil)
+		return (nil, nil, "json: " + jerr);
+	ss := statusarray(jget(jv, "statuses"));
+	if(ss != nil)
+		return (hd ss, nil, nil);
+	as := accountarray(jget(jv, "accounts"));
+	if(as != nil)
+		return (nil, hd as, nil);
+	return (nil, nil, "not found");
+}
+
+# parse a JSON array of account objects, preserving server order
+accountarray(jv: ref JValue): list of ref Account
+{
+	out: list of ref Account;
+	pick x := jv {
+	Array =>
+		for(i := len x.a - 1; i >= 0; i--){
+			a := mkaccount(x.a[i]);
+			if(a != nil)
+				out = a :: out;
+		}
+	}
+	return out;
 }
 
 getaccount(c: ref Client, id: string): (ref Account, string)
@@ -725,7 +830,7 @@ mkstatus(jv: ref JValue): ref Status
 	return ref Status(
 		jstr(jv, "id"), jstr(jv, "created_at"), jstr(jv, "content"),
 		jstr(jv, "spoiler_text"), jstr(jv, "visibility"), jstr(jv, "uri"),
-		jstr(jv, "url"), acct, reblog,
+		jstr(jv, "url"), jstr(jv, "in_reply_to_id"), acct, reblog,
 		jbool(jv, "favourited"), jbool(jv, "reblogged"), jbool(jv, "bookmarked"),
 		jint(jv, "favourites_count"), jint(jv, "reblogs_count"),
 		jint(jv, "replies_count"), parsemedia(jget(jv, "media_attachments")),

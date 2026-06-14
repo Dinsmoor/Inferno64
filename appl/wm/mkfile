@@ -105,3 +105,8 @@ DISBIN=$ROOT/dis/wm
 
 <$ROOT/mkfiles/mkdis
 <$ROOT/mkfiles/mksubdirs
+
+# pleromussy consumes the appl/lib Masto interface (not a SYSMODULE), so it must
+# rebuild when masto.m changes, or a stale interface hash fails the runtime link
+# typecheck (load Masto -> nil).  json.m/imageio.m likewise are not SYSMODULES.
+pleromussy.dis: $MODDIR/masto.m $MODDIR/json.m $MODDIR/imageio.m

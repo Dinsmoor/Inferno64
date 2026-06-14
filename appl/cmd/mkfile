@@ -66,6 +66,8 @@ TARG=\
 	export.dis\
 	fc.dis\
 	fcp.dis\
+	fedifs.dis\
+	fedilogin.dis\
 	fmt.dis\
 	fortune.dis\
 	freq.dis\
@@ -220,7 +222,17 @@ DISBIN=$ROOT/dis
 auhdr.dis: auplay.dis
 	rm -f auhdr.dis && cp auplay.dis auhdr.dis
 
+# Per-target module prerequisites: a .dis must list any non-SYSMODULE .m it
+# uses, so an interface change (which alters the module type hash) forces a
+# rebuild instead of failing the runtime link typecheck (load -> nil).  Keep
+# this comment ABOVE the rules: a comment directly after a "target: deps" line
+# is taken as that target's (empty) recipe and suppresses the %.dis build.
 dbfs.dis: $MODDIR/styxservers.m
+fedifs.dis: $MODDIR/styxservers.m $MODDIR/masto.m $MODDIR/json.m
+mastotest.dis: $MODDIR/masto.m $MODDIR/json.m
+mastologin.dis: $MODDIR/masto.m $MODDIR/json.m
+mastoextra.dis: $MODDIR/masto.m $MODDIR/json.m
+mediatest.dis: $MODDIR/masto.m $MODDIR/json.m
 rawdbfs.dis: $MODDIR/styxservers.m
 import.dis:	$MODDIR/encoding.m $MODDIR/factotum.m
 basename.dis: $MODDIR/names.m

@@ -27,6 +27,7 @@ Masto: module
 		token:		string;
 		client_id:	string;
 		client_secret:	string;
+		acct:		string;		# the logged-in handle, for display ("" if unknown)
 	};
 
 	Account: adt {
@@ -77,6 +78,7 @@ Masto: module
 		visibility:	string;
 		uri:		string;
 		url:		string;
+		in_reply_to_id:	string;		# parent status id ("" if a root post)
 		account:	ref Account;
 		reblog:		cyclic ref Status;	# boost target, nil if not a boost
 		favourited:	int;
@@ -125,12 +127,28 @@ Masto: module
 	# Session ready to hand to savesession.  scope "" defaults as above.
 	login:		fn(c: ref Client, user, pass, scope: string): (ref Session, string);
 
+	# Authorization-code ("oob") flow: the fallback for instances that reject
+	# the password grant.  beginoob registers the app and returns
+	# (client_id, client_secret, authorize_url, err); the caller opens
+	# authorize_url in a browser, the user authenticates on the instance's own
+	# page (the app never sees the password) and is shown a one-time code.
+	# finishoob exchanges that code for a populated Session.  scope ""
+	# defaults as above and MUST match between the two calls.  authorizeurl
+	# and codelogin are the low-level pieces (exposed for reuse/testing).
+	authorizeurl:	fn(c: ref Client, client_id, scope: string): string;
+	codelogin:	fn(c: ref Client, client_id, client_secret, code, scope: string): (string, string);
+	beginoob:	fn(c: ref Client, scope: string): (string, string, string, string);
+	finishoob:	fn(c: ref Client, client_id, client_secret, code, scope: string): (ref Session, string);
+
 	# Token persistence under $home/lib/pleromussy/<host>.json.  loadsession
 	# returns nil if absent/empty; savesession returns "" on success else an
 	# error string (it creates the directory, mode 0600 on the file).
+	sessiondir:	fn(): string;	# the directory holding the per-host JSON sessions
 	sessionpath:	fn(host: string): string;
 	loadsession:	fn(host: string): ref Session;
 	savesession:	fn(s: ref Session): string;
+	# delete a saved session (log out); returns "" on success else an error
+	deletesession:	fn(host: string): string;
 
 	# Verbs (Milestone 1).
 	# instance returns the parsed /api/v1/instance object.
@@ -162,6 +180,13 @@ Masto: module
 	# (GET /api/v1/statuses/<id>/context).  ancestors are root-first; descendants
 	# are the reply subtree, server-ordered.
 	statuscontext:	fn(c: ref Client, id: string): (list of ref Status, list of ref Status, string);
+
+	# resolve looks up an arbitrary fediverse URL or @user@host handle via the
+	# server's search (GET /api/v2/search?resolve=true).  It returns whichever
+	# of (status, account) the query named — a notice URL yields a Status, a
+	# profile URL or handle yields an Account; the other is nil.  Used by the
+	# plumber to open a clicked link.  Requires a token.
+	resolve:	fn(c: ref Client, q: string): (ref Status, ref Account, string);
 
 	# getaccount fetches an account by id (GET /api/v1/accounts/<id>);
 	# accountstatuses returns that account's posts as a timeline page.
