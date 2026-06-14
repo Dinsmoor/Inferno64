@@ -143,6 +143,7 @@ TARG=\
 	tcl_core.dis\
 	tcl_calc.dis\
 	tkclient.dis\
+	tkwidgets.dis\
 	titlebar.dis\
 	translate.dis\
 	ubfa.dis\
@@ -251,3 +252,4 @@ vac.dis:	$ROOT/module/vac.m $ROOT/module/venti.m
 dial.dis:	$ROOT/module/dial.m
 styxflush.dis:	$ROOT/module/styxflush.m
 msgio.dis:	$ROOT/module/msgio.m
+tkwidgets.dis:	$ROOT/module/tkwidgets.m $ROOT/module/tk.m
