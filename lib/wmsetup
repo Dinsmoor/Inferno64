@@ -16,7 +16,9 @@ fn wmrun {
 	{
 		pctl newpgrp
 		fn wmrun
-		$args
+		# report a `fail:` exit (which dies silently otherwise) into the Log
+		# window's `proc` stream; real breaks are caught by the toolbar's procmon
+		rescue '*' { echo wmrun: $args exited: $exception > /chan/proc >[2] /dev/null } { $args }
 	} > /chan/wmstdout >[2] /chan/wmstderr &
 }
 

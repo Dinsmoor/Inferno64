@@ -319,6 +319,11 @@ emuinit(void *imod)
 	putenvqv("emuargs", rebootargv, rebootargc, 1);
 	putenvq("emuroot", rootdir, 1);
 	ksetenv("emuhost", hosttype, 1);
+	{
+		char *hl = getenv("EMUHANGLOG");	/* publish so the GUI can tail it */
+		if(hl != nil && *hl != '\0')
+			ksetenv("emuhanglog", hl, 1);
+	}
 	wdir = malloc(1024);
 	if(wdir != nil){
 		if(getwd(wdir, 1024) != nil)

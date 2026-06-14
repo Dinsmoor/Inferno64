@@ -476,8 +476,46 @@ bufferproc(in, out: chan of string)
 	}
 }
 
+#
+# The Log window is a multi-source console.  Every source contributes a
+# stream of text lines tagged with a short name (the "out"/"err" app streams,
+# the kernel #c/kprint buffer, named logfile(4) buffers under a watched
+# directory, or any extra /chan endpoint).  All sources funnel their text
+# through the single channel `logc` to the one proc that owns the Tk widgets;
+# dynamic sources cannot be added to a static `alt`, so each source runs its
+# own forwarding proc instead.  The window keeps a bounded in-memory transcript
+# so a filter (the search bar at the top, or a click on a source's tag button)
+# can be applied by re-rendering only the matching lines.
+#
 con_cfg := array[] of
 {
+	"frame .ctl",
+	"menubutton .ctl.src -text Sources -menu .srcm -bd 1 -relief raised",
+	"menu .srcm",
+	".srcm add command -text {Tail file...} -command {send logcmd asktail}",
+	".srcm add command -text {Watch directory...} -command {send logcmd askdir}",
+	".srcm add command -text {New /chan endpoint...} -command {send logcmd askchan}",
+	".srcm add command -text {Kernel log (#c/kprint)} -command {send logcmd addkprint}",
+	".srcm add separator",
+	".srcm add command -text {Dump all procs to host file} -command {send logcmd dumpprocs}",
+	".srcm add command -text {Clear transcript} -command {send logcmd clearlog}",
+	"label .ctl.fl -text { Filter:}",
+	"entry .ctl.f -width 20 -bg white",
+	"button .ctl.fc -text Clear -command {send logcmd clearfilter} -bd 1",
+	"pack .ctl.src -side left",
+	"pack .ctl.fl -side left",
+	"pack .ctl.f -side left -fill x -expand 1",
+	"pack .ctl.fc -side left",
+	"bind .ctl.f <Key> +{send logcmd filter}",
+	"frame .ask",
+	"label .ask.l",
+	"entry .ask.e -width 40 -bg white",
+	"button .ask.c -text Cancel -command {send logcmd cancel} -bd 1",
+	"pack .ask.l -side left",
+	"pack .ask.e -side left -fill x -expand 1",
+	"pack .ask.c -side left",
+	"bind .ask.e <Key-\n> {send logcmd submit}",
+	"frame .tags",
 	"frame .cons",
 	"scrollbar .cons.scroll -command {.cons.t yview}",
 	"text .cons.t -width 60w -height 15w -bg white "+
@@ -485,11 +523,42 @@ con_cfg := array[] of
 		"-yscrollcommand {.cons.scroll set}",
 	"pack .cons.scroll -side left -fill y",
 	"pack .cons.t -fill both -expand 1",
+	"pack .ctl -fill x",
+	"pack .tags -fill x",
 	"pack .cons -expand 1 -fill both",
 	"pack propagate . 0",
 	"update"
 };
-nlines := 0;		# transcript length
+
+# distinct foreground colours handed out to sources in arrival order
+palette := array[] of {
+	"#1a4ba0", "#107010", "#a02020", "#806000",
+	"#7020a0", "#008080", "#a0307a", "#404040",
+};
+
+Src: adt {
+	tag:		string;		# source key (display + filter)
+	ttag:		string;		# Tk text-tag carrying the colour
+	button:	string;		# tag button widget path
+	pending:	string;		# partial (newline-incomplete) line buffer
+};
+
+Logline: adt {
+	ttag:	string;
+	tag:	string;
+	text:	string;
+};
+
+sources: array of ref Src;
+nsrc := 0;
+
+logbuf: array of ref Logline;	# bounded transcript ring
+loghead := 0;			# index of oldest entry
+logcount := 0;
+shownlines := 0;		# lines currently in the text widget
+filter := "";			# current search-bar contents (case-insensitive)
+askmode := "";			# pending prompt action, "" when idle
+logc: chan of (string, string);	# (tag, text-chunk) from every source
 
 consoleproc(ctxt: ref Draw->Context, sync: chan of string)
 {
@@ -500,15 +569,22 @@ consoleproc(ctxt: ref Draw->Context, sync: chan of string)
 	}
 	iostderr := sys->file2chan("/chan", "wmstderr");
 	if(iostderr == nil){
-		sync <-= sys->sprint("cannot make /chan/wmstdout: %r");
+		sync <-= sys->sprint("cannot make /chan/wmstderr: %r");
 		return;
 	}
 
 	sync <-= nil;
 
-	(top, titlectl) := tkclient->toplevel(ctxt, "", "Log", tkclient->Appl); 
+	(top, titlectl) := tkclient->toplevel(ctxt, "", "Log", tkclient->Appl);
 	for(i := 0; i < len con_cfg; i++)
 		cmd(top, con_cfg[i]);
+
+	logcmd := chan of string;
+	tk->namechan(top, logcmd, "logcmd");
+
+	sources = array[8] of ref Src;
+	logbuf = array[MAXCONSOLELINES] of ref Logline;
+	logc = chan[256] of (string, string);
 
 	r := tk->rect(top, ".", Tk->Border|Tk->Required);
 	cmd(top, ". configure -x " + string ((top.screenr.dx() - r.dx()) / 2 + top.screenr.min.x) +
@@ -517,6 +593,34 @@ consoleproc(ctxt: ref Draw->Context, sync: chan of string)
 	tkclient->startinput(top, "ptr"::"kbd"::nil);
 	tkclient->onscreen(top, "onscreen");
 	tkclient->wmctl(top, "task");
+
+	# the two app streams that wmsetup's wmrun redirects here
+	ensuresrc(top, "out");
+	ensuresrc(top, "err");
+	spawn fchanproc(iostdout, "out", logc);
+	spawn fchanproc(iostderr, "err", logc);
+
+	# general-purpose ad-hoc log sink: any program can `echo ... >/chan/log`
+	# and have it appear tagged `log`, separate from its stdout/stderr.
+	# (#c/kprint is not opened by default: in hosted emu it is mostly empty,
+	# it is exclusive, and opening it diverts kernel print() from the console;
+	# add it on demand via the Sources menu.)
+	iolog := sys->file2chan("/chan", "log");
+	if(iolog != nil){
+		ensuresrc(top, "log");
+		spawn fchanproc(iolog, "log", logc);
+	}
+
+	# proc-failure stream, tagged `proc`: real breaks (uncaught exceptions)
+	# never reach a shell, so procmon watches /prog for them; `fail:` exits do
+	# reach the launching shell, so wmsetup's wmrun reports those to /chan/proc.
+	ioproc := sys->file2chan("/chan", "proc");
+	if(ioproc != nil){
+		ensuresrc(top, "proc");
+		spawn fchanproc(ioproc, "proc", logc);
+	}
+	spawn procmon(logc);
+	spawn vmtailer(logc);
 
 	for(;;) alt {
 	c := <-titlectl or
@@ -529,40 +633,506 @@ consoleproc(ctxt: ref Draw->Context, sync: chan of string)
 		tk->keyboard(top, c);
 	p := <-top.ctxt.ptr =>
 		tk->pointer(top, *p);
-	(nil, nil, nil, rc) := <-iostdout.read =>
-		if(rc != nil)
-			rc <-= (nil, "inappropriate use of file");
-	(nil, nil, nil, rc) := <-iostderr.read =>
-		if(rc != nil)
-			rc <-= (nil, "inappropriate use of file");
-	(nil, data, nil, wc) := <-iostdout.write =>
-		conout(top, data, wc);
-	(nil, data, nil, wc) := <-iostderr.write =>
-		conout(top, data, wc);
-		if(wc != nil)
+	(tag, chunk) := <-logc =>
+		ingest(top, tag, chunk);
+		if(tag == "err")		# stderr raises the window, as before
 			tkclient->wmctl(top, "untask");
+	m := <-logcmd =>
+		docmd(top, m);
 	}
 }
 
-conout(top: ref Tk->Toplevel, data: array of byte, wc: Sys->Rwrite)
+# dispatch a control message from a menu item, the filter entry, or a tag button
+docmd(top: ref Tk->Toplevel, m: string)
 {
-	if(wc == nil)
+	if(len m > 3 && m[0:3] == "tag"){	# tag<n> button: filter to that source
+		i := int m[3:];
+		if(i >= 0 && i < nsrc){
+			ftext := "[" + sources[i].tag + "]";
+			cmd(top, ".ctl.f delete 0 end");
+			cmd(top, ".ctl.f insert 0 " + tk->quote(ftext));
+			applyfilter(top, ftext);
+		}
 		return;
-
-	s := string data;
-	tk->cmd(top, ".cons.t insert end '"+ s);
-	alt{
-	wc <-= (len data, nil) =>;
-	* =>;
 	}
+	case m {
+	"filter" =>
+		applyfilter(top, cmd(top, ".ctl.f get"));
+	"clearfilter" =>
+		cmd(top, ".ctl.f delete 0 end");
+		applyfilter(top, "");
+	"clearlog" =>
+		loghead = logcount = shownlines = 0;
+		cmd(top, ".cons.t delete 1.0 end; update");
+	"addkprint" =>
+		addfilereader(top, "#c/kprint", "kprint");
+	"dumpprocs" =>
+		spawn dumpprocs();
+	"asktail" =>
+		ask(top, "tailfile", "File to tail:");
+	"askdir" =>
+		ask(top, "watchdir", "Directory to watch:");
+	"askchan" =>
+		ask(top, "addchan", "New /chan name:");
+	"cancel" =>
+		endask(top);
+	"submit" =>
+		v := cmd(top, ".ask.e get");
+		mode := askmode;
+		endask(top);
+		case mode {
+		"tailfile" =>
+			if(v != nil)
+				addfilereader(top, v, basename(v));
+		"watchdir" =>
+			if(v != nil)
+				spawn dirwatcher(v, logc);
+		"addchan" =>
+			if(v != nil)
+				addchanep(top, v);
+		}
+	}
+}
 
+# show the inline prompt row for an action needing a path/name
+ask(top: ref Tk->Toplevel, mode, prompt: string)
+{
+	askmode = mode;
+	cmd(top, ".ask.l configure -text " + tk->quote(prompt));
+	cmd(top, ".ask.e delete 0 end");
+	cmd(top, "pack .ask -after .ctl -fill x");
+	cmd(top, "focus .ask.e; update");
+}
+
+endask(top: ref Tk->Toplevel)
+{
+	askmode = "";
+	cmd(top, "pack forget .ask; update");
+}
+
+# create the source for `tag` if it does not exist; return its index
+ensuresrc(top: ref Tk->Toplevel, tag: string): int
+{
+	for(i := 0; i < nsrc; i++)
+		if(sources[i].tag == tag)
+			return i;
+	if(nsrc >= len sources){
+		ns := array[2 * len sources] of ref Src;
+		ns[0:] = sources;
+		sources = ns;
+	}
+	n := nsrc++;
+	col := palette[n % len palette];
+	s := ref Src(tag, "c" + string n, ".tags.b" + string n, "");
+	sources[n] = s;
+	cmd(top, ".cons.t tag configure " + s.ttag + " -foreground " + col);
+	cmd(top, "button " + s.button + " -text " + tk->quote(tag) +
+		" -command {send logcmd tag" + string n + "} -foreground " + col + " -bd 1");
+	cmd(top, "pack " + s.button + " -side left");
+	cmd(top, "update");
+	return n;
+}
+
+addfilereader(top: ref Tk->Toplevel, path, tag: string)
+{
+	ensuresrc(top, tag);
+	spawn filereader(path, tag, logc);
+}
+
+addchanep(top: ref Tk->Toplevel, name: string)
+{
+	io := sys->file2chan("/chan", name);
+	if(io == nil){
+		ingest(top, "err", sys->sprint("cannot make /chan/%s: %r\n", name));
+		return;
+	}
+	ensuresrc(top, name);
+	spawn fchanproc(io, name, logc);
+}
+
+# accumulate a chunk for `tag`, emitting each completed line into the transcript
+ingest(top: ref Tk->Toplevel, tag, chunk: string)
+{
+	si := ensuresrc(top, tag);
+	s := sources[si];
+	s.pending += chunk;
+	for(;;){
+		nl := strchr(s.pending, '\n');
+		if(nl < 0)
+			break;
+		emit(top, si, s.pending[0:nl]);
+		s.pending = s.pending[nl+1:];
+	}
+	if(len s.pending > Sys->ATOMICIO){	# flush a source that never sends newlines
+		emit(top, si, s.pending);
+		s.pending = "";
+	}
+}
+
+emit(top: ref Tk->Toplevel, si: int, line: string)
+{
+	s := sources[si];
+	ll := ref Logline(s.ttag, s.tag, line);
+	if(logcount < len logbuf){
+		logbuf[(loghead + logcount) % len logbuf] = ll;
+		logcount++;
+	}else{
+		logbuf[loghead] = ll;
+		loghead = (loghead + 1) % len logbuf;
+	}
+	if(matchfilter(ll))
+		renderline(top, ll);
+}
+
+renderline(top: ref Tk->Toplevel, ll: ref Logline)
+{
+	cmd(top, ".cons.t insert end " + tk->quote("[" + ll.tag + "] " + ll.text + "\n") + " " + ll.ttag);
+	if(++shownlines > MAXCONSOLELINES){
+		cmd(top, ".cons.t delete 1.0 " + string (shownlines / 4) + ".0");
+		shownlines -= shownlines / 4;
+	}
+	if(scrolling)
+		cmd(top, ".cons.t see end");
+	cmd(top, "update");
+}
+
+matchfilter(ll: ref Logline): int
+{
+	if(filter == "")
+		return 1;
+	return hasstr(lc("[" + ll.tag + "] " + ll.text), lc(filter));
+}
+
+# rebuild the text widget from the transcript under a new filter
+applyfilter(top: ref Tk->Toplevel, f: string)
+{
+	filter = f;
+	cmd(top, ".cons.t delete 1.0 end");
+	shownlines = 0;
+	for(i := 0; i < logcount; i++){
+		ll := logbuf[(loghead + i) % len logbuf];
+		if(matchfilter(ll)){
+			cmd(top, ".cons.t insert end " +
+				tk->quote("[" + ll.tag + "] " + ll.text + "\n") + " " + ll.ttag);
+			shownlines++;
+		}
+	}
+	cmd(top, ".cons.t see end; update");
+}
+
+scrolling := 1;
+
+# forward a file2chan endpoint's writes into the transcript as tagged text
+fchanproc(io: ref Sys->FileIO, tag: string, c: chan of (string, string))
+{
+	for(;;) alt {
+	(nil, nil, nil, rc) := <-io.read =>
+		if(rc != nil)
+			rc <-= (nil, "inappropriate use of file");
+	(nil, data, nil, wc) := <-io.write =>
+		if(wc == nil)
+			continue;
+		wc <-= (len data, nil);
+		c <-= (tag, string data);
+	}
+}
+
+# tail a file (a logfile(4) buffer or #c/kprint block until more data; a plain
+# file is read once to EOF), forwarding its bytes as tagged text
+filereader(path, tag: string, c: chan of (string, string))
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil){
+		c <-= (tag, sys->sprint("cannot open %s: %r\n", path));
+		return;
+	}
+	buf := array[Sys->ATOMICIO] of byte;
+	while((n := sys->read(fd, buf, len buf)) > 0)
+		c <-= (tag, string buf[0:n]);
+}
+
+EXITSTUCKMS: con 4000;		# in `exiting` this long => kill not reaping it
+
+Watch: adt {
+	pid:	int;
+	state:	string;		# the flagged state we're tracking it in
+	since:	int;		# millisec first seen in that state
+	rpt:	int;		# already reported
+};
+
+# Watch /prog for two failure shapes and report each once into the `proc`
+# stream:
+#   broken  - an uncaught exception (nil deref, bounds, type error, or a raise
+#             not starting with "fail:").  Kept (keepbroken) for post-mortem but
+#             otherwise only announced on the kernel console.  The reason isn't
+#             in /prog for an uncaught break, so the stack frame locates it.
+#   exiting - a proc that a killgrp told to die but that stays in `exiting` for
+#             EXITSTUCKMS.  This is the "hung on close" shape the wm childminder
+#             can't see: an app accepts the close, issues killgrp, then a group
+#             member won't reap (e.g. a fetch proc blocked uninterruptibly).
+procmon(c: chan of (string, string))
+{
+	watch: list of ref Watch;
+	for(;;){
+		now := sys->millisec();
+		nwatch: list of ref Watch;
+		fd := sys->open("/prog", Sys->OREAD);
+		if(fd != nil){
+			for(;;){
+				(n, d) := sys->dirread(fd);
+				if(n <= 0)
+					break;
+				for(i := 0; i < n; i++){
+					pid := int d[i].name;
+					(state, mod) := progstate(pid);
+					if(state != "broken" && state != "exiting")
+						continue;
+					w := findwatch(watch, pid);
+					if(w == nil || w.state != state)
+						w = ref Watch(pid, state, now, 0);
+					nwatch = w :: nwatch;
+					case state {
+					"broken" =>
+						if(!w.rpt){
+							w.rpt = 1;
+							reportbroken(c, pid, mod);
+						}
+					"exiting" =>
+						if(!w.rpt && now - w.since > EXITSTUCKMS){
+							w.rpt = 1;
+							c <-= ("proc", sys->sprint(
+								"*** stuck exiting: pid %d [%s] — killgrp not reaping (%ds)\n",
+								pid, mod, (now - w.since) / 1000));
+						}
+					}
+				}
+			}
+		}
+		watch = nwatch;
+		sys->sleep(500);
+	}
+}
+
+findwatch(l: list of ref Watch, pid: int): ref Watch
+{
+	for(; l != nil; l = tl l)
+		if((hd l).pid == pid)
+			return hd l;
+	return nil;
+}
+
+# (state, module) from /prog/<pid>/status; mirrors wm/task's trailing-token
+# parse (the time field has embedded spaces, but the line always ends
+# STATE SIZE MODULE with MODULE a single whitespace-free token)
+progstate(pid: int): (string, string)
+{
+	s := readfilesmall("/prog/" + string pid + "/status");
+	if(s == nil)
+		return ("", "");
+	(nt, toks) := sys->tokenize(s, " \t\n");
+	if(nt < 3)
+		return ("", "");
+	a := array[nt] of string;
+	for(i := 0; i < nt; i++){
+		a[i] = hd toks;
+		toks = tl toks;
+	}
+	return (a[nt-3], a[nt-1]);
+}
+
+# Snapshot every Dis proc's status + full stack to a host file under $emuroot,
+# reachable from the host without any copy/paste out of the GUI.  One menu click
+# (Sources -> Dump all procs to host file) captures the whole picture of a hang
+# -- the stuck proc, its state, and where its stack is parked.  Runs in its own
+# proc (it may read many stacks) and reports only via logc, never touching Tk.
+dumpprocs()
+{
+	out := "#U/tmp/proghang.txt";		# #U is rooted at $emuroot -> repo/tmp
+	fd := sys->create(out, Sys->OWRITE, 8r644);
+	if(fd == nil){
+		logc <-= ("proc", sys->sprint("dumpprocs: cannot create %s: %r\n", out));
+		return;
+	}
+	dir := sys->open("/prog", Sys->OREAD);
+	if(dir == nil){
+		logc <-= ("proc", "dumpprocs: cannot open /prog\n");
+		return;
+	}
+	count := 0;
+	for(;;){
+		(n, d) := sys->dirread(dir);
+		if(n <= 0)
+			break;
+		for(i := 0; i < n; i++){
+			pid := d[i].name;
+			sys->fprint(fd, "== prog %s ==\n", pid);
+			st := readfilesmall("/prog/" + pid + "/status");
+			if(st != nil)
+				sys->fprint(fd, "%s", st);
+			stk := readwhole("/prog/" + pid + "/stack");
+			if(stk != nil)
+				sys->fprint(fd, "%s", stk);
+			sys->fprint(fd, "\n");
+			count++;
+		}
+	}
+	hostpath := "tmp/proghang.txt";
+	root := getenvval("emuroot");
+	if(root != nil)
+		hostpath = root + "/tmp/proghang.txt";
+	logc <-= ("proc", sys->sprint("dumpprocs: wrote %d procs to %s (host)\n", count, hostpath));
+}
+
+readwhole(path: string): string
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	s := "";
+	buf := array[Sys->ATOMICIO] of byte;
+	while((n := sys->read(fd, buf, len buf)) > 0)
+		s += string buf[0:n];
+	return s;
+}
+
+reportbroken(c: chan of (string, string), pid: int, mod: string)
+{
+	c <-= ("proc", sys->sprint("*** broken: pid %d [%s]\n", pid, mod));
+	where := readfirstline("/prog/" + string pid + "/stack");
+	if(where != "")
+		c <-= ("proc", "        at " + where + "\n");
+	exc := readfirstline("/prog/" + string pid + "/exception");
+	if(exc != "")
+		c <-= ("proc", "        exception: " + exc + "\n");
+}
+
+readfilesmall(path: string): string
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	buf := array[512] of byte;
+	n := sys->read(fd, buf, len buf);
+	if(n <= 0)
+		return nil;
+	return string buf[0:n];
+}
+
+readfirstline(path: string): string
+{
+	s := readfilesmall(path);
+	i := strchr(s, '\n');
+	if(i >= 0)
+		return s[0:i];
+	return s;
+}
+
+
+# Bridge VM-level fault/hang dumps into the `vm` stream.  The emu writes them
+# async-safely to the host file named by $emuhanglog (the EMUHANGLOG env var):
+# such reports fire when the VM itself can't be trusted, so they can't be routed
+# through Dis channels live -- but once the VM recovers (a lost-wakeup dump, an
+# on-demand SIGUSR2 dump) we can tail the host file and republish them.
+#
+# The host file is reachable only through #U, which is rooted at the emu root
+# ($emuroot), so the dump file must live under $emuroot and we strip that prefix
+# to form the #U path.  (A file set outside $emuroot is still captured on the
+# host -- the durable record -- it just can't be mirrored into the GUI.)
+# Seek to the end first so a file accumulated across sessions (opened append)
+# doesn't replay its whole history.
+vmtailer(c: chan of (string, string))
+{
+	path := getenvval("emuhanglog");
+	if(path == nil || path[0] != '/')		# disabled, or not an absolute host path
+		return;
+	root := getenvval("emuroot");
+	if(root == nil || len path <= len root || path[0:len root] != root)
+		return;				# dump file is not under the emu root: unreachable
+	fd := sys->open("#U" + path[len root:], Sys->OREAD);
+	if(fd == nil)
+		return;
+	sys->seek(fd, big 0, Sys->SEEKEND);
+	buf := array[Sys->ATOMICIO] of byte;
+	for(;;){
+		n := sys->read(fd, buf, len buf);
+		if(n > 0)
+			c <-= ("vm", string buf[0:n]);
+		else
+			sys->sleep(1000);		# at EOF: poll for the next dump
+	}
+}
+
+getenvval(name: string): string
+{
+	s := readfilesmall("/env/" + name);
+	while(s != nil && (s[len s - 1] == '\0' || s[len s - 1] == '\n' || s[len s - 1] == ' '))
+		s = s[0:len s - 1];
+	return s;
+}
+
+# poll a directory for new entries, tailing each as a source named by basename
+dirwatcher(dir: string, c: chan of (string, string))
+{
+	seen: list of string;
+	for(;;){
+		fd := sys->open(dir, Sys->OREAD);
+		if(fd != nil){
+			for(;;){
+				(n, d) := sys->dirread(fd);
+				if(n <= 0)
+					break;
+				for(i := 0; i < n; i++){
+					name := d[i].name;
+					if(!inlist(name, seen)){
+						seen = name :: seen;
+						spawn filereader(dir + "/" + name, name, c);
+					}
+				}
+			}
+		}
+		sys->sleep(1000);
+	}
+}
+
+inlist(s: string, l: list of string): int
+{
+	for(; l != nil; l = tl l)
+		if(hd l == s)
+			return 1;
+	return 0;
+}
+
+basename(p: string): string
+{
+	for(i := len p - 1; i >= 0; i--)
+		if(p[i] == '/')
+			return p[i+1:];
+	return p;
+}
+
+strchr(s: string, ch: int): int
+{
 	for(i := 0; i < len s; i++)
-		if(s[i] == '\n')
-			nlines++;
-	if(nlines > MAXCONSOLELINES){
-		cmd(top, ".cons.t delete 1.0 " + string (nlines/4) + ".0; update");
-		nlines -= nlines / 4;
-	}
+		if(s[i] == ch)
+			return i;
+	return -1;
+}
 
-	tk->cmd(top, ".cons.t see end; update");
+lc(s: string): string
+{
+	for(i := 0; i < len s; i++)
+		if(s[i] >= 'A' && s[i] <= 'Z')
+			s[i] = s[i] + ('a' - 'A');
+	return s;
+}
+
+hasstr(h, n: string): int
+{
+	ln := len n;
+	if(ln == 0)
+		return 1;
+	for(i := 0; i + ln <= len h; i++)
+		if(h[i:i+ln] == n)
+			return 1;
+	return 0;
 }

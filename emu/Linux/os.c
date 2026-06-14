@@ -88,6 +88,7 @@ int	faultcrash;		/* EMUCRASH: wild-address fault -> dump + core */
 int	faultmonsec;		/* EMUWATCHDOG: hang threshold (s), 0 disables */
 
 static int faultnullfd = -1;	/* writable /dev/null, for faultprobe() */
+static int hanglogfd = -1;	/* EMUHANGLOG: durable host-side copy of dumps */
 
 static char *disstate[] = {	/* must track enum ProgState in interp.h */
 	"alt", "send", "recv", "debug", "ready", "release", "exiting", "broken",
@@ -98,13 +99,25 @@ static void
 aw(char *s, int n)
 {
 	long r;
+	int left;
 
-	while(n > 0){
-		r = write(2, s, n);
+	/*
+	 * Durable copy of every fault/hang dump.  These reports are async-safe
+	 * writes to fd 2 (the console) precisely because they fire when the VM
+	 * can't be trusted, so they cannot be routed through Dis channels live;
+	 * a host file is the one sink something else can read back afterwards
+	 * (e.g. tailed into the GUI proc log for a recoverable hang).
+	 */
+	if(hanglogfd >= 0)
+		write(hanglogfd, s, n);		/* best-effort; no retry in signal ctx */
+
+	left = n;
+	while(left > 0){
+		r = write(2, s, left);
 		if(r <= 0)
 			break;
 		s += r;
-		n -= r;
+		left -= r;
 	}
 }
 
@@ -435,6 +448,10 @@ faultmoninit(void)
 	char *e;
 
 	faultnullfd = open("/dev/null", O_WRONLY);
+
+	e = getenv("EMUHANGLOG");	/* durable host copy of fault/hang dumps */
+	if(e != nil && *e != 0)
+		hanglogfd = open(e, O_WRONLY|O_CREAT|O_APPEND, 0644);
 
 	e = getenv("EMUCRASH");
 	faultcrash = e != nil;
