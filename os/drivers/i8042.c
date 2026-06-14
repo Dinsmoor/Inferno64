@@ -155,29 +155,42 @@ auxcmd(int c)
 	inb(Data);			/* eat the 0xFA ack */
 }
 
-void
-i8042init(void)
+static void
+cfgset(int kbdint, int auxint)
 {
 	int cfg;
 
+	ctlwait(); outb(Cmd, Ccfgrd);
+	ctlwait(); cfg = inb(Data);
+	cfg &= ~(Cfgkbdint | Cfgauxint);
+	if(kbdint) cfg |= Cfgkbdint;
+	if(auxint) cfg |= Cfgauxint;
+	cfg |= (1<<6);			/* keep set2->set1 translation on */
+	ctlwait(); outb(Cmd, Ccfgwr);
+	ctlwait(); outb(Data, cfg);
+}
+
+void
+i8042init(void)
+{
 	/* flush any stale output */
 	while(inb(Status) & Sobuf)
 		inb(Data);
 
-	/* enable the aux (mouse) port */
+	/* enable the aux (mouse) port; interrupts OFF while we configure */
 	ctlwait(); outb(Cmd, Cauxen);
+	cfgset(0, 0);
 
-	/* config byte: enable both interrupts */
-	ctlwait(); outb(Cmd, Ccfgrd);
-	ctlwait(); cfg = inb(Data);
-	cfg |= Cfgkbdint | Cfgauxint;	/* keep bit6 (set2->set1 translation) on */
-	ctlwait(); outb(Cmd, Ccfgwr);
-	ctlwait(); outb(Data, cfg);
-
-	/* mouse: defaults + enable reporting */
+	/* mouse: defaults + enable reporting (polled; ACKs eaten synchronously
+	 * so a lone 0xFA can't desync the packet handler later) */
 	auxcmd(0xF6);
 	auxcmd(0xF4);
+	while(inb(Status) & Sobuf)
+		inb(Data);
 
+	/* handlers + IOAPIC unmask first, then turn controller interrupts on */
 	intrenable(1, kbdintr, nil, BusCPU, "kbd");
 	intrenable(12, mouseintr, nil, BusCPU, "mouse");
+	cfgset(1, 1);
+	print("i8042: keyboard + mouse enabled\n");
 }

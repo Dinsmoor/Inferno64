@@ -144,15 +144,21 @@ releasecompile(Module *m, int size, Modlink *ml)
 }
 
 /*
- * /dev/random: overrides the weak hook in port/random.c — virtio-rng
- * entropy when the device answers, else 0 so the (glacial) jitter
- * pool takes over.  Without this, /dev/random readers (e.g. lib
- * Random seeding the games' Rand) hang ~forever under qemu.
+ * /dev/random: overrides the weak hook in port/random.c.  This board has
+ * no virtio-rng, so always satisfy the read from genrandom (TSC-seeded
+ * xorshift) — returning <n would drop the reader into port/random.c's
+ * jitter pool, which on qemu/TCG livelocks the whole machine: it tight-
+ * loops calling sched(), and TCG only recognizes the pending LAPIC timer
+ * at a translation-block boundary with interrupts on, which that loop
+ * never reaches, so the timer (and thus preemption) starves system-wide.
+ * Not cryptographically strong; good entropy needs -device virtio-rng or
+ * an RDRAND/RDSEED path.
  */
 int
 hwrandomread(void *buf, ulong n)
 {
-	return virtiorngread(buf, n);
+	genrandom(buf, n);
+	return n;
 }
 
 /*
