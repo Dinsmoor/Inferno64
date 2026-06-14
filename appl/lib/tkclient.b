@@ -60,6 +60,7 @@ toplevel(ctxt: ref Draw->Context, topconfig: string, title: string, buts: int): 
 	readscreenrect(top);
 	c := titlebar->new(top, buts);
 	titlebar->settitle(top, title);
+	wmctl(top, sys->sprint("wtitle %q", title));
 	return (top, c);
 }
 
@@ -108,6 +109,12 @@ wmctl(top: ref Tk->Toplevel, req: string): string
 	"size" =>
 		minsz := titlebar->minsize(top);
 		titlebar->sendctl(top, "!size . -1 " + string minsz.x + " " + string minsz.y);
+	"maximize" =>
+		# toggle maximize/restore; the wm computes the geometry.
+		titlebar->sendctl(top, "!maximize . -1");
+	"snap" =>
+		# snap left|right; the wm computes the half-screen geometry.
+		titlebar->sendctl(top, "!snap . -1 " + req[next:]);
 	"ok" or
 	"help" =>
 		;
@@ -208,7 +215,9 @@ recvimage(top: ref Tk->Toplevel, name, reqid: string)
 
 settitle(top: ref Tk->Toplevel, name: string): string
 {
-	return titlebar->settitle(top, name);
+	old := titlebar->settitle(top, name);
+	wmctl(top, sys->sprint("wtitle %q", name));
+	return old;
 }
 
 handler(top: ref Tk->Toplevel, stop: chan of int)

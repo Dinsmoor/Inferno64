@@ -14,11 +14,11 @@ title_cfg := array[] of {
 	"button .Wm_t.e -bitmap exit.bit -command {send wm_title exit} -takefocus 0",
 	"pack .Wm_t.e -side right",
 	"bind .Wm_t <Button-1> {send wm_title move %X %Y}",
-	"bind .Wm_t <Double-Button-1> {send wm_title lower .}",
+	"bind .Wm_t <Double-Button-1> {send wm_title maximize}",
 	"bind .Wm_t <Motion-Button-1> {}",
 	"bind .Wm_t <Motion> {}",
 	"bind .Wm_t.title <Button-1> {send wm_title move %X %Y}",
-	"bind .Wm_t.title <Double-Button-1> {send wm_title lower .}",
+	"bind .Wm_t.title <Double-Button-1> {send wm_title maximize}",
 	"bind .Wm_t.title <Motion-Button-1> {}",
 	"bind .Wm_t.title <Motion> {}",
 	"bind . <FocusIn> {.Wm_t configure -bg blue;"+
@@ -55,11 +55,25 @@ new(top: ref Tk->Toplevel, buts: int): chan of string
 
 	if(buts & Resize)
 		cmd(top, "button .Wm_t.m -bitmap maxf.bit"+
-			" -command {send wm_title size} -takefocus 0; pack .Wm_t.m -side right");
+			" -command {send wm_title maximize} -takefocus 0; pack .Wm_t.m -side right");
 
 	if(buts & Help)
 		cmd(top, "button .Wm_t.h -bitmap help.bit"+
 			" -command {send wm_title help} -takefocus 0; pack .Wm_t.h -side right");
+
+	# right-click window-operations menu
+	cmd(top, "menu .Wm_tmenu");
+	if(buts & Resize){
+		cmd(top, ".Wm_tmenu add command -command {send wm_title maximize} -label {Maximize / Restore}");
+		cmd(top, ".Wm_tmenu add command -command {send wm_title snap left} -label {Snap left}");
+		cmd(top, ".Wm_tmenu add command -command {send wm_title snap right} -label {Snap right}");
+	}
+	if(buts & Hide)
+		cmd(top, ".Wm_tmenu add command -command {send wm_title task} -label {Minimize}");
+	cmd(top, ".Wm_tmenu add separator");
+	cmd(top, ".Wm_tmenu add command -command {send wm_title exit} -label {Close}");
+	cmd(top, "bind .Wm_t <Button-3> {.Wm_tmenu post %X %Y}");
+	cmd(top, "bind .Wm_t.title <Button-3> {.Wm_tmenu post %X %Y}");
 
 	# pack the title last so it gets clipped first
 	cmd(top, "pack .Wm_t.title -side left");

@@ -120,7 +120,10 @@ wm(ctlio: ref Sys->FileIO,
 				-1,
 				fid,
 				fid,			# token; XXX could be random integer + fid
-				newwmcontext()
+				newwmcontext(),
+				"",			# title
+				0,			# ws (wm sets on join)
+				1			# vis
 			);
 			clients = addclient(clients, c);
 		}
@@ -421,7 +424,7 @@ Client.setimage(c: self ref Client, tag: string, img: ref Draw->Image): int
 	if(w != nil)
 		win = hd w;
 	else{
-		win = ref Window(tag, ZR, nil);
+		win = ref Window(tag, ZR, nil, 0, ZR);
 		c.wins = win :: c.wins;
 	}
 	win.img = img;
@@ -528,7 +531,7 @@ Client.remove(c: self ref Client)
 find(p: Draw->Point): ref Client
 {
 	for(z := zorder; z != nil; z = z.znext)
-		if(z.contains(p))
+		if(z.vis && z.contains(p))
 			return z;
 	return nil;
 }

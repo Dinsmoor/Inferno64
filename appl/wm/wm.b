@@ -26,11 +26,22 @@ Sminx, Sminy, Smaxx, Smaxy: con iota;
 Minx, Miny, Maxx, Maxy: con 1<<iota;
 Background: con int 16r777777FF;
 
+Handle: con 5;		# px grab margin at a window edge for direct resize
+Snapdist: con 16;	# px: snap a dragged window edge flush to the work-area edge
+Edgezone: con 12;	# px: pointer this close to a work-area edge arms an aero snap
+Minwinx: con 60;	# smallest window the wm will resize a window to
+Minwiny: con 28;
+ZR: con Rect((0, 0), (0, 0));
+
+Nws: con 4;		# number of virtual workspaces
+Allws: con -1;		# a client pinned to every workspace (the toolbar)
+
 screen: ref Screen;
 display: ref Display;
 ptrfocus: ref Client;
 kbdfocus: ref Client;
 controller: ref Client;
+curws := 0;		# currently shown workspace
 allowcontrol := 1;
 fakekbd: chan of string;
 fakekbdin: chan of string;
@@ -125,10 +136,28 @@ init(ctxt: ref Draw->Context, argv: list of string)
 			break;
 		if(p.buttons && (ptrfocus == nil || buttons == 0)){
 			c := wmsrv->find(p.xy);
-			if(c != nil){
+			if(c == nil){
+				# bare desktop: button 3 opens the context menu.
+				if(p.buttons == 4)
+					controlevent(sys->sprint("popup %d %d", p.xy.x, p.xy.y));
+			}else{
 				ptrfocus = c;
 				c.ctl <-= "raise";
 				setfocus(win, c);
+				# grab a window border directly to resize, the
+				# modern way -- left button only (right button is the
+				# window menu), and never the toolbar (controller).
+				if(c != controller && p.buttons == 1){
+					w := c.window(".");
+					if(w != nil && w.img != nil && p.xy.in(w.r)){
+						move := edgeat(w.r, p.xy);
+						if(move != 0){
+							edgeresize(wmctxt.ptr, c, w, move, *p);
+							buttons = 0;
+							break;
+						}
+					}
+				}
 			}
 		}
 		if(ptrfocus != nil && (ptrfocus.flags & Ptrstarted) != 0){
@@ -143,12 +172,20 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		# new client; inform it of the available screen rectangle.
 		# XXX do we need to do this now we've got wmrect?
 		c.ctl <-= "rect " + r2s(screen.image.r);
+		c.vis = 1;
 		if(allowcontrol){
 			controller = c;
 			c.flags |= Controller;
+			c.ws = Allws;			# toolbar shows on every workspace
 			allowcontrol = 0;
-		}else
+		}else{
+			c.ws = curws;
 			controlevent("newclient " + string c.id);
+			if(c.title != nil)
+				controlevent(sys->sprint("wtitle %d %q", c.id, c.title));
+			controlevent(sys->sprint("wworkspace %d %d", c.id, c.ws));
+		}
+		controlevent(sys->sprint("curworkspace %d %d", curws, Nws));
 		c.cursor = "cursor";
 	(c, data, rc) := <-req =>
 		# if client leaving
@@ -164,7 +201,7 @@ init(ctxt: ref Draw->Context, argv: list of string)
 				controller = nil;
 			controlevent("delclient " + string c.id);
 			for(z := wmsrv->top(); z != nil; z = z.znext)
-				if(z.flags & Kbdstarted)
+				if(z.vis && (z.flags & Kbdstarted))
 					break;
 			setfocus(win, z);
 			c.stop <-= 1;
@@ -252,6 +289,16 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 			if((c.flags & Controller) == 0)
 				return "control not available";
 			c.flags |= Controlstarted;
+			# bring the controller up to date on existing clients + workspace.
+			for(z := wmsrv->top(); z != nil; z = z.znext){
+				if(z == c)
+					continue;
+				controlevent("newclient " + string z.id);
+				if(z.title != nil)
+					controlevent(sys->sprint("wtitle %d %q", z.id, z.title));
+				controlevent(sys->sprint("wworkspace %d %d", z.id, z.ws));
+			}
+			controlevent(sys->sprint("curworkspace %d %d", curws, Nws));
 		* =>
 			return "unknown input source";
 		}
@@ -284,6 +331,9 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 				return "unkown placement method";
 			}
 		}
+		# an explicit reshape from the client overrides any maximize state.
+		if((mw := c.window(tag)) != nil)
+			mw.maxed = 0;
 		return reshape(c, tag, r);
 	"delete" =>
 		# delete tag
@@ -312,12 +362,45 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 		if(ismove){
 			if(n != 5)
 				return "bad arg count";
-			return dragwin(wmctxt.ptr, c, w, Point(int hd args, int hd tl args).sub(w.r.min));
+			return dragwin(wmctxt.ptr, c, w, Point(int hd args, int hd tl args));
 		}else{
 			if(n != 5)
 				return "bad arg count";
 			sizewin(wmctxt.ptr, c, w, Point(int hd args, int hd tl args));
 		}
+	"!maximize" =>
+		# !maximize tag reqid -- toggle maximize/restore.
+		if(n < 3)
+			return "bad arg count";
+		args = tl args;
+		tag := hd args;
+		w := c.window(tag);
+		if(w == nil)
+			return "no such tag";
+		return togglemax(c, w);
+	"!snap" =>
+		# !snap tag reqid side -- tile the window to a work-area half.
+		if(n < 4)
+			return "bad arg count";
+		args = tl args;
+		tag := hd args; args = tl args;
+		args = tl args;			# skip reqid
+		w := c.window(tag);
+		if(w == nil)
+			return "no such tag";
+		wa := workarea();
+		hx := (wa.min.x + wa.max.x) / 2;
+		r: Rect;
+		case hd args {
+		"left" =>	r = (wa.min, (hx, wa.max.y));
+		"right" =>	r = ((hx, wa.min.y), wa.max);
+		"max" =>	r = wa;
+		* =>		return "bad snap side";
+		}
+		if(w.maxed == 0)
+			w.normalr = w.r;
+		w.maxed = 1;
+		return reshape(c, w.tag, r);
 	"fixedorigin" =>
 		c.flags |= Fixedorigin;
 	"rect" =>
@@ -325,10 +408,18 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 	"kbdfocus" =>
 		if(n != 2)
 			return "bad arg count";
-		if(int hd tl args)
+		if(int hd tl args){
+			if(c.vis == 0)			# raising a window from another workspace
+				switchws(win, c.ws);	# follows it there
 			setfocus(win, c);
-		else if(c == kbdfocus)
+		}else if(c == kbdfocus)
 			setfocus(win, nil);
+	"wtitle" =>
+		# wtitle {title} -- client records its window title (quoted) for menus.
+		if(n >= 2){
+			c.title = hd tl args;
+			controlevent(sys->sprint("wtitle %d %q", c.id, c.title));
+		}
 	# controller specific messages:
 	"request" =>		# can be used to test for control.
 		if((c.flags & Controller) == 0)
@@ -346,6 +437,28 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 		if(z == nil)
 			return "no such client";
 		z.ctl <-= str->quoted(tl tl args);
+	"workspace" =>
+		# workspace n -- switch the shown workspace (controller only).
+		if((c.flags & Controlstarted) == 0)
+			return "invalid request";
+		if(n != 2)
+			return "bad arg count";
+		switchws(win, int hd tl args);
+	"sendto" =>
+		# sendto id n -- move a client to workspace n (controller only).
+		if((c.flags & Controlstarted) == 0)
+			return "invalid request";
+		if(n != 3)
+			return "bad arg count";
+		sendtows(win, int hd tl args, int hd tl tl args);
+	"cascade" =>
+		if((c.flags & Controlstarted) == 0)
+			return "invalid request";
+		cascade();
+	"minall" =>
+		if((c.flags & Controlstarted) == 0)
+			return "invalid request";
+		minall();
 	"endcontrol" =>
 		if(c != controller)
 			return "invalid request";
@@ -399,35 +512,326 @@ controlevent(e: string)
 		controller.ctl <-= e;
 }
 
-dragwin(ptr: chan of ref Pointer, c: ref Client, w: ref Window, off: Point): string
+dragwin(ptr: chan of ref Pointer, c: ref Client, w: ref Window, start: Point): string
 {
 	if(buttons == 0)
 		return "too late";
-	p: ref Pointer;
 	scr := screen.image.r;
+	wa := workarea();
 	Margin: con 10;
+
+	# geometry to restore to if this drag ends in an aero snap.
+	wasmax := w.maxed;
+	restorer := w.r;
+	if(wasmax)
+		restorer = w.normalr;
+
+	off := start.sub(w.r.min);
+	sz := w.r.size();
+	borders := array[4] of ref Image;
+	pvis := 0;
+	snap: Rect;
+	snapping := 0;
+	# a stationary click is not a drag: don't move, snap, or un-maximize until
+	# the pointer actually travels.  this keeps the first Button-1 of a
+	# double-click (which Tk delivers before Double-Button-1) a clean no-op, so
+	# double-click-maximize toggles exactly once even when the title bar already
+	# sits in the top aero zone.
+	Dragthresh: con 5;
+	moved := 0;
+	p: ref Pointer;
 	do{
 		p = <-ptr;
-		org := p.xy.sub(off);
-		if(org.y < scr.min.y)
-			org.y = scr.min.y;
-		else if(org.y > scr.max.y - Margin)
-			org.y = scr.max.y - Margin;
-		if(org.x < scr.min.x && org.x + w.r.dx() < scr.min.x + Margin)
-			org.x = scr.min.x + Margin - w.r.dx();
-		else if(org.x > scr.max.x - Margin)
-			org.x = scr.max.x - Margin;
-		w.img.origin(w.img.r.min, org);
+		if(!moved && (abs(p.xy.x - start.x) > Dragthresh || abs(p.xy.y - start.y) > Dragthresh))
+			moved = 1;
+		if(moved){
+			org := p.xy.sub(off);
+			if(org.y < scr.min.y)
+				org.y = scr.min.y;
+			else if(org.y > scr.max.y - Margin)
+				org.y = scr.max.y - Margin;
+			if(org.x < scr.min.x && org.x + sz.x < scr.min.x + Margin)
+				org.x = scr.min.x + Margin - sz.x;
+			else if(org.x > scr.max.x - Margin)
+				org.x = scr.max.x - Margin;
+			# flush-snap window edges to the work area (not while a maximized
+			# window is still at full size and following the cursor).
+			if(!wasmax)
+				org = edgealign(org, sz, wa);
+			w.img.origin(w.img.r.min, org);
+			# arm an aero snap (and preview it) when the pointer reaches an edge.
+			(snap, snapping) = aerozone(p.xy, wa);
+		}
+		if(snapping){
+			showborders(borders, snap, Minx|Miny|Maxx|Maxy);
+			pvis = 1;
+		}else if(pvis){
+			hideborders(borders);
+			pvis = 0;
+		}
 	} while (p.buttons != 0);
+	if(pvis)
+		hideborders(borders);
 	c.ptr <-= p;
 	buttons = 0;
+
+	if(!moved)
+		return "not moved";
+	if(snapping){
+		w.normalr = restorer;
+		w.maxed = 1;
+		return reshape(c, w.tag, snap);
+	}
+	if(wasmax){
+		# dropped without snapping: restore to normal size under the cursor.
+		relx := off.x;
+		if(w.r.dx() > 1)
+			relx = off.x * restorer.dx() / w.r.dx();
+		rely := off.y;
+		if(rely >= restorer.dy())
+			rely = restorer.dy() / 2;
+		neworg := p.xy.sub(Point(relx, rely));
+		w.maxed = 0;
+		return reshape(c, w.tag, fitrect((neworg, neworg.add(restorer.size())), scr));
+	}
 	r: Rect;
 	r.min = p.xy.sub(off);
-	r.max = r.min.add(w.r.size());
+	r.max = r.min.add(sz);
 	if(r.eq(w.r))
 		return "not moved";
-	reshape(c, w.tag, r);
+	return reshape(c, w.tag, r);
+}
+
+# toggle a window between its normal geometry and the maximized work area.
+togglemax(c: ref Client, w: ref Window): string
+{
+	if(w.maxed){
+		w.maxed = 0;
+		return reshape(c, w.tag, fitrect(w.normalr, screen.image.r));
+	}
+	w.normalr = w.r;
+	w.maxed = 1;
+	return reshape(c, w.tag, workarea());
+}
+
+# show or hide all of a client's windows by re-pointing them on/off screen.
+# this only moves the physical (scr) origin, leaving each window's logical
+# rectangle in place, so geometry and maximize state survive a workspace round
+# trip and the client never has to redraw.
+showclient(c: ref Client, show: int)
+{
+	off := screen.image.r.max;
+	for(wl := c.wins; wl != nil; wl = tl wl){
+		w := hd wl;
+		if(w.img == nil)
+			continue;
+		if(show)
+			w.img.origin(w.img.r.min, w.img.r.min);
+		else
+			w.img.origin(w.img.r.min, off);
+	}
+	c.vis = show;
+}
+
+# pick the topmost focusable client on the current workspace (nil if none).
+topvisible(): ref Client
+{
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		if(z.vis && z != controller && (z.flags & Kbdstarted))
+			return z;
 	return nil;
+}
+
+switchws(win: ref Wmclient->Window, n: int)
+{
+	if(n < 0 || n >= Nws || n == curws)
+		return;
+	old := curws;
+	curws = n;
+	for(z := wmsrv->top(); z != nil; z = z.znext){
+		if(z == controller || z.ws == Allws)
+			continue;
+		if(z.ws == n && z.vis == 0)
+			showclient(z, 1);
+		else if(z.ws == old && z.vis != 0)
+			showclient(z, 0);
+	}
+	if(kbdfocus != nil && kbdfocus.vis == 0)
+		setfocus(win, topvisible());
+	screen.image.flush(Draw->Flushnow);
+	controlevent(sys->sprint("curworkspace %d %d", curws, Nws));
+}
+
+sendtows(win: ref Wmclient->Window, id, n: int)
+{
+	if(n < 0 || n >= Nws)
+		return;
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		if(z.id == id)
+			break;
+	if(z == nil || z == controller || z.ws == Allws)
+		return;
+	z.ws = n;
+	controlevent(sys->sprint("wworkspace %d %d", z.id, z.ws));
+	if(n == curws && z.vis == 0)
+		showclient(z, 1);
+	else if(n != curws && z.vis != 0){
+		showclient(z, 0);
+		if(z == kbdfocus)
+			setfocus(win, topvisible());
+	}
+	screen.image.flush(Draw->Flushnow);
+}
+
+# stagger every visible window from the top-left of the work area.
+cascade()
+{
+	wa := workarea();
+	step := 24;
+	i := 0;
+	for(z := wmsrv->top(); z != nil; z = z.znext){
+		if(z == controller || z.vis == 0)
+			continue;
+		w := z.window(".");
+		if(w == nil)
+			continue;
+		sz := w.r.size();
+		o := Point(wa.min.x + i*step, wa.min.y + i*step);
+		if(o.x + sz.x > wa.max.x)
+			o.x = wa.min.x;
+		if(o.y + sz.y > wa.max.y)
+			o.y = wa.min.y;
+		z.ctl <-= sys->sprint("!reshape %q -1 %s", w.tag, r2s((o, o.add(sz))));
+		i++;
+	}
+}
+
+# minimize every visible window (each client iconifies itself to the toolbar).
+minall()
+{
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		if(z != controller && z.vis != 0)
+			z.ctl <-= "task";
+}
+
+# the screen area not occupied by the toolbar (the wm's controller client,
+# docked as a full-width strip top or bottom).  maximize and aero snap fill
+# this so the toolbar stays reachable.
+workarea(): Rect
+{
+	r := screen.image.r;
+	if(controller != nil){
+		for(wl := controller.wins; wl != nil; wl = tl wl){
+			tb := (hd wl).r;
+			if(tb.dx() < r.dx() - 2)
+				continue;		# not a full-width strut
+			if(tb.min.y <= r.min.y + 2 && tb.max.y < r.max.y){
+				if(tb.max.y > r.min.y)
+					r.min.y = tb.max.y;		# docked at top
+			}else if(tb.max.y >= r.max.y - 2 && tb.min.y > r.min.y){
+				if(tb.min.y < r.max.y)
+					r.max.y = tb.min.y;		# docked at bottom
+			}
+		}
+	}
+	return r;
+}
+
+# which snap, if any, the pointer is requesting by hugging a work-area edge.
+# corners tile to a quarter, the top edge maximizes, the sides take a half.
+aerozone(xy: Point, wa: Rect): (Rect, int)
+{
+	hx := (wa.min.x + wa.max.x) / 2;
+	hy := (wa.min.y + wa.max.y) / 2;
+	atleft := xy.x <= wa.min.x + Edgezone;
+	atright := xy.x >= wa.max.x - Edgezone;
+	attop := xy.y <= wa.min.y + Edgezone;
+	atbot := xy.y >= wa.max.y - Edgezone;
+	if(attop && atleft)
+		return (Rect(wa.min, (hx, hy)), 1);			# top-left quarter
+	if(attop && atright)
+		return (Rect((hx, wa.min.y), (wa.max.x, hy)), 1);	# top-right quarter
+	if(atbot && atleft)
+		return (Rect((wa.min.x, hy), (hx, wa.max.y)), 1);	# bottom-left quarter
+	if(atbot && atright)
+		return (Rect((hx, hy), wa.max), 1);			# bottom-right quarter
+	if(attop)
+		return (wa, 1);						# top: maximize
+	if(atleft)
+		return (Rect(wa.min, (hx, wa.max.y)), 1);		# left half
+	if(atright)
+		return (Rect((hx, wa.min.y), wa.max), 1);		# right half
+	return (ZR, 0);
+}
+
+# pull a window's edges flush to the work area when they come close.
+edgealign(org: Point, sz: Point, wa: Rect): Point
+{
+	if(abs(org.x - wa.min.x) <= Snapdist)
+		org.x = wa.min.x;
+	else if(abs(org.x + sz.x - wa.max.x) <= Snapdist)
+		org.x = wa.max.x - sz.x;
+	if(abs(org.y - wa.min.y) <= Snapdist)
+		org.y = wa.min.y;
+	else if(abs(org.y + sz.y - wa.max.y) <= Snapdist)
+		org.y = wa.max.y - sz.y;
+	return org;
+}
+
+# which window edges a press at p wants to drag, given the grab margin.
+# the top edge coincides with the title bar, so it only grabs at the corners;
+# the rest of the title bar's top stays free for move and double-click-maximize.
+edgeat(r: Rect, p: Point): int
+{
+	e := 0;
+	if(p.x <= r.min.x + Handle)
+		e |= Minx;
+	else if(p.x >= r.max.x - Handle)
+		e |= Maxx;
+	if(p.y >= r.max.y - Handle)
+		e |= Maxy;
+	else if(p.y <= r.min.y + Handle && (e & (Minx|Maxx)) != 0)
+		e |= Miny;
+	return e;
+}
+
+# interactive resize started by grabbing a window border directly.  this is
+# wm-initiated, so the new geometry is pushed to the client over its ctl
+# channel (it then drives the image handshake) rather than reshaped here.
+edgeresize(ptrc: chan of ref Pointer, c: ref Client, w: ref Window, move: int, p0: Pointer): string
+{
+	borders := array[4] of ref Image;
+	showborders(borders, w.r, Minx|Miny|Maxx|Maxy);
+	screen.image.flush(Draw->Flushnow);
+	r := w.r;
+	offset := Point(0, 0);
+	if(move & Minx)
+		offset.x = p0.xy.x - r.min.x;
+	else if(move & Maxx)
+		offset.x = p0.xy.x - r.max.x;
+	if(move & Miny)
+		offset.y = p0.xy.y - r.min.y;
+	else if(move & Maxy)
+		offset.y = p0.xy.y - r.max.y;
+	nr := sweep(ptrc, r, offset, borders, move, Minx|Miny|Maxx|Maxy, Point(Minwinx, Minwiny));
+	hideborders(borders);
+	w.maxed = 0;
+	c.ctl <-= sys->sprint("!reshape %q -1 %s", w.tag, r2s(nr));
+	return nil;
+}
+
+hideborders(b: array of ref Image)
+{
+	for(i := 0; i < len b; i++)
+		b[i] = nil;
+	screen.image.flush(Draw->Flushnow);
+}
+
+abs(x: int): int
+{
+	if(x < 0)
+		return -x;
+	return x;
 }
 
 sizewin(ptrc: chan of ref Pointer, c: ref Client, w: ref Window, minsize: Point): string
@@ -478,6 +882,10 @@ reshape(c: ref Client, tag: string, r: Rect): string
 			return "can't do two at once";
 	}
 	c.top();
+	# a client living on another workspace must stay off-screen even if it
+	# reshapes itself in the background.
+	if(c.vis == 0)
+		showclient(c, 0);
 	return nil;
 }
 

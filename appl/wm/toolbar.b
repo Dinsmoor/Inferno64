@@ -14,6 +14,8 @@ include "sh.m";
 include "string.m";
 	str: String;
 include "arg.m";
+include "daytime.m";
+	daytime: Daytime;
 
 myselfbuiltin: Shellbuiltin;
 
@@ -39,6 +41,23 @@ defaultscript :=
 
 tbtop: ref Tk->Toplevel;
 screenr: Rect;
+
+# command run by the desktop menu's "New shell" entry.
+NEWSHELL: con "{autoload=std; load $autoload; pctl newpgrp; wm/sh}&";
+
+Nws: con 4;
+
+# window list mirrored from the wm, for the desktop context menu.
+Win: adt {
+	id:	int;
+	title:	string;
+	ws:	int;
+};
+wins: list of ref Win;
+curworkspace := 0;
+nworkspaces := Nws;
+pagerbuilt := 0;
+wmcmd: chan of string;		# desktop/pager menu actions -> wm verbs
 
 badmodule(p: string)
 {
@@ -68,6 +87,7 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	shell = load Sh Sh->PATH;
 	if (shell == nil)
 		badmodule(Sh->PATH);
+	daytime = load Daytime Daytime->PATH;	# optional: clock degrades gracefully
 	arg := load Arg Arg->PATH;
 	if (arg == nil)
 		badmodule(Arg->PATH);
@@ -130,9 +150,19 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	donesetup := 0;
 	spawn setup(shctxt, setupfinished);
 
+	tick := chan of int;
+	if (daytime != nil) {
+		updateclock();
+		spawn clockproc(tick);
+	}
+
 	snarf: array of byte;
 #	write("/prog/"+string sys->pctl(0, nil)+"/ctl", "restricted"); # for testing
 	for(;;) alt{
+	<-tick =>
+		updateclock();
+	dc := <-wmcmd =>
+		wmaction(dc);
 	k := <-tbtop.ctxt.kbd =>
 		tk->keyboard(tbtop, k);
 	m := <-tbtop.ctxt.ptr =>
@@ -201,10 +231,33 @@ wmctl(top: ref Tk->Toplevel, c: string)
 			sys->fprint(sys->fildes(2), "toolbar: bad wmctl request %#q: %s\n", c, err);
 	"newclient" =>
 		# newclient id
-		;
+		if(n >= 2)
+			addwin(int hd tl args);
 	"delclient" =>
 		# delclient id
-		deiconify(hd tl args);
+		if(n >= 2){
+			delwin(int hd tl args);
+			deiconify(hd tl args);
+		}
+	"wtitle" =>
+		# wtitle id {title}
+		if(n >= 3)
+			setwintitle(int hd tl args, hd tl tl args);
+	"wworkspace" =>
+		# wworkspace id ws
+		if(n >= 3)
+			setwinws(int hd tl args, int hd tl tl args);
+	"curworkspace" =>
+		# curworkspace cur nworkspaces
+		if(n >= 3){
+			curworkspace = int hd tl args;
+			nworkspaces = int hd tl tl args;
+			updatepager();
+		}
+	"popup" =>
+		# popup x y -- open the desktop context menu
+		if(n >= 3)
+			postdesktopmenu(int hd tl args, int hd tl tl args);
 	"rect" =>
 		tkclient->wmctl(top, c);
 		layout(top);
@@ -251,6 +304,167 @@ deiconify(id: string)
 	cmd(tbtop, "update");
 }
 
+clockproc(tick: chan of int)
+{
+	for(;;){
+		sys->sleep(1000);
+		tick <-= 1;
+	}
+}
+
+updateclock()
+{
+	if (daytime == nil)
+		return;
+	tm := daytime->local(daytime->now());
+	cmd(tbtop, sys->sprint(".toolbar.clk configure -text {%02d:%02d:%02d}", tm.hour, tm.min, tm.sec));
+	cmd(tbtop, "update");
+}
+
+# --- window list mirrored from the wm (for the desktop context menu) ---
+
+findwin(id: int): ref Win
+{
+	for(wl := wins; wl != nil; wl = tl wl)
+		if((hd wl).id == id)
+			return hd wl;
+	return nil;
+}
+
+addwin(id: int)
+{
+	if(findwin(id) == nil)
+		wins = ref Win(id, nil, curworkspace) :: wins;
+}
+
+delwin(id: int)
+{
+	nw: list of ref Win;
+	for(wl := wins; wl != nil; wl = tl wl)
+		if((hd wl).id != id)
+			nw = hd wl :: nw;
+	wins = nw;
+}
+
+setwintitle(id: int, t: string)
+{
+	addwin(id);
+	findwin(id).title = t;
+}
+
+setwinws(id, ws: int)
+{
+	addwin(id);
+	findwin(id).ws = ws;
+}
+
+# build and post the rio-style desktop menu at (x, y).
+postdesktopmenu(x, y: int)
+{
+	tk->cmd(tbtop, "destroy .dm");	# may not exist yet; ignore "bad window path"
+	cmd(tbtop, "menu .dm");
+	cmd(tbtop, ".dm add command -command {send exec " + NEWSHELL + "} -label " + tk->quote("New shell"));
+	if(wins != nil){
+		cmd(tbtop, "menu .dm.win");
+		for(wl := wins; wl != nil; wl = tl wl){
+			w := hd wl;
+			ids := string w.id;
+			m := ".dm.win.w" + ids;
+			cmd(tbtop, "menu " + m);
+			cmd(tbtop, m + " add command -command {send wmcmd raise " + ids + "} -label Raise");
+			cmd(tbtop, m + " add command -command {send wmcmd hide " + ids + "} -label Hide");
+			cmd(tbtop, m + " add command -command {send wmcmd close " + ids + "} -label Close");
+			cmd(tbtop, "menu " + m + ".to");
+			for(i := 0; i < nworkspaces; i++)
+				cmd(tbtop, m + ".to add command -command {send wmcmd sendto " + ids + " " + string i +
+					"} -label " + tk->quote("Workspace " + string (i+1)));
+			cmd(tbtop, m + " add cascade -menu " + m + ".to -label " + tk->quote("Send to"));
+			label := w.title;
+			if(label == nil)
+				label = "window " + ids;
+			cmd(tbtop, ".dm.win add cascade -menu " + m + " -label " + tk->quote(label));
+		}
+		cmd(tbtop, ".dm add cascade -menu .dm.win -label Windows");
+	}
+	cmd(tbtop, ".dm add command -command {send wmcmd cascade} -label Cascade");
+	cmd(tbtop, ".dm add command -command {send wmcmd minall} -label " + tk->quote("Minimize all"));
+	cmd(tbtop, "menu .dm.ws");
+	for(i := 0; i < nworkspaces; i++)
+		cmd(tbtop, ".dm.ws add command -command {send wmcmd workspace " + string i +
+			"} -label " + tk->quote("Workspace " + string (i+1)));
+	cmd(tbtop, ".dm add cascade -menu .dm.ws -label Workspace");
+	cmd(tbtop, ".dm add separator");
+	cmd(tbtop, ".dm add command -command {.m post " + string x + " " + string y + "} -label Apps");
+	cmd(tbtop, ".dm post " + string x + " " + string y);
+}
+
+# turn a desktop/pager menu action into a wm control request.
+wmaction(s: string)
+{
+	args := str->unquoted(s);
+	if(args == nil)
+		return;
+	n := len args;
+	case hd args {
+	"raise" =>
+		if(n >= 2)
+			raisewin(hd tl args);
+	"hide" =>
+		if(n >= 2)
+			tkclient->wmctl(tbtop, "ctl " + hd tl args + " task");
+	"close" =>
+		if(n >= 2)
+			tkclient->wmctl(tbtop, "ctl " + hd tl args + " exit");
+	"cascade" =>
+		tkclient->wmctl(tbtop, "cascade");
+	"minall" =>
+		tkclient->wmctl(tbtop, "minall");
+	"workspace" =>
+		if(n >= 2)
+			tkclient->wmctl(tbtop, "workspace " + hd tl args);
+	"sendto" =>
+		if(n >= 3)
+			tkclient->wmctl(tbtop, "sendto " + hd tl args + " " + hd tl tl args);
+	}
+}
+
+# raise+focus a window, restoring it from the taskbar first if minimized.
+raisewin(id: string)
+{
+	if(tk->cmd(tbtop, "destroy .toolbar." + id) == nil)
+		tkclient->wmctl(tbtop, "ctl " + id + " untask");
+	tkclient->wmctl(tbtop, "ctl " + id + " kbdfocus 1");
+}
+
+# --- workspace pager ---
+
+buildpager()
+{
+	if(pagerbuilt)
+		return;
+	cmd(tbtop, "frame .toolbar.pager");
+	for(i := 0; i < nworkspaces; i++){
+		b := ".toolbar.pager.b" + string i;
+		cmd(tbtop, "button " + b + " -text " + string (i+1) +
+			" -command {send wmcmd workspace " + string i + "} -takefocus 0 -bd 1");
+		cmd(tbtop, "pack " + b + " -side left");
+	}
+	cmd(tbtop, "pack .toolbar.pager -side left -padx 4");
+	pagerbuilt = 1;
+}
+
+updatepager()
+{
+	buildpager();
+	for(i := 0; i < nworkspaces; i++){
+		rel := "raised";
+		if(i == curworkspace)
+			rel = "sunken";
+		cmd(tbtop, ".toolbar.pager.b" + string i + " configure -relief " + rel);
+	}
+	cmd(tbtop, "update");
+}
+
 layout(top: ref Tk->Toplevel)
 {
 	r := top.screenr;
@@ -276,10 +490,16 @@ toolbar(ctxt: ref Draw->Context, startmenu: int,
 
 	tk->namechan(tbtop, exec, "exec");
 	tk->namechan(tbtop, task, "task");
+	wmcmd = chan of string;
+	tk->namechan(tbtop, wmcmd, "wmcmd");
 	cmd(tbtop, "frame .toolbar");
 	if (startmenu) {
 		cmd(tbtop, "menubutton .toolbar.start -menu .m -borderwidth 0 -bitmap vitasmall.bit");
 		cmd(tbtop, "pack .toolbar.start -side left");
+	}
+	if (daytime != nil) {
+		cmd(tbtop, "label .toolbar.clk -text {--:--:--} -bd 1");
+		cmd(tbtop, "pack .toolbar.clk -side right");
 	}
 	cmd(tbtop, "pack .toolbar -fill x");
 	cmd(tbtop, "menu .m");

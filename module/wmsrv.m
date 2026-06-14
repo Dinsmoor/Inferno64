@@ -12,6 +12,8 @@ Wmsrv: module{
 		tag:	string;
 		r:	Draw->Rect;
 		img:	ref Draw->Image;
+		maxed:	int;			# non-zero if maximized/snapped by the wm
+		normalr:	Draw->Rect;		# geometry to restore to when un-maximized
 	};
 
 	Client: adt {
@@ -30,6 +32,9 @@ Wmsrv: module{
 		fid:		int;
 		token:	int;
 		wmctxt:	ref Draw->Wmcontext;
+		title:	string;			# window title (for menus)
+		ws:		int;				# workspace this client lives on
+		vis:		int;				# 1 if on the currently shown workspace
 
 		window:	fn(c: self ref Client, tag: string): ref Window;
 		contains:	fn(c: self ref Client, p: Draw->Point): int;

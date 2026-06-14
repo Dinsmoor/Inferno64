@@ -96,6 +96,7 @@ window(ctxt: ref Draw->Context, title: string, buts: int): ref Window
 
 	w.ctl = titlebar->new(top, buts);
 	titlebar->settitle(top, title);
+	w.wmctl(sys->sprint("wtitle %q", title));
 	sizetb(w);
 	w.wmctl("fixedorigin");
 	return w;
@@ -250,6 +251,14 @@ Window.wmctl(w: self ref Window, req: string): string
 			minsz := titlebar->minsize(w.titlebar);
 			titlebar->sendctl(w.titlebar, "!size . -1 " + string minsz.x + " " + string minsz.y);
 		}
+	"maximize" =>
+		# toggle maximize/restore; the wm computes the geometry.
+		if(w.titlebar != nil)
+			titlebar->sendctl(w.titlebar, "!maximize . -1");
+	"snap" =>
+		# snap left|right; the wm computes the half-screen geometry.
+		if(w.titlebar != nil)
+			titlebar->sendctl(w.titlebar, "!snap . -1 " + req[next:]);
 	"ok" or
 	"help" =>
 		;
@@ -322,6 +331,7 @@ Window.settitle(w: self ref Window, title: string): string
 		return nil;
 	oldr := w.imager(w.r);
 	old := titlebar->settitle(w.titlebar, title);
+	w.wmctl(sys->sprint("wtitle %q", title));
 	sizetb(w);
 	if(w.tbsize.x < w.r.dx())
 		tk->putimage(w.titlebar, ".", w.titlebar.image, nil);	# unsuspend the window
