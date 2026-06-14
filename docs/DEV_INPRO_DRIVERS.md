@@ -110,24 +110,37 @@ substitutes real plumbing.
 ## USB — `devusb` + `usbxhci` + `usbxhcipci`
 
 The host-controller stack is complete and proven (controller reset → command/
-event rings → DCBAA → run → root hub → port detects a connected device). What is
-missing is everything *above* the controller.
+event rings → DCBAA → run → root hub → port detects a connected device). The
+enumerator and HID class driver above it are a **Limbo userspace** program,
+`appl/cmd/usbd.b` (`/dis/usbd.dis`) — namespace files, not a kernel HID driver.
 
-- [ ] **No device enumerator, no class drivers.** 9front runs bus enumeration and
-      HID (`nusb/kb`) as **userspace** programs against the `#u` endpoint files;
-      the native kernel has neither. The Inferno-native design is a Limbo process
-      that walks `#u`, addresses devices, reads descriptors, and turns an
-      interrupt endpoint into keyboard/mouse events — namespace files, not a
-      kernel HID driver. The xHCI enumerator follows the controller's command
-      sequence: on a port-status-change, reset the port, then **Enable Slot** →
-      build the Input Context → **Address Device** → `GET_DESCRIPTOR(device)` for
-      class/VID/PID → read the config descriptor → **Configure Endpoint** (one
-      transfer ring per endpoint, set up one at a time) → `SET_CONFIGURATION`. The
-      HID class step then turns a boot-protocol interrupt-IN endpoint into
-      key/pointer events on the existing input path. Until both exist a plugged
-      `usb-kbd` is detected at the port but produces no input. This is the only
-      deliverable here whose completion is mostly a **Limbo/userspace** build, not
-      a kernel gap.
+- **Enumeration + HID live (`usbd`).** `virtinit` binds `#u` to `/dev` and spawns
+      `usbd` at boot. `usbd` reads `/dev/usb/ctl`, finds each root hub (info
+      `roothub ports N`), and for each port walks the standard sequence over the
+      `#u` files: hub-class `GET_STATUS` to detect a connection, `SET_FEATURE`
+      port reset (the kernel's `rhubwrite` terminates the reset and enables the
+      port on the next request), `newdev <speed> <port>` on the parent's `ep0`
+      ctl to create the device's control endpoint (opening its `data` file makes
+      the xHCI driver Enable-Slot + Address-Device), then `GET_DESCRIPTOR(device)`
+      and the config descriptor by control transfer (write the 8-byte setup to
+      the `data` file, read the reply). For a HID boot interface it creates the
+      interrupt-IN endpoint (`new <ep> interrupt r` — the transfer type is spelled
+      `interrupt`, **not** `intr`: `name2ttype` silently parses an unknown name as
+      `Tctl`, which then never polls), sets `maxpkt`/`pollival`, issues
+      `SET_CONFIGURATION` + HID `SET_PROTOCOL`(boot)/`SET_IDLE`, and streams the
+      interrupt endpoint: keyboard usages decode (US layout, shift) to runes
+      written to `/dev/keyboard` (→ `kbdq`), mouse reports accumulate to absolute
+      coordinates written to `/dev/pointer` (→ `mousetrack`). Proven on qemu
+      `-device qemu-xhci -device usb-kbd`: keystrokes injected over QMP/VNC reach
+      the console `sh` and the wm desktop; `usb-mouse` motion/buttons move the
+      pointer.
+  - A control transfer's read offset matters: after writing a ctl command (e.g.
+        `newdev`) on a `read-back` ctl file, `seek` the fd to 0 before reading the
+        reply, or `readstr` returns from the post-write offset (empty).
+  - The interrupt endpoint's default timeout is 0 (block until data); an idle
+        endpoint therefore blocks rather than spinning — correct. (A wrongly-typed
+        control endpoint returns 0 immediately from its empty buffer, the symptom
+        of the `intr`/`interrupt` slip above.)
 - **`mallocalign`/`freealign` is a real aligned allocator** (the native pool has
       none and the driver frees its rings), but it **ignores the `span`
       no-boundary-cross argument** — harmless under qemu, to be honoured on real

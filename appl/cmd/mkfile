@@ -169,6 +169,7 @@ TARG=\
 	units.dis\
 	uniq.dis\
 	unmount.dis\
+	usbd.dis\
 	uudecode.dis\
 	uuencode.dis\
 	vacfs.dis\

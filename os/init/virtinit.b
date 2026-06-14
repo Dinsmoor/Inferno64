@@ -30,6 +30,8 @@ init()
 		sys->print("init: bind #i: %r\n");
 	if(sys->bind("#m", "/dev", Sys->MAFTER) < 0)		# pointer
 		sys->print("init: bind #m: %r\n");
+	if(sys->bind("#u", "/dev", Sys->MAFTER) < 0)		# usb
+		sys->print("init: bind #u: %r\n");
 	if(sys->bind("#s", "/chan", Sys->MREPL|Sys->MCREATE) < 0)	# file2chan (wm makes /chan/wmrect)
 		sys->print("init: bind #s: %r\n");
 
@@ -39,6 +41,10 @@ init()
 	memfsmount("/tmp");
 	memfsmount("/usr/inferno");
 	memfsmount("/lib/scores");
+
+	# USB HID: enumerate the bus and turn keyboard/mouse interrupt
+	# reports into /dev/keyboard and /dev/pointer events
+	spawn usbstart();
 
 	# graphical session if there's a display; dies harmlessly if not
 	spawn wmstart();
@@ -74,6 +80,21 @@ memfsmount(mntpt: string)
 	} exception {
 	"*" =>
 		sys->print("init: memfs %s failed\n", mntpt);
+	}
+}
+
+usbstart()
+{
+	usbd := load Command "/dis/usbd.dis";
+	if(usbd == nil){
+		sys->print("init: load usbd: %r\n");
+		return;
+	}
+	{
+		usbd->init(nil, "usbd" :: nil);
+	} exception {
+	"*" =>
+		sys->print("init: usbd failed\n");
 	}
 }
 
