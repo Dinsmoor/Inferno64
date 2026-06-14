@@ -73,6 +73,100 @@ while the LP64 port matures. Develop on `debug` and benchmark *relative* numbers
 there; use `release`/`bleedingedge` for a fast binary and absolute figures.
 `make all` records the profile it built in `Linux/$OBJTYPE/.buildmode`.
 
+## Native kernel images for boards
+
+Everything above builds the hosted **emu**. The native kernel — Inferno running
+on the bare machine, no host OS — is a separate target tree under `os/`. A native
+image is defined by **two orthogonal axes**:
+
+- the **arch** — the CPU/codegen target, an `os/<arch>/` directory you build from
+  (today `aarch64`; `amd64` is being brought up next). The arch directory is a thin
+  Makefile naming its codegen (`KARCH`, the JIT/float arch files) that ends with
+  `include ../native.mk` — the shared driver, root, lib, and link machinery.
+- the **board** — the machine, an `os/boards/<board>/` directory selected with
+  `HWTARG`. A board is portable across any arch that can run it.
+
+You build one arch × one board:
+
+```sh
+cd os/aarch64                        # pick the arch (the directory you cd into)
+make image                           # -> ivirt64.elf  (HWTARG=virt64 default)
+make run                             # build and boot it (board's run recipe)
+make image HWTARG=virt64 USERSPACE=headless  # smaller baked root
+make clean
+```
+
+`make image` is the target that builds the kernel image; bare `make` is the same
+(`image` and `all` both produce `i$(HWTARG).elf`). The same invocation works from
+any arch directory once it exists (`cd os/amd64; make image HWTARG=...`); only the
+arch directory's name and its codegen change, never the
+board or driver lists. Cross-compile by setting `CROSS=` (the cross toolchain
+prefix, e.g. `aarch64-linux-gnu-`) in the arch Makefile or on the command line.
+
+| knob | values | selects |
+|---|---|---|
+| *(the arch dir you `cd` into)* | `os/<arch>/` — `aarch64` today, `amd64` next | **the CPU/codegen** |
+| `HWTARG` | a dir under `os/boards/` (default `virt64`) | **the board** — addresses, drivers, boot recipe; the image is `i$(HWTARG).elf` |
+| `USERSPACE` | `full` (default) / `headless` | the baked-in application root (`full` adds fonts/icons/man for the GUI; `headless` is dis+lib+module+locale) |
+| *board-specific knobs* | e.g. `GIC=v2`/`v3` on `virt64` | declared by the board's `board.mk` (here, the interrupt-controller driver; `v3` also enables the ITS/MSI and the matching qemu machine) |
+
+### The board is the unit of distribution
+
+A board (`os/boards/$(HWTARG)/`) owns three files that, together, decide what the
+image *is*:
+
+- **`board.mk`** — `BOARDC` (the board's own C), `DRIVERC` (which drivers from
+  the shared pool `os/drivers/` compile in), and the `run` recipe.
+- **the config** (`os/boards/$(HWTARG)/$(HWTARG)`) — a sectioned file listing the
+  device classes (`dev`), driver registrations (`link`, and `misc` for sd/uart/vga),
+  IP protocols, modules, and the root structure. `mkdevc` turns it into `conf.c`.
+- **`board.h` / `kernel.ld`** — physical addresses and the load script.
+
+To build an image for a different machine, you add a board directory; you do not
+touch the arch or the shared driver pool.
+
+### Choosing drivers for an image
+
+Including a driver is a **candidate**, not an assertion the hardware is present.
+At boot, `links()` registers every compiled-in driver and each one auto-probes
+its bus (a PCI NIC's `pnp()` calls `pcimatch()` on its vendor/device id); a
+driver whose hardware is absent returns and costs only its image bytes. So a
+"kitchen-sink" board can list a whole NIC family while a tiny SoC board lists
+three drivers — same mechanism, different lists.
+
+Two coupled lists wire a driver in, and they must agree (a name in `link` with no
+matching `DRIVERC` is an unresolved symbol at link time):
+
+| class | compiles via | registers via | runtime table |
+|---|---|---|---|
+| ether | `DRIVERC` (`ether-*`) | `link` section name (`ether*`) | `addethercard()` |
+| storage | `DRIVERC` (`sd-*`) | `misc` section name (`sd*`) | `sdifc[]` |
+| display | `DRIVERC` (`vga*`) | `vga` + `misc` (`vga* +cur`) | `knownvga[]`/`vgadev[]` |
+| serial | `DRIVERC` | `misc` name (`uart*`) | `physuart[]` |
+
+### Driver-group manifests
+
+For portable PCI device families, the per-driver lines live in a shared **group
+manifest** under `os/drivers/groups/`, so a board pulls the whole family with one
+line instead of enumerating every file. A group is a pair:
+
+- `<group>.mk` — adds the stems to `DRIVERC` and the config fragment to
+  `DRIVERCONF`.
+- `<group>.conf` — a config fragment (a `link`/`misc` section) that
+  `native.mk` splices into the generated config; `mkdevc` accumulates sections,
+  so the group's registrations add to the board's own.
+
+```makefile
+# in a board.mk, after its own DRIVERC :=
+include ../drivers/groups/ether-pci.mk      # pulls the whole PCI NIC family
+```
+
+To add a newly-ported driver to a family, append its source stem to the group's
+`.mk` `DRIVERC` and its link name to the group's `.conf` — every board that
+includes the family gets it, with no board edits. Board-specific drivers (a
+SoC's own transport, e.g. virtio on `virt64`) stay listed directly in the board,
+not in a shared group.
+
 ## Why `make`, not `mk` directly
 
 Two reasons — one about correctness, one about portability:

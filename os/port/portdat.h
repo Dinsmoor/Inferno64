@@ -1,5 +1,6 @@
 typedef struct Alarms	Alarms;
 typedef struct Block	Block;
+typedef struct Bpool	Bpool;
 typedef struct Bkpt Bkpt;
 typedef struct BkptCond BkptCond;
 typedef struct Chan	Chan;
@@ -174,8 +175,24 @@ struct Block
 	uchar*	lim;			/* 1 past the end of the buffer */
 	uchar*	base;			/* start of the buffer */
 	void	(*free)(Block*);
+	Bpool*	pool;			/* if set, freeb() recycles here (see allocb.c) */
 	ushort	flag;
 	ushort	checksum;		/* IP checksum of complete packet (minus media header) */
+};
+
+/*
+ * A per-driver fixed-size Block freelist (9front's buffer pools, 34eb2bfa5).
+ * iallocbp() hands out aligned blocks at interrupt time without touching the
+ * general allocator; freeb() returns a Block whose ->pool is set straight to
+ * the pool's freelist.  Used by the DMA receive rings of modern NICs.
+ */
+struct Bpool
+{
+	ulong	size;			/* usable data size of each block */
+	ulong	align;			/* data alignment (rounded to a power of two) */
+
+	Lock;
+	Block*	head;			/* freelist, linked through Block->list */
 };
 #define BLEN(s)	((s)->wp - (s)->rp)
 #define BALLOC(s) ((s)->lim - (s)->base)

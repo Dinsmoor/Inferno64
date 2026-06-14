@@ -28,4 +28,5 @@ boardready(void)
 {
 	virtiornginit();	/* optional: -device virtio-rng-device */
 	virtioinputinit();	/* optional: -device virtio-keyboard-device / virtio-tablet-device */
+	pciscan();		/* enumerate the PCIe host bridge, if present */
 }

@@ -14,6 +14,16 @@ struct Handler {
 };
 
 static Handler irqvec[NIRQ];
+
+/*
+ * MSI/LPI handlers live in their own table: LPI INTIDs start at 8192, far
+ * above the SPI/PPI vector space, so they get a small dedicated array rather
+ * than bloating irqvec.  LPIBASE/NMSI mirror gic-v3.c.
+ */
+#define LPIBASE	8192
+#define NMSI	64
+static Handler msivec[NMSI];
+
 static Lock veclock;
 
 extern char etext[];
@@ -78,6 +88,29 @@ intrdisable(int v, void (*f)(Ureg*, void*), void* a, int tbdf, char *name)
 	iunlock(&veclock);
 }
 
+/*
+ * Register an MSI/MSI-X handler against an LPI INTID the GICv3 ITS already
+ * allocated and enabled (see intcmsialloc).  No intcenable() — an LPI's enable
+ * lives in the ITS config table, not GICR_ISENABLER.
+ */
+void
+intrenablemsi(int intid, void (*f)(Ureg*, void*), void* a, char *name)
+{
+	Handler *h;
+
+	if(intid < LPIBASE || intid >= LPIBASE+NMSI)
+		panic("intrenablemsi: lpi %d out of range", intid);
+	ilock(&veclock);
+	h = &msivec[intid - LPIBASE];
+	if(h->r != nil)
+		iprint("duplicate msi: lpi %d (%s)\n", intid, h->name);
+	h->r = f;
+	h->a = a;
+	strncpy(h->name, name, KNAMELEN-1);
+	h->name[KNAMELEN-1] = 0;
+	iunlock(&veclock);
+}
+
 void
 trapinit(void)
 {
@@ -90,11 +123,14 @@ dispatchirq(Ureg *ur, int v)
 {
 	Handler *h;
 
-	if(v < 0 || v >= NIRQ){
+	if(v >= LPIBASE && v < LPIBASE+NMSI)
+		h = &msivec[v - LPIBASE];
+	else if(v >= 0 && v < NIRQ)
+		h = &irqvec[v];
+	else {
 		iprint("irq vector %d out of range\n", v);
 		return;
 	}
-	h = &irqvec[v];
 	if(h->r != nil)
 		h->r(ur, h->a);
 	else

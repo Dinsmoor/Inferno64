@@ -8,6 +8,7 @@
 enum
 {
 	Hdrspc		= 64,		/* leave room for high-level headers */
+	Tlrspc		= 16,		/* extra room at the end for pad/crc/mac */
 	Bdead		= 0x51494F42,	/* "QIOB" */
 };
 
@@ -36,6 +37,7 @@ _allocb(int size)
 	b->next = nil;
 	b->list = nil;
 	b->free = nil;
+	b->pool = nil;
 	b->flag = 0;
 
 	addr = (ulong)b;
@@ -101,6 +103,23 @@ freeb(Block *b)
 		return;
 
 	/*
+	 * blocks handed out from a Bpool recycle straight back to it, never
+	 * to the general allocator (and bypass the ialloc.bytes accounting).
+	 */
+	if(b->pool != nil) {
+		Bpool *p = b->pool;
+
+		b->next = nil;
+		b->rp = b->wp = b->lim - ROUND(p->size+Tlrspc, p->align);
+		b->flag = BINTR;
+		ilock(p);
+		b->list = p->head;
+		p->head = b;
+		iunlock(p);
+		return;
+	}
+
+	/*
 	 * drivers which perform non cache coherent DMA manage their own buffer
 	 * pool of uncached buffers and provide their own free routine.
 	 */
@@ -122,6 +141,113 @@ freeb(Block *b)
 	b->base = dead;
 
 	free(b);
+}
+
+static ulong
+_alignment(ulong align)
+{
+	if(align <= BLOCKALIGN)
+		return BLOCKALIGN;
+
+	/* round up to a power of two */
+	align--;
+	align |= align>>1;
+	align |= align>>2;
+	align |= align>>4;
+	align |= align>>8;
+	align |= align>>16;
+	align++;
+
+	return align;
+}
+
+/*
+ * Aligned single-block allocator, used only as the iallocbp() miss path.
+ * Lays out one mallocz'd chunk as [Block | headroom | aligned data], leaving
+ * Hdrspc at the front of the data for prepended headers, like _allocb above.
+ */
+static Block*
+_allocbalign(ulong size, ulong align)
+{
+	Block *b;
+
+	size = ROUND(size+Tlrspc, align);
+	if((b = mallocz(sizeof(Block)+Hdrspc+size+align-1, 0)) == nil)
+		return nil;
+
+	b->next = nil;
+	b->list = nil;
+	b->free = nil;
+	b->pool = nil;
+	b->flag = 0;
+
+	/* align start of the data portion up, end down */
+	b->base = (uchar*)ROUND((uintptr)&b[1], (uintptr)align);
+	b->lim = (uchar*)(((uintptr)b + msize(b)) & ~((uintptr)align-1));
+	b->wp = b->rp = b->lim - size;
+
+	return b;
+}
+
+/*
+ * Hand out a block from a pool at interrupt time.  Pops the freelist if it
+ * can; otherwise allocates a fresh aligned block tagged with ->pool so it
+ * lands back in the pool when freed.
+ */
+Block*
+iallocbp(Bpool *p)
+{
+	Block *b;
+
+	ilock(p);
+	if((b = p->head) != nil){
+		p->head = b->list;
+		b->list = nil;
+		iunlock(p);
+		return b;
+	}
+	iunlock(p);
+
+	p->align = _alignment(p->align);
+	if((b = _allocbalign(p->size, p->align)) == nil)
+		return nil;
+	setmalloctag(b, getcallerpc(&p));
+	b->pool = p;
+	b->flag = BINTR;
+
+	return b;
+}
+
+/*
+ * Pre-grow a pool by n blocks from one contiguous aligned span (permanent,
+ * driver-lifetime memory — pools are never torn down).  The Block headers
+ * come from malloc; freeb() threads each onto the freelist.
+ */
+void
+growbp(Bpool *p, int n)
+{
+	ulong size;
+	Block *b, *bb;
+	uchar *a;
+
+	if(n < 1)
+		return;
+	if((bb = malloc(sizeof(Block)*n)) == nil)
+		return;
+	p->align = _alignment(p->align);
+	size = ROUND(p->size+Hdrspc+Tlrspc, p->align);
+	if((a = xspanalloc(size*n, p->align, 0)) == nil){
+		free(bb);
+		return;
+	}
+	for(b = bb; n > 0; n--, b++){
+		memset(b, 0, sizeof(Block));
+		b->base = a;
+		a += size;
+		b->lim = a;
+		b->pool = p;
+		freeb(b);
+	}
 }
 
 void

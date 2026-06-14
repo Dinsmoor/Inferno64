@@ -5,7 +5,9 @@
  * (the virtio transport's virtiointrenable) and devether stays out of it.
  */
 enum {
-	MaxEther	= 4,
+	MaxEther	= 8,	/* ether instances (#l0..) the kernel can hold */
+	Maxcard		= 48,	/* registered driver types; a single driver (igbe,
+				 * 82563) may register many addethercard() names */
 	Ntypes		= 8,
 };
 

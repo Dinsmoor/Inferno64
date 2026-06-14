@@ -54,6 +54,14 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".
+- [ ] **Native driver stubs/shims follow-up** — the `os/drivers` pool (pci,
+      ether-rtl8139, sd-nvme, sd-ahci, sd-scsi, devusb/usbxhci/usbxhcipci) is a
+      first pass proven only against `qemu -M virt`. Per-driver tables of what is
+      stubbed/simplified and what full hardware support needs:
+      `DEV_INPRO_DRIVERS.md`. Headline items: AHCI is fully polled, USB has no
+      enumerator/HID driver yet, and MSI/MSI-X needs an ITS. (Done: the high-ECAM
+      map — default `qemu -M virt` runs without `highmem-ecam=off`; and GICv3 —
+      `make ... GIC=v3` boots on `gic-version=3`, single-cpu.)
 - [ ] **Pretty-JSON renderer** as an Inferno filter (idea, unscheduled).
 - [ ] **wm launcher: auto-refresh the program list** (idea, unscheduled) — the
       Start menu is built once from `/lib/wmsetup` at wm start (`appl/wm/toolbar.b`,

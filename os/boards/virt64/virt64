@@ -13,9 +13,12 @@ dev
 	ip
 	sd
 	tls
+	usb
 
 misc
 	sdvirtio
+	sdnvme
+	sdiahci
 
 ip
 	tcp
@@ -28,6 +31,7 @@ link
 	ethervirtio
 	ethermedium
 	loopbackmedium
+	usbxhcipci
 
 lib
 	interp

@@ -46,6 +46,11 @@ _start:
 	b.ne	1f
 	mov	x1, #(1<<31)		/* HCR_EL2.RW: EL1 is aarch64 */
 	msr	hcr_el2, x1
+	/* let EL1 use the GICv3 system-register CPU interface (ICC_*).
+	 * SRE|DFB|DIB|Enable; harmless when the board's GIC is v2. */
+	mov	x1, #0xf
+	msr	ICC_SRE_EL2, x1
+	isb
 	mov	x1, #0x3c5		/* DAIF masked, EL1h */
 	msr	spsr_el2, x1
 	adr	x1, 1f
@@ -76,12 +81,14 @@ _start:
 	b	1b
 2:
 	/*
-	 * MMU + caches on, identity map.  T0SZ=32 → 4GB VA, walks start
-	 * at level 1, so the whole map is four 1GB slots, installed
-	 * verbatim from the board's L1MAPENT0..3 (0 = invalid).
-	 * Remaining table entries stay 0 — kpgtbl is in just-cleared BSS.
-	 * No set/way D-cache invalidate: TCG doesn't model caches; real
-	 * hardware bring-up would need the 9front cache.v8.s dance.
+	 * MMU + caches on, identity map.  T0SZ=25 → 39-bit (512GB) VA, walks
+	 * start at level 1, so the single 512-entry kpgtbl is a full L1 of
+	 * 1GB blocks.  The low slots come verbatim from the board's
+	 * L1MAPENT0..3 (0 = invalid); L1MAP_HIECAM_ENT, if the board defines
+	 * one, maps a high device block (e.g. [256G,257G) for the default qemu
+	 * virt high ECAM + GICv3 redistributors).  Remaining entries stay 0 —
+	 * kpgtbl is in just-cleared BSS.  No set/way D-cache invalidate: TCG
+	 * doesn't model caches; real hardware would need the 9front cache dance.
 	 */
 	adrp	x1, kpgtbl
 	add	x1, x1, :lo12:kpgtbl
@@ -93,11 +100,15 @@ _start:
 	str	x2, [x1, #16]
 	ldr	x2, =L1MAPENT3
 	str	x2, [x1, #24]
+#ifdef L1MAP_HIECAM_ENT
+	ldr	x2, =L1MAP_HIECAM_ENT
+	str	x2, [x1, #(L1MAP_HIECAM_IDX*8)]
+#endif
 	dsb	ish
 	msr	ttbr0_el1, x1
 	mov	x2, #0xff		/* MAIR: Attr0=0xFF normal WB, Attr1=0x00 device-nGnRnE */
 	msr	mair_el1, x2
-	ldr	x2, =0x200803520	/* TCR: T0SZ=32, 4K, IRGN/ORGN=WB, SH=ISH, EPD1, IPS=40bit */
+	ldr	x2, =0x200803519	/* TCR: T0SZ=25 (39-bit VA), 4K, IRGN/ORGN=WB, SH=ISH, EPD1, IPS=40bit */
 	msr	tcr_el1, x2
 	isb
 	tlbi	vmalle1

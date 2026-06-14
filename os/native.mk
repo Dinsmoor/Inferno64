@@ -55,6 +55,17 @@ KERNEL  := i$(HWTARG).elf
 # the generated baked-root file list (see the $(GENCONF) rule)
 GENCONF := $(O)/$(HWTARG).gen
 
+# Driver/board picks (e.g. GIC=v2|v3) are make variables, not files, so make
+# can't see when one changes — switching GIC swaps which gic-* object links but
+# touches no timestamp, leaving a stale kernel that still contains the old
+# driver.  Stamp the choices into a file whose mtime bumps only when they
+# change, and make the link depend on it, so a re-pick always relinks.
+VARSTAMP := $(O)/.varstamp
+$(shell mkdir -p $(O) 2>/dev/null; \
+	echo "GIC=$(GIC) USERSPACE=$(USERSPACE)" > $(O)/.varstamp.new; \
+	cmp -s $(O)/.varstamp.new $(VARSTAMP) || cp $(O)/.varstamp.new $(VARSTAMP); \
+	rm -f $(O)/.varstamp.new)
+
 # limbo (and the prebuilt .dis baked into the root, see the board README
 # "Building the image") come from a HOSTED build: `make all` at some
 # inferno-os repo root.  Always the build host's arch (limbo runs here),
@@ -90,7 +101,13 @@ ASFLAGS := -ffreestanding -fno-pic $(ARCHASFLAGS) $(INCS)
 # the board: BOARDC (its own sources), DRIVERC (picks from ../drivers),
 # and usually a `run` recipe.  The include may define targets, so pin
 # the default goal.
+#
+# DRIVERCONF: board.mk (or a driver-group manifest it includes, see
+# ../drivers/groups/*.mk) appends config fragments here; each is spliced
+# into the generated $(GENCONF) so its `link'/`misc' section registers the
+# group's drivers.  Paths are relative to this make's CWD (the arch dir).
 .DEFAULT_GOAL := all
+DRIVERCONF :=
 include $(BOARD)/board.mk
 
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
@@ -250,8 +267,8 @@ ifeq ($(strip $(ROOTTREES)),)
 $(error unknown USERSPACE '$(USERSPACE)' (have: full, headless))
 endif
 
-$(GENCONF): $(CONF) force | $(O)
-	@{ cat $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
+$(GENCONF): $(CONF) $(DRIVERCONF) force | $(O)
+	@{ cat $(DRIVERCONF) $(CONF); (cd $(ROOT) && find $(ROOTTREES) -type f ! -name '*.sbl' 2>/dev/null | sort | sed 's,^,\t/,'); } > $@.tmp; \
 	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; echo "regenerated $@"; fi
 
 # run mkdevc/mkroot from inside $(O) so the generated #include and the
@@ -391,7 +408,7 @@ $(O)/root.o: $(GENCONF).root.s | $(O)
 
 # ---- link ----
 
-$(KERNEL): $(OBJ) $(BOARD)/kernel.ld
+$(KERNEL): $(OBJ) $(BOARD)/kernel.ld $(VARSTAMP)
 	$(LD) -T $(BOARD)/kernel.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
 	@echo "built $@"
 
