@@ -113,7 +113,8 @@ include $(BOARD)/board.mk
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
-	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls
+	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls \
+	   devaudio
 
 # the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
 # loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/

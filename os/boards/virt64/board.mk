@@ -15,7 +15,8 @@ GIC     ?= v2
 
 DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb gpu-virtio screen \
 	   devether ether-virtio sd-virtio pci \
-	   devusb usbxhci usbxhcipci
+	   devusb usbxhci usbxhcipci \
+	   audio-hda
 
 # PCI driver families (auto-probed; cost image size only when absent).
 # The board keeps its own virtio transport drivers above plus the `pci' bus
@@ -33,7 +34,9 @@ QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-rng-device -device virtio-gpu-device \
 	    -device virtio-keyboard-device -device virtio-tablet-device \
 	    -device qemu-xhci,id=xhci -device usb-kbd \
-	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
+	    -netdev user,id=n0 -device virtio-net-device,netdev=n0 \
+	    -audiodev none,id=snd0 -device intel-hda \
+	    -device hda-duplex,audiodev=snd0
 
 # optional persistent disk: make run DISK=/path/to/raw.img
 # (create with: truncate -s 64M img; in the guest see README "Persistent storage")

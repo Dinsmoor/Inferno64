@@ -346,6 +346,33 @@ over /lib/tls/ca-certificates.crt the same `webgrab
 https://10.0.2.2:8443/` fetch succeeds against a TLS 1.3 server on the
 host loopback.
 
+## Audio
+
+`#A` is os/port/devaudio.c, the 9front split audio framework (the older
+SB16/ISA devaudio could not exist on a PCIe/aarch64 board): devaudio owns
+/dev/audio, /dev/audioctl and /dev/volume and the per-open buffering, and
+dispatches to whichever hardware card registered with addaudiocard() at
+boot.  The one card here is os/drivers/audio-hda.c — the Intel HDA (Azalia)
+controller ported from 9front (pc/audiohda.c) onto the PCIe seam.  It maps
+the single memory BAR (identity-mapped, vmap == KADDR), drives the CORB/RIRB
+command rings and stream buffer-descriptor lists as page-aligned DMA, walks
+the codec widget graph to connect an output (and input) pin, and plays via
+stream DMA with INTx completion draining the ring.
+
+The 32-bit-register and ring/descriptor fields had to move off `ulong`
+(64-bit here) onto `u32int` — the recurring LP64 port hazard (`csr32` was
+reading 8 bytes off a 4-byte register and the CORB/RIRB layout was wrong).
+
+	# attach in qemu:  -audiodev <backend>,id=snd0 \
+	#                  -device intel-hda -device hda-duplex,audiodev=snd0
+	bind -a '#A' /dev
+	cat /dis/sh.dis > /dev/audio	# any PCM stream; sh reads name=val
+					# as assignment, so use cat not dd
+
+`make run` attaches `intel-hda` + `hda-duplex` on the null backend
+(`-audiodev none`, no host-audio dependency); `test_audio` in tests/kernel
+attaches a `wav` backend and asserts the captured DAC output is non-silent.
+
 ## Hardware (qemu -M virt)
 
 | device | where |
@@ -355,6 +382,7 @@ host loopback.
 | generic timer | CNTP (physical), PPI intid 30 |
 | RAM | 0x40000000, kernel loaded at +0x200000 |
 | virtio-mmio | 32 transports at 0x0a000000 + N*0x200, intids 48+N |
+| Intel HDA | PCIe (intel-hda), #A /dev/audio, INTx on the GIC |
 
 ## Current scope / deliberate simplifications
 

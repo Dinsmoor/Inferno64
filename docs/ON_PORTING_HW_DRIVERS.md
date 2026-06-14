@@ -298,3 +298,27 @@ the same seam; NVMe and AHCI are IRQ-driven through `pcimsienable`/`intrenable`.
 The legacy `vga*` family is **not** ported — the native kernel renders to a
 `Memimage` and imports/exports the display over the namespace (ON_PORTING.md
 Part II).
+
+## Status — audio
+
+| Driver | Part | DMA | Kernel changes it paid for | Validation |
+|--------|------|-----|----------------------------|-----------|
+| `audio-hda` | Intel HDA / Azalia | 64-bit | `#A` split framework (devaudio + audioif.h) | qemu `-device intel-hda` |
+
+Audio is a new subsystem, so the port carried two pieces, not just a driver.
+The old os/port/devaudio.c was the SB16/ISA monolith (inb/outb + ISA DMA); it
+is replaced by 9front's **split** model — a generic `#A` (`devaudio.c`) that
+owns /dev/audio, /dev/audioctl and /dev/volume and dispatches to a hardware
+`Audio` registered with `addaudiocard()` (`../port/audioif.h`) — plus the HDA
+controller (`audio-hda.c`, from 9front pc/audiohda.c) on the PCIe seam.  Wiring:
+`audio` in the conf `dev` section (pulls devaudio.c — also add it to `PORTC` in
+native.mk), `audiohda` in the `link` section (calls `audiohdalink`), and the
+stem in the board's `DRIVERC`.
+
+The one real hazard was the LP64 width rule below: 9front types the 32-bit HDA
+registers, the CORB/RIRB rings and the stream buffer-descriptor (`Bld`) fields
+as `ulong`, which is 64-bit here.  `csr32` was reading/writing 8 bytes off a
+4-byte register and the ring/descriptor layouts were wrong, so codec
+enumeration silently found nothing.  Fixing the casts/fields to `u32int` (as
+`sd-nvme` already does) was the whole bring-up.  Completion is INTx on the GIC
+(no MSI needed); verified by `test_audio` capturing a non-silent wav.

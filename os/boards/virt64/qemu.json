@@ -12,5 +12,7 @@
   "gui_devices": ["-device", "virtio-gpu-device",
                   "-device", "virtio-keyboard-device",
                   "-device", "virtio-tablet-device"],
+  "audio_devices": ["-device", "intel-hda",
+                    "-device", "hda-duplex,audiodev=snd0"],
   "bootsecs": 25
 }

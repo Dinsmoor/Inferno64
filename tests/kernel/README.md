@@ -21,6 +21,7 @@ is a clean TAP SKIP; tests needing a device the profile doesn't declare
 | disk | devsd + the board's block device (virtio-blk) + kfs: a file survives a full qemu restart |
 | nvme | the ported NVMe PCIe controller (sd-nvme) over the seam: `-device nvme` as #S/sdN0, kfs survives a restart (INTx on GIC=v2, MSI-X on GIC=v3) |
 | ahci | the ported AHCI/SATA controller (sd-ahci) over the seam: `-device ich9-ahci` + ide-hd as #S/sdE0, kfs survives a restart (IRQ-driven, plain GIC SPI) |
+| audio | the ported Intel HDA controller (audio-hda) plays sound: `-device intel-hda` + hda-duplex on a wav audiodev, the codec enumerates and the output path connects, PCM streamed to /dev/audio is captured non-silent (BAR map + CORB/RIRB + stream DMA + INTx ring drain) |
 | tls | devtls/mbedTLS: unknown CA **refused** against the baked bundle, then a verified TLS 1.3 fetch (fresh throwaway CA + IP-SAN cert, python ssl server on the host) |
 | impexp | the namespace travels: hosted emu mounts the guest's `styxlisten` export through a slirp hostfwd, and the guest mounts the hosted emu's (skipped if the hosted emu isn't built) |
 | gui | wm desktop renders on the board's display: QMP `screendump`, fail on a flat framebuffer |

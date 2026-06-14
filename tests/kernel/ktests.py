@@ -247,6 +247,41 @@ def test_ahci():
         _kfs_persist(disk, unit)
 
 
+def test_audio():
+    """The ported Intel HDA controller (audio-hda) plays real audio.  qemu
+    -device intel-hda + hda-duplex bound to a wav audiodev attaches over the
+    PCIe seam as #A; the driver enumerates the codec and connects the output
+    path, then the guest streams PCM (a dis file) to /dev/audio.  qemu records
+    the DAC output to a WAV, and a non-silent capture proves the whole chain —
+    BAR map, CORB/RIRB codec commands, stream DMA and the interrupt-driven ring
+    drain (the write returns, so the ring is draining) — works end to end."""
+    devs = PROF.get("audio_devices")
+    if not devs:
+        raise SkipTest(f"board {HWTARG} declares no qemu audio device")
+    wav = tempfile.mktemp(prefix="kaud-", suffix=".wav")
+    extra = ["-audiodev", f"wav,id=snd0,path={wav}"] + devs
+    g = Guest(extra=extra)
+    g.run([
+        ("bind -a '#A' /dev", 2),
+        # sh reads `name=val` as assignment, so cat (not dd) feeds the device
+        ("cat /dis/sh.dis > /dev/audio", 8),
+        ("echo audio-marker", 2),
+    ])
+    out = g.output()
+    g.close()
+    assert "audio-marker" in out
+    assert "codec #0" in out, "HDA codec did not enumerate"
+    try:
+        data = open(wav, "rb").read()
+    finally:
+        if os.path.exists(wav):
+            os.unlink(wav)
+    pcm = data[44:]  # skip the RIFF/WAVE header; PCM is written as it plays
+    nonzero = sum(1 for b in pcm if b != 0)
+    assert nonzero > 1000, \
+        f"silent capture ({len(pcm)} pcm bytes, {nonzero} nonzero) — audio did not play"
+
+
 def test_tls():
     """devtls + mbedTLS: unknown CA refused, then TLS 1.3 fetch with the
     test CA bound over the bundle (real verification, IP-SAN check)."""
@@ -391,7 +426,7 @@ class SkipTest(Exception):
 
 
 ALL = [test_boot, test_net, test_igbe, test_dns, test_disk, test_nvme,
-       test_ahci, test_tls, test_impexp, test_gui]
+       test_ahci, test_audio, test_tls, test_impexp, test_gui]
 
 
 def main():
