@@ -300,6 +300,13 @@ Plan 9 if you want more than the whole-disk `data` partition; the raw
 SCSI interface returns I/O errors by design (virtio-blk speaks no
 SCSI).
 
+For real hardware the PCI storage controllers — AHCI (SATA) and NVMe —
+come from the shared `../drivers/groups/sd-pci.mk` manifest (one
+`include` in board.mk), the same auto-probe-or-cost-nothing pattern as
+the `ether-pci` NIC family.  They register their own SDifc and bind
+under `#S` exactly like sdvirtio; qemu -M virt has no AHCI/NVMe model,
+so on this board they cost image size only.
+
 ## TLS
 
 `#T` is os/port/devtls.c — the emu devtls (mbedTLS-backed TLS 1.2/1.3,

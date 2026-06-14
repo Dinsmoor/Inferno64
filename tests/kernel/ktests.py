@@ -96,12 +96,14 @@ class Guest:
         self.qemu.wait(timeout=10)
 
 
-def netdev(hostfwd=None):
-    if not PROF.get("netdev_device"):
-        raise SkipTest(f"board {HWTARG} declares no qemu net device")
+def netdev(hostfwd=None, device=None):
+    if device is None:
+        if not PROF.get("netdev_device"):
+            raise SkipTest(f"board {HWTARG} declares no qemu net device")
+        device = PROF["netdev_device"]
     n = "user,id=n0" + (f",hostfwd=tcp:127.0.0.1:{hostfwd[0]}-:{hostfwd[1]}"
                         if hostfwd else "")
-    return ["-netdev", n, "-device", f"{PROF['netdev_device']},netdev=n0"]
+    return ["-netdev", n, "-device", f"{device},netdev=n0"]
 
 
 # ---- the tests -----------------------------------------------------
@@ -129,6 +131,27 @@ def test_net():
     g.close()
     assert "net-marker" in out
     assert ": rtt" in out or "avg rtt" in out, "no ping replies"
+
+
+def test_igbe():
+    """The ported Intel e1000/igbe PCI NIC carries real traffic: attach a
+    qemu -device e1000 (82540EM, id 0x100e — igbe's pnp match) as the only
+    NIC, configure slirp statically, ping the gateway, and read ifstats.
+    The ping replies prove TX/RX end-to-end (the first echo is normally lost
+    to ARP, so send several); the igbe-only ifstats fields (Ctrlext/rintr/
+    tintr) prove it is the igbe driver — not virtio-net — doing it, with
+    interrupts actually firing."""
+    g = Guest(extra=netdev(device="e1000"))
+    g.run(NETCONF + [
+        ("ip/ping -n 4 10.0.2.2", 12),
+        ("cat /net/ether0/ifstats", 3),
+        ("echo igbe-marker", 2),
+    ])
+    out = g.output()
+    g.close()
+    assert "igbe-marker" in out
+    assert ": rtt" in out or "avg rtt" in out, "no ping replies over igbe"
+    assert "Ctrlext:" in out, "ifstats not from igbe — wrong driver claimed the card"
 
 
 def test_dns():
@@ -325,7 +348,8 @@ class SkipTest(Exception):
     pass
 
 
-ALL = [test_boot, test_net, test_dns, test_disk, test_tls, test_impexp, test_gui]
+ALL = [test_boot, test_net, test_igbe, test_dns, test_disk, test_tls,
+       test_impexp, test_gui]
 
 
 def main():

@@ -14,13 +14,15 @@ BOARDC  := board
 GIC     ?= v2
 
 DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb gpu-virtio screen \
-	   devether ether-virtio sd-virtio pci sd-nvme \
-	   sd-scsi sd-ahci devusb usbxhci usbxhcipci
+	   devether ether-virtio sd-virtio pci \
+	   devusb usbxhci usbxhcipci
 
 # PCI driver families (auto-probed; cost image size only when absent).
-# The board keeps its own virtio transport drivers above; portable PCI
-# device families come from the shared manifests in ../drivers/groups.
+# The board keeps its own virtio transport drivers above plus the `pci' bus
+# enumerator; portable PCI device families come from the shared manifests in
+# ../drivers/groups.
 include ../drivers/groups/ether-pci.mk
+include ../drivers/groups/sd-pci.mk
 
 # modern virtio (force-legacy=false) is required by the input drivers;
 # rng speaks modern too.  virtio-gpu is the display (screen.c falls back
