@@ -7,6 +7,8 @@
               "-device", "virtio-rng-device"],
   "netdev_device": "virtio-net-device",
   "blk_device": "virtio-blk-device",
+  "nvme_unit": "sdN0",
+  "ahci_unit": "sdE0",
   "gui_devices": ["-device", "virtio-gpu-device",
                   "-device", "virtio-keyboard-device",
                   "-device", "virtio-tablet-device"],

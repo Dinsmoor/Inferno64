@@ -16,8 +16,11 @@ is a clean TAP SKIP; tests needing a device the profile doesn't declare
 |---|---|
 | boot | boots to sh, devices probe, PSCI answers, no panic |
 | net | the board's net device + os/ip: static slirp config, ping the gateway |
+| igbe | the ported Intel e1000/igbe PCI NIC carries real traffic: `-device e1000` as the only NIC, ping round-trips, igbe-only ifstats prove it (not virtio-net) claimed the card |
 | dns | ndb/cs + ndb/dns out of the box: dnsquery + webgrab by hostname (needs host internet) |
-| disk | devsd + the board's block device + kfs: a file survives a full qemu restart |
+| disk | devsd + the board's block device (virtio-blk) + kfs: a file survives a full qemu restart |
+| nvme | the ported NVMe PCIe controller (sd-nvme) over the seam: `-device nvme` as #S/sdN0, kfs survives a restart (INTx on GIC=v2, MSI-X on GIC=v3) |
+| ahci | the ported AHCI/SATA controller (sd-ahci) over the seam: `-device ich9-ahci` + ide-hd as #S/sdE0, kfs survives a restart (IRQ-driven, plain GIC SPI) |
 | tls | devtls/mbedTLS: unknown CA **refused** against the baked bundle, then a verified TLS 1.3 fetch (fresh throwaway CA + IP-SAN cert, python ssl server on the host) |
 | impexp | the namespace travels: hosted emu mounts the guest's `styxlisten` export through a slirp hostfwd, and the guest mounts the hosted emu's (skipped if the hosted emu isn't built) |
 | gui | wm desktop renders on the board's display: QMP `screendump`, fail on a flat framebuffer |

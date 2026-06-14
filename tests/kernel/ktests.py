@@ -172,6 +172,38 @@ def test_dns():
     assert "created /tmp/web.txt" in out, "webgrab by hostname failed"
 
 
+def _kfs_persist(disk, unit):
+    """Prove durable block I/O on a storage controller: ream kfs on the #S
+    `unit` (e.g. sd00), write a file, fully restart qemu, read it back.  The
+    write must reach the host-side image for the second boot to find it, so
+    this exercises the whole driver path (identify, write, flush, read) — not
+    just attach.  `disk` is the qemu device args; the caller owns the backing
+    image and keeps it alive across both boots."""
+    g = Guest(extra=disk)
+    g.run([
+        ("bind -a '#S' /dev", 2),
+        (f"mount -c {{disk/kfs -r /dev/{unit}/data}} /n/kfs", 8),
+        ("echo persistent-data-survives > /n/kfs/persist.txt", 2),
+        ("unmount /n/kfs", 3),
+        ("echo first-marker", 2),
+    ])
+    first = g.output()
+    g.close()
+    assert "first-marker" in first, "first boot did not complete"
+
+    g = Guest(extra=disk)
+    g.run([
+        ("bind -a '#S' /dev", 2),
+        (f"mount -c {{disk/kfs /dev/{unit}/data}} /n/kfs", 8),
+        ("cat /n/kfs/persist.txt", 3),
+        ("echo second-marker", 2),
+    ])
+    out = g.output()
+    g.close()
+    assert "second-marker" in out
+    assert "persistent-data-survives" in out, "file did not survive reboot"
+
+
 def test_disk():
     """kfs on the board's block device: a file survives a full qemu restart."""
     if not PROF.get("blk_device"):
@@ -180,29 +212,39 @@ def test_disk():
         img.truncate(64 * 1024 * 1024)
         disk = ["-drive", f"if=none,file={img.name},format=raw,id=hd0",
                 "-device", f"{PROF['blk_device']},drive=hd0"]
-        g = Guest(extra=disk)
-        g.run([
-            ("bind -a '#S' /dev", 2),
-            ("mount -c {disk/kfs -r /dev/sd00/data} /n/kfs", 8),
-            ("echo persistent-data-survives > /n/kfs/persist.txt", 2),
-            ("unmount /n/kfs", 3),
-            ("echo first-marker", 2),
-        ])
-        first = g.output()
-        g.close()
-        assert "first-marker" in first, "first boot did not complete"
+        _kfs_persist(disk, "sd00")
 
-        g = Guest(extra=disk)
-        g.run([
-            ("bind -a '#S' /dev", 2),
-            ("mount -c {disk/kfs /dev/sd00/data} /n/kfs", 8),
-            ("cat /n/kfs/persist.txt", 3),
-            ("echo second-marker", 2),
-        ])
-        out = g.output()
-        g.close()
-        assert "second-marker" in out
-        assert "persistent-data-survives" in out, "file did not survive reboot"
+
+def test_nvme():
+    """The ported NVMe PCIe controller (sd-nvme) carries durable block I/O.
+    qemu -device nvme attaches over the PCIe seam as #S/sdN0; kfs reams it,
+    writes a file, and it survives a full machine restart.  On the default
+    GIC=v2 image completion is by INTx (the driver falls back from MSI-X when
+    there is no GICv3 ITS); a GICv3 build instead exercises the MSI-X path."""
+    unit = PROF.get("nvme_unit")
+    if not unit:
+        raise SkipTest(f"board {HWTARG} declares no nvme unit")
+    with tempfile.NamedTemporaryFile(suffix=".img") as img:
+        img.truncate(64 * 1024 * 1024)
+        disk = ["-drive", f"if=none,file={img.name},format=raw,id=nv0",
+                "-device", "nvme,serial=ktest,drive=nv0"]
+        _kfs_persist(disk, unit)
+
+
+def test_ahci():
+    """The ported AHCI/SATA controller (sd-ahci) carries durable block I/O.
+    qemu -device ich9-ahci + an attached ide-hd attaches over the PCIe seam as
+    #S/sdE0 and round-trips kfs across a restart.  Completion is IRQ-driven on
+    a plain GIC SPI (sd-ahci arms PxIE and clears the storm-free way)."""
+    unit = PROF.get("ahci_unit")
+    if not unit:
+        raise SkipTest(f"board {HWTARG} declares no ahci unit")
+    with tempfile.NamedTemporaryFile(suffix=".img") as img:
+        img.truncate(64 * 1024 * 1024)
+        disk = ["-device", "ich9-ahci,id=ahci",
+                "-drive", f"if=none,file={img.name},format=raw,id=sa0",
+                "-device", "ide-hd,drive=sa0,bus=ahci.0"]
+        _kfs_persist(disk, unit)
 
 
 def test_tls():
@@ -348,8 +390,8 @@ class SkipTest(Exception):
     pass
 
 
-ALL = [test_boot, test_net, test_igbe, test_dns, test_disk, test_tls,
-       test_impexp, test_gui]
+ALL = [test_boot, test_net, test_igbe, test_dns, test_disk, test_nvme,
+       test_ahci, test_tls, test_impexp, test_gui]
 
 
 def main():

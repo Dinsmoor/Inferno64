@@ -300,12 +300,26 @@ Plan 9 if you want more than the whole-disk `data` partition; the raw
 SCSI interface returns I/O errors by design (virtio-blk speaks no
 SCSI).
 
-For real hardware the PCI storage controllers — AHCI (SATA) and NVMe —
-come from the shared `../drivers/groups/sd-pci.mk` manifest (one
-`include` in board.mk), the same auto-probe-or-cost-nothing pattern as
-the `ether-pci` NIC family.  They register their own SDifc and bind
-under `#S` exactly like sdvirtio; qemu -M virt has no AHCI/NVMe model,
-so on this board they cost image size only.
+The PCI storage controllers — AHCI (SATA) and NVMe — come from the
+shared `../drivers/groups/sd-pci.mk` manifest (one `include` in
+board.mk), the same auto-probe-or-cost-nothing pattern as the
+`ether-pci` NIC family.  They register their own SDifc and bind under
+`#S` exactly like sdvirtio.  qemu -M virt does emulate both over its
+PCIe bus, so they are runtime-verified, not just build-tested:
+
+	# NVMe -> /dev/sdN0
+	qemu ... -drive if=none,file=disk.img,format=raw,id=nv0 \
+	         -device nvme,serial=ktest,drive=nv0
+	# AHCI/SATA -> /dev/sdE0
+	qemu ... -device ich9-ahci,id=ahci \
+	         -drive if=none,file=disk.img,format=raw,id=sa0 \
+	         -device ide-hd,drive=sa0,bus=ahci.0
+
+NVMe completes by INTx on the GIC=v2 image (the driver falls back from
+MSI-X when there is no GICv3 ITS) and by MSI-X on a GIC=v3 build; AHCI
+is IRQ-driven on a plain GIC SPI.  Both pass the same kfs survives-a-
+restart check as sdvirtio — see `test_nvme`/`test_ahci` in
+tests/kernel.
 
 ## TLS
 
