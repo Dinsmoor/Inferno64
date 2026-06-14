@@ -233,6 +233,8 @@ struct D {
 	u32int	addrlo;
 	u32int	addrhi;
 };
+/* hardware ring entry is 16 bytes (ON_PORTING_HW_DRIVERS.md u32int rule) */
+_Static_assert(sizeof(D) == 16, "rtl8169 descriptor must be 16 bytes");
 
 enum {					/* Transmit Descriptor control */
 	TxflMASK	= 0x0000FFFF,	/* Transmit Frame Length */

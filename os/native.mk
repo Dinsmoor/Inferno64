@@ -110,10 +110,21 @@ ASFLAGS := -ffreestanding -fno-pic $(ARCHASFLAGS) $(INCS)
 DRIVERCONF :=
 include $(BOARD)/board.mk
 
+# The board's declared ARCH must match this arch dir's KARCH — otherwise we'd
+# build one arch's drivers with another's toolchain/ABI.  Fail loudly with the
+# right command instead.  (`make image-$(HWTARG)` from the repo root picks the
+# arch dir from ARCH automatically, so this only trips a hand-run wrong cd.)
+ifneq ($(ARCH),)
+ifneq ($(ARCH),$(KARCH))
+$(error board '$(HWTARG)' is ARCH=$(ARCH) but this is os/$(KARCH); build it with `make image-$(HWTARG)` from the repo root)
+endif
+endif
+
 PORTC   := alarm alloc allocb chan dev dial dis discall exception exportfs \
 	   inferno latin1 netaux netif nocache nodynld parse pgrp print proc \
 	   qio qlock random sysfile taslock xalloc \
-	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls
+	   devcons devroot devenv devmnt devprog devpipe devdup devdraw devpointer devsrv devsd devtls \
+	   devaudio
 
 # the native Plan 9-derived TCP/IP stack (os/ip) + #I.  Media: ether +
 # loopback (+ the null/pkt utility media ipifc wants).  Skipped: bootp/
@@ -284,7 +295,7 @@ $(O)/conf.c: ../port/mkdevc $(GENCONF)
 ROOTDEPS := $(shell awk '/^root/{inroot=1;next} /^[a-z]/{inroot=0} inroot && $$1 ~ /^\// {print "$(ROOT)" $$1}' $(GENCONF) 2>/dev/null)
 
 $(GENCONF).root.h $(GENCONF).root.s &: $(GENCONF) ../port/mkroot ../port/data2s ../init/virtinit.dis $(wildcard $(ROOTDEPS))
-	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
+	mkdir -p $(ROOT)/chan $(ROOT)/dev $(ROOT)/dis $(ROOT)/env $(ROOT)/fd $(ROOT)/mnt $(ROOT)/n $(ROOT)/n/disk $(ROOT)/n/kfs $(ROOT)/n/local $(ROOT)/n/remote $(ROOT)/net $(ROOT)/prog $(ROOT)/tmp $(ROOT)/usr/inferno
 	cd $(O) && AWK=awk ROOT=$(abspath $(ROOT)) INIT=virtinit DATA2S="sh $(abspath ../port/data2s)" sh ../../port/mkroot $(HWTARG).gen
 
 ../init/virtinit.dis: ../init/virtinit.b

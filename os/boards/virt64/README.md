@@ -48,6 +48,18 @@ does, the fact belongs in board.h or behind a hook.
 
 ## Building the image
 
+From the repo root — the board's arch is read from its manifest
+(`board.mk` `ARCH := aarch64`), so you never name the arch:
+
+```sh
+make image-virt64                          # → os/aarch64/ivirt64.elf
+make image-virt64 USERSPACE=headless GIC=v3   # knobs pass straight through
+make boards                                # list buildable boards + their arch
+```
+
+Or build inside the arch dir directly (equivalent; the root verb just
+dispatches here):
+
 ```sh
 cd os/aarch64
 make                 # → ivirt64.elf (this IS the image: one self-contained ELF)
@@ -57,6 +69,10 @@ make USERSPACE=headless  # smaller baked root: no fonts/icons/man (36MB → 20MB
 make PARANOID=0      # faster kernel: skip the pool free-tree audit on every alloc/free
 make clean           # removes every board's build-*/ and i*.elf
 ```
+
+A board built in the wrong arch dir (`cd os/arm && make HWTARG=virt64`)
+fails immediately with a message pointing at `make image-virt64` — the
+ARCH/KARCH cross-check in `native.mk`.
 
 There is no disk or initrd: the kernel ELF embeds its entire root
 filesystem (devroot), so `-kernel ivirt64.elf` is the whole boot story.
@@ -300,12 +316,26 @@ Plan 9 if you want more than the whole-disk `data` partition; the raw
 SCSI interface returns I/O errors by design (virtio-blk speaks no
 SCSI).
 
-For real hardware the PCI storage controllers — AHCI (SATA) and NVMe —
-come from the shared `../drivers/groups/sd-pci.mk` manifest (one
-`include` in board.mk), the same auto-probe-or-cost-nothing pattern as
-the `ether-pci` NIC family.  They register their own SDifc and bind
-under `#S` exactly like sdvirtio; qemu -M virt has no AHCI/NVMe model,
-so on this board they cost image size only.
+The PCI storage controllers — AHCI (SATA) and NVMe — come from the
+shared `../drivers/groups/sd-pci.mk` manifest (one `include` in
+board.mk), the same auto-probe-or-cost-nothing pattern as the
+`ether-pci` NIC family.  They register their own SDifc and bind under
+`#S` exactly like sdvirtio.  qemu -M virt does emulate both over its
+PCIe bus, so they are runtime-verified, not just build-tested:
+
+	# NVMe -> /dev/sdN0
+	qemu ... -drive if=none,file=disk.img,format=raw,id=nv0 \
+	         -device nvme,serial=ktest,drive=nv0
+	# AHCI/SATA -> /dev/sdE0
+	qemu ... -device ich9-ahci,id=ahci \
+	         -drive if=none,file=disk.img,format=raw,id=sa0 \
+	         -device ide-hd,drive=sa0,bus=ahci.0
+
+NVMe completes by INTx on the GIC=v2 image (the driver falls back from
+MSI-X when there is no GICv3 ITS) and by MSI-X on a GIC=v3 build; AHCI
+is IRQ-driven on a plain GIC SPI.  Both pass the same kfs survives-a-
+restart check as sdvirtio — see `test_nvme`/`test_ahci` in
+tests/kernel.
 
 ## TLS
 
@@ -332,6 +362,33 @@ over /lib/tls/ca-certificates.crt the same `webgrab
 https://10.0.2.2:8443/` fetch succeeds against a TLS 1.3 server on the
 host loopback.
 
+## Audio
+
+`#A` is os/port/devaudio.c, the 9front split audio framework (the older
+SB16/ISA devaudio could not exist on a PCIe/aarch64 board): devaudio owns
+/dev/audio, /dev/audioctl and /dev/volume and the per-open buffering, and
+dispatches to whichever hardware card registered with addaudiocard() at
+boot.  The one card here is os/drivers/audio-hda.c — the Intel HDA (Azalia)
+controller ported from 9front (pc/audiohda.c) onto the PCIe seam.  It maps
+the single memory BAR (identity-mapped, vmap == KADDR), drives the CORB/RIRB
+command rings and stream buffer-descriptor lists as page-aligned DMA, walks
+the codec widget graph to connect an output (and input) pin, and plays via
+stream DMA with INTx completion draining the ring.
+
+The 32-bit-register and ring/descriptor fields had to move off `ulong`
+(64-bit here) onto `u32int` — the recurring LP64 port hazard (`csr32` was
+reading 8 bytes off a 4-byte register and the CORB/RIRB layout was wrong).
+
+	# attach in qemu:  -audiodev <backend>,id=snd0 \
+	#                  -device intel-hda -device hda-duplex,audiodev=snd0
+	bind -a '#A' /dev
+	cat /dis/sh.dis > /dev/audio	# any PCM stream; sh reads name=val
+					# as assignment, so use cat not dd
+
+`make run` attaches `intel-hda` + `hda-duplex` on the null backend
+(`-audiodev none`, no host-audio dependency); `test_audio` in tests/kernel
+attaches a `wav` backend and asserts the captured DAC output is non-silent.
+
 ## Hardware (qemu -M virt)
 
 | device | where |
@@ -341,6 +398,7 @@ host loopback.
 | generic timer | CNTP (physical), PPI intid 30 |
 | RAM | 0x40000000, kernel loaded at +0x200000 |
 | virtio-mmio | 32 transports at 0x0a000000 + N*0x200, intids 48+N |
+| Intel HDA | PCIe (intel-hda), #A /dev/audio, INTx on the GIC |
 
 ## Current scope / deliberate simplifications
 

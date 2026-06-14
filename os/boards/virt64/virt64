@@ -14,6 +14,7 @@ dev
 	sd
 	tls
 	usb
+	audio
 
 misc
 	sdvirtio
@@ -30,6 +31,7 @@ link
 	ethermedium
 	loopbackmedium
 	usbxhcipci
+	audiohda
 
 lib
 	interp

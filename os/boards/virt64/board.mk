@@ -1,9 +1,14 @@
 # qemu-system-aarch64 -M virt.  Pulled into os/aarch64/Makefile by
 # HWTARG=virt64 (the default).  A board contributes:
+#   ARCH     — the CPU arch it builds for == os/<ARCH>/ (the toolchain/ABI).
+#              `make image-virt64` from the repo root reads this and dispatches
+#              to the right arch dir, so you never name the arch by hand.
 #   BOARDC   — its own sources in os/boards/$(HWTARG)/
 #   DRIVERC  — its picks from the shared pool in os/drivers/
 #   run      — how to boot the image (optional; boards qemu can't
 #              emulate deploy by other means, e.g. tftp from U-Boot)
+
+ARCH    := aarch64
 
 BOARDC  := board
 
@@ -15,7 +20,8 @@ GIC     ?= v2
 
 DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb gpu-virtio screen \
 	   devether ether-virtio sd-virtio pci \
-	   devusb usbxhci usbxhcipci
+	   devusb usbxhci usbxhcipci \
+	   audio-hda
 
 # PCI driver families (auto-probed; cost image size only when absent).
 # The board keeps its own virtio transport drivers above plus the `pci' bus
@@ -33,7 +39,9 @@ QEMUDEVS := -global virtio-mmio.force-legacy=false \
 	    -device virtio-rng-device -device virtio-gpu-device \
 	    -device virtio-keyboard-device -device virtio-tablet-device \
 	    -device qemu-xhci,id=xhci -device usb-kbd \
-	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
+	    -netdev user,id=n0 -device virtio-net-device,netdev=n0 \
+	    -audiodev none,id=snd0 -device intel-hda \
+	    -device hda-duplex,audiodev=snd0
 
 # optional persistent disk: make run DISK=/path/to/raw.img
 # (create with: truncate -s 64M img; in the guest see README "Persistent storage")

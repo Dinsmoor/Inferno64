@@ -244,6 +244,17 @@ typedef struct {
 	Aprdt	prdt;
 } Actab;
 
+/*
+ * Hardware layout canaries (see the u32int rule in
+ * docs/ON_PORTING_HW_DRIVERS.md): these DMA/overlay structures have
+ * spec-fixed sizes and offsets, so any ulong-creep that would break them
+ * under LP64 fails the build instead of silently corrupting DMA.
+ */
+_Static_assert(sizeof(Alist) == 32, "AHCI command-list entry is 32 bytes");
+_Static_assert(sizeof(Aprdt) == 16, "AHCI PRDT entry is 16 bytes");
+_Static_assert(__builtin_offsetof(Aport, ci) == 0x38, "PxCI register at 0x38");
+_Static_assert(__builtin_offsetof(Actab, prdt) == 0x80, "PRDT table at 0x80");
+
 enum {
 	Ferror	= 1,
 	Fdone	= 2,

@@ -746,6 +746,52 @@ baked-in root or add a new board, the gcc-vs-kencc porting rules learned, and
 the qemu/gdb debug workflow. The classic `os/arm/` and `os/omap/` (TI OMAP,
 32-bit) remain useful as kencc-era reference points.
 
+### Uniprocessor model (all boards)
+
+The native kernel is **uniprocessor**: it boots and runs on a single core on
+every board, regardless of how many cores the silicon provides. This is a
+property of the kernel, not of any one arch or board — it holds for the qemu
+`virt` target and any real multi-core SoC equally. The secondary cores are
+left in whatever parked/spin or powered-off state firmware handed them; the
+kernel never brings them up. Concretely the model is pinned in three places:
+`MAXMACH 1` (`os/<arch>/mem.h`), `conf.nmach = 1` set unconditionally at boot
+(`os/<arch>/main.c`, never probed from the hardware), and the secondary
+bring-up call defined-but-unused (e.g. aarch64's `PSCI_CPU_ON` — PSCI is used
+for power-off/reset, not for SMP).
+
+What this does and doesn't cost:
+
+- **Concurrency is real; parallelism is not.** Inferno multiplexes many `Proc`s
+  (and, above them, the Dis VM's Limbo threads) onto the one core through the
+  preemptive priority scheduler. The wm desktop, networking, the JIT and disk
+  I/O all interleave correctly — they just never execute *simultaneously*. No
+  Limbo or kernel code needs to change for this; the concurrency model
+  ([`docs/ON_CONCURRENCY.md`](ON_CONCURRENCY.md)) is unaffected.
+- **Inter-core machinery is dormant, not absent.** The interrupt controller can
+  route to multiple cores and send inter-processor interrupts (SGIs on a GIC),
+  but with only core 0 running there is nobody to target. On a many-core-class
+  controller this is why the core-count ceiling is moot today — see the GICv2
+  (≤8 cores) vs GICv3 (thousands, plus message-signalled LPIs) split under the
+  board's interrupt-controller notes.
+- **Locking is uniprocessor-grade.** A single-core kernel can be lax where a
+  true SMP kernel cannot: a `Lock` mainly gates against interrupt handlers and
+  preemption, not against another core observing memory mid-update. **Do not
+  assume two things run at once**, and do not lean on that laxity — it is the
+  single biggest hazard for anyone enabling SMP later. (Cautionary precedent:
+  aarch64's `unlock()` was missing a release barrier — invisible on one core,
+  but the instant a second core can observe a half-updated structure it becomes
+  corruption.)
+
+Bringing up additional cores is a real project on any platform, and the seams
+are deliberately already in place: the per-arch secondary-start primitive
+(PSCI `CPU_ON` on aarch64, the equivalent elsewhere) and the per-arch memory
+barriers in `coherence()`. The work, generalised across multi-core targets,
+is: start each secondary on its own stack + per-core `Mach` (turn the single
+`Mach` into a `machp[]` array); bring up each core's slice of the interrupt
+controller (e.g. a GICv3 redistributor per core); **audit every lock** for the
+SMP memory-ordering assumptions a uniprocessor build lets slide; and teach the
+scheduler to balance the runqueue across cores.
+
 ---
 
 ## Synchronization Primitives
