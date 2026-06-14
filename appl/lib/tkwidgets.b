@@ -92,6 +92,10 @@ Scrolledlist.new(top: ref Toplevel, path: string, w, h: int, opts: string): ref 
 	}
 	tk->cmd(top, "bind " + sl.lb + " <ButtonRelease-1> {send " + evn + " select}");
 	tk->cmd(top, "bind " + sl.lb + " <Double-Button-1> {send " + evn + " activate}");
+	# mouse wheel (buttons 4/5) scrolls the list (the listbox, unlike the text
+	# widget, has no built-in wheel bindings)
+	tk->cmd(top, "bind " + sl.lb + " <ButtonPress-4> {" + sl.lb + " yview scroll -3 units}");
+	tk->cmd(top, "bind " + sl.lb + " <ButtonPress-5> {" + sl.lb + " yview scroll 3 units}");
 	return sl;
 }
 

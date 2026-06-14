@@ -40,6 +40,32 @@ panedwindow/listbox entries described is solved by laying these out with `grid`
 
 ## Log
 
+### Scrolledtext — a text widget + scrollbar with an honoured size (HIGH VALUE)
+- Needed by: wm/bible — hand-rolled the *same* text+scrollbar-in-a-sized-frame
+  **three times** (the reading pane, the two Notebook context pages, the note
+  editor).  It is the obvious sibling of `Scrolledlist` and its absence is felt
+  immediately once you adopt the suite.
+- Today: nothing; you build `frame`(fixed `-width`/`-height` + `grid/pack
+  propagate 0`) + `text` (`-fill both -expand 1`/grid `-sticky nsew`) +
+  `scrollbar` by hand each time.
+- Reusable shape: `Scrolledtext.new(top, path, w, h, opts): ref Scrolledtext`
+  mirroring `Scrolledlist` — fields `fr`/`t`/`ev` (a click event carrying the
+  `@x,y` like the listbox does, so apps can hit-test tags), methods
+  `clear`/`insert(s, tags)`/`get`/`see`/`tagconfig`/`tagadd`.  An editable
+  variant (or an `-editable` opt) would also cover note/compose editors.
+- Effort/notes: small; same grid+weights recipe Scrolledlist already uses.
+
+### "use grid" footgun — mixing pack and grid in one master fails opaquely
+- Not a missing widget; a doc/ergonomics gap.  ON_TK_WIDGETS says "reach for
+  grid" for your own composites (correct).  But if *any* child has already been
+  packed into a master, `grid <child> <master>` returns the bare `!not a grid`
+  (libtk/grids.c:529) with no hint which manager or which child is the culprit.
+  This bites especially with Inferno's default-master rule: `pack .a.b.c` with
+  no `-in` packs into `.a.b.c`'s *name parent* `.a.b`, so a mis-named widget
+  silently taints a frame you meant to grid.  A one-paragraph "gotchas" note in
+  ON_TK_WIDGETS ("a master is pack-or-grid, never both; watch the name-parent
+  default; the error is just 'not a grid'") would save the next person the hunt.
+
 ### text-widget word lookup is OK — `wordstart`/`wordend`/`-offset` exist (no gap)
 - Note (not a gap): the `text` widget *does* support the `wordstart`/`wordend`
   index modifiers (double-click word -> dictionary works) and tag `-offset`
