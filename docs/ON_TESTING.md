@@ -23,8 +23,9 @@ debug, link-checks release, restores debug, then runs the suites).
 | anything endian- or width-sensitive in those libs | `tests/cunit/cross.sh arm` (ILP32) / `cross.sh m68k` (big-endian) | [`tests/cunit/`](../tests/cunit/README.md) |
 | the Dis VM, the Limbo compiler, GC, channels, modules | `tests/dis/run.sh` | [`tests/dis/`](../tests/dis/README.md) |
 | the JIT (`libinterp/comp-*.c`) | `make test_jitperf` + the `dis/<conf>/jit` cells | [`tests/jitperf/`](../tests/jitperf/README.md) |
+| image decode/encode (`$Imageio` over vendored stb + libwebp) | `tests/dis/run.sh imageio` | [`tests/dis/`](../tests/dis/README.md) |
 | Charon / the web stack (CSS, layout, JS) | `tests/web/run.sh` | [`tests/web/`](../tests/web/README.md) |
-| the native kernel (`os/`) | `tests/kernel/run.sh` (`HWTARG=` picks the board) | [`tests/kernel/`](../tests/kernel/README.md) |
+| the native kernel (`os/`) — incl. the software cursor + USB | `tests/kernel/run.sh` (`HWTARG=` picks the board) | [`tests/kernel/`](../tests/kernel/README.md) |
 | any C that crosses a 64→32-bit boundary | `make lint` | [`tests/lint/`](../tests/lint/README.md) |
 | GUI behaviour you need to *see* | `tests/dis/scenario.sh` / `tests/dis/gui_sweep.sh` | [`tests/dis/`](../tests/dis/README.md) |
 
@@ -50,8 +51,10 @@ dance. These are `require` cells (`cunit/arm`, `cunit/m68k`) in the gate.
 **`tests/dis/` — the Dis VM + Limbo regression suite.** Headless,
 TAP-emitting Limbo programs run end-to-end under `emu-g` (no display): VM
 semantics, concurrency, crypto builtins, Styx, the loader, exceptions, module
-globals, self-hosting the compiler. The gate runs it under both `interp` and
-`jit` run-modes (`dis/<conf>/<runmode>` cells). Also home to `scenario.sh`
+globals, self-hosting the compiler, and image decode/encode (`$Imageio` over
+the vendored stb + libwebp — a fixture-free PNG round-trip). The gate runs it
+under both `interp` and `jit` run-modes (`dis/<conf>/<runmode>` cells). Also
+home to `scenario.sh`
 (deterministic headless GUI runs with a JSON verdict + screenshots) and
 `gui_sweep.sh` for desktop apps.
 
@@ -65,10 +68,15 @@ testbed site.
 
 **`tests/kernel/` — native-kernel end-to-end.** Boots the built kernel image
 once per test under the board's qemu profile (`os/boards/<board>/qemu.json`)
-and drives the serial console: boot, networking, DNS, disk persistence, TLS
-verification, import/export against a hosted emu, and a screendump check that
-the desktop renders. Board-agnostic: `HWTARG=` selects the board; a board
-without a qemu profile is a clean TAP SKIP.
+and drives the serial console (and QMP for the display): boot, networking,
+DNS, disk persistence, the storage/audio/USB C drivers, TLS verification,
+import/export against a hosted emu, a screendump check that the desktop
+renders, and the software mouse cursor (inject motion, require the scanout to
+move). Board-agnostic: `HWTARG=` selects the board (`virt64` = aarch64,
+`pc64` = amd64, both `require` cells) and the profile declares which devices
+exist, so a test needing one a board lacks is a clean TAP SKIP — e.g. the
+cursor test runs only where the profile sets `sw_cursor` (a relative pointer);
+an absolute-pointer board lets qemu draw the host cursor and skips it.
 
 **`tests/lint/` — the narrowing lint.** clang's `-Wshorten-64-to-32` replayed
 over exactly the files the real build compiles, diffed against a triaged

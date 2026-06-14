@@ -16,7 +16,9 @@ it on a fresh tree).
 A build is **always a full, coherent nuke+rebuild** of both halves of the hosted
 system on purpose: a stale `.dis` against a freshly built compiler/ABI is a real,
 debugged crash class. `make all` is cheap (the heavy vendored C libs are
-content-cached); half builds are gated behind `FORCE=1`.
+content-cached — per-signature object slots, so a debug↔release profile flip
+restores the prior build's objects instead of recompiling); half builds are
+gated behind `FORCE=1`.
 
 ---
 
@@ -49,7 +51,7 @@ content-cached); half builds are gated behind `FORCE=1`.
 | `dis` | Dis tree only. Same gate (`FORCE=1`). |
 | `bootstrap` | (re)build the `mk` binary if missing (a fresh tree/worktree has none). Runs automatically as a prerequisite too. |
 | `clean` | remove object files. |
-| `nuke` | remove objects **and** the generated `.dis` tree + lib-cache stamps. |
+| `nuke` | remove objects **and** the generated `.dis` tree + the vendored-lib slot cache. |
 | `check` | the pre-push gate: builds each required CONF, runs every required suite (cunit, dis+web, jitperf), prints a PASS/FAIL/SKIP matrix. Exits nonzero iff a required cell fails. |
 | `test_all_unit` | C unit tests for every section under `tests/cunit/`. |
 | `test_<section>_unit` | one section, e.g. `make test_lib9_unit`. |
@@ -68,7 +70,7 @@ content-cached); half builds are gated behind `FORCE=1`.
 | `CONF` | `emu` | emu configuration: `emu` (full GUI: X11 + freetype + tk + draw) or `emu-g` (graphics-less headless; faster; what `tests/dis` runs under). |
 | `PROFILE` | `debug` | optimization/instrumentation bundle: `debug` (`-Og` + DISPTRCHECK + EMUCRASH-on; find-the-bug), `release` (`-O2`, portable), `bleedingedge` (`-O3 -march=native`). |
 | `NPROC` | host CPUs − 1 (≥1) | parallel compile jobs. The tree-wide default for every entry point. |
-| `NOCACHE` | _(unset)_ | `NOCACHE=1` forces a full rebuild of the content-cached vendored libs (`libfreetype`, `libmbedtls`, `libstb`) too. |
+| `NOCACHE` | _(unset)_ | `NOCACHE=1` bypasses the per-signature slot cache and forces a full rebuild of the vendored libs (`libfreetype`, `libmbedtls`, `libstb`, `libwebp`). |
 | `FORCE` | _(unset)_ | `FORCE=1` opts in to a gated half build (`make emu FORCE=1`). |
 | `RUNPROFILE` | `bleedingedge` | profile `make run` builds with. |
 | `RUNGEOM` | `1280x800` | desktop geometry for `make run`. |
