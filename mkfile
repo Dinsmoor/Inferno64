@@ -37,6 +37,7 @@ EMUDIRS=\
 	libfreetype\
 	libmbedtls\
 	libstb\
+	libwebp\
 	libmemdraw\
 	libmemlayer\
 	utils/data2c\

@@ -54,6 +54,7 @@ TARG=\
 	fsproto.dis\
 	hash.dis\
 	html.dis\
+	imageanim.dis\
 	imageload.dis\
 	imageremap.dis\
 	inflate.dis\
@@ -222,6 +223,7 @@ plumbing.dis:N: plumbing.m
 plumber.dis:N: plumbing.m
 
 imageload.dis: $ROOT/module/imageio.m $ROOT/module/imageload.m
+imageanim.dis: $ROOT/module/imageio.m $ROOT/module/imageanim.m
 ip.dis: $ROOT/module/ip.m
 ether.dis:	$ROOT/module/ether.m
 attrdb.dis attrhash.dis:	$ROOT/module/attrdb.m

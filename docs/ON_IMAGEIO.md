@@ -2,9 +2,11 @@
 
 Native decoding of common image formats (PNG, JPEG, BMP, TGA, GIF, PSD, HDR,
 PIC, PNM) into Draw images, backed by the vendored **stb** single-header
-libraries. Use this when you need a real raster image *inside* Inferno (a
-texture for `$Raster3`, an `<img>`/`<canvas>` bitmap for Charon, a sprite for a
-wm app) without host-side conversion.
+libraries, plus **WebP** (lossy VP8, lossless VP8L, the VP8X container and
+animation) via the vendored **libwebp** decoder. Use this when you need a real
+raster image *inside* Inferno (a texture for `$Raster3`, an `<img>`/`<canvas>`
+bitmap for Charon, a sprite for a wm app) without host-side conversion.
+Animated GIF and WebP play through the [`Imageanim`](#animation) library.
 
 There is also a pure-Limbo decoder family (`RImagefile`: `appl/lib/readpng.b`,
 `readjpg.b`, `readgif.b`, …) — fine for simple cases, but `imageremap` only
@@ -24,8 +26,11 @@ channels), [ON_LIMBO.md](ON_LIMBO.md) (reserved words).
 |-------|------|-------|---------|
 | stb | vendored C | `libstb/stb/` (all upstream single-headers + LICENSE; commit pinned in `UPSTREAM_COMMIT`) | The codecs. Plain ISO C. |
 | `stbwrap` | C, libstb | `libstb/stbwrap.c` → `libstb.a` | The ONLY translation unit that pulls in stb `*_IMPLEMENTATION`, behind a tiny Inferno-free C API. Must NOT include `lib9.h`. |
-| `$Imageio` | C builtin | `module/imageio.m`, `libinterp/imageio.c` | Limbo face: `decode(data): (w, h, rgba, err)` and `encode(w, h, rgba): (png, err)`. Graphics-free (no Draw/Memimage dependency) — works in raw RGBA8 bytes. |
-| `Imageload` | pure Limbo | `module/imageload.m`, `appl/lib/imageload.b` | Convenience: `read`/`readfile` → a ready `ref Draw->Image`. |
+| libwebp | vendored C | `libwebp/webpdec.h` (libwebp decode+demux+anim, amalgamated; license in `COPYING`/`PATENTS`, commit in `UPSTREAM_COMMIT`) | The WebP codec. Generic-C only (no SIMD/threads/file IO). |
+| `webpwrap` | C, libwebp | `libwebp/webpwrap.c` → `libwebp.a` | The ONLY TU that pulls in the WebP impl, same Inferno-free contract as `stbwrap`. Sniffs the `RIFF/WEBP` magic. |
+| `$Imageio` | C builtin | `module/imageio.m`, `libinterp/imageio.c` | Limbo face: `decode`/`decodefit`/`encode` (still) and `animopen` → an `Anim` handle (animated). Routes WebP to libwebp, the rest to stb. Graphics-free — raw RGBA8 bytes. |
+| `Imageload` | pure Limbo | `module/imageload.m`, `appl/lib/imageload.b` | Convenience: `read`/`readfile` → a ready `ref Draw->Image` (one still frame). |
+| `Imageanim` | pure Limbo | `module/imageanim.m`, `appl/lib/imageanim.b` | Plays an animation into a Draw image on its own pacing proc. See [Animation](#animation). |
 
 This mirrors the libmbedtls vendoring exactly (vendored upstream tree, built
 with the Inferno `$CC` as one static lib, leaf C that never sees `lib9.h`).
@@ -82,6 +87,67 @@ so a Draw `ABGR32` image's `readpixels` bytes encode directly. Used by
 `tests/jitperf/stft.b` to write a spectrogram PNG. Only PNG is wired today
 (stb_image_write can also do BMP/TGA/JPG/HDR — see [ON_STB.md](ON_STB.md)).
 
+## Animation
+
+Animated GIF and animated WebP decode through one extra `$Imageio` call,
+`animopen`, which returns an **`Anim`** handle instead of a single buffer.  Any
+still (PNG/JPEG/static WebP/…) comes back as a **one-frame** `Anim`, so a caller
+can treat every image uniformly.
+
+```limbo
+include "imageio.m";
+	imageio: Imageio;
+	Anim: import imageio;	# bind Anim's methods to the loaded instance
+
+(anim, err) := imageio->animopen(data);
+# anim.w, anim.h, anim.nframes, anim.loop (0 = forever)
+(delayms, rgba, ferr) := anim.frame(i);	# frame i as w*h*4 RGBA, + its delay
+anim.close();				# optional; the GC also frees it
+```
+
+**Memory model — frames live in C, one at a time in Dis.** `animopen` decodes
+*all* frames (GIF via stb's `stbi_load_gif_from_memory`, WebP via libwebp's
+`WebPAnimDecoder`), each full-canvas composited, and keeps the whole frame store
+plus the per-frame delays in **C `malloc`**, hung off the back of the `Anim` ADT
+(the freetype `Face` idiom: a GC-managed handle with hidden native pointers and
+a `dtype` finalizer).  `frame(i)` copies just that one frame into the Dis heap.
+So an animation costs **one frame of Dis heap at a time**, not all of them —
+important because the main Dis arena is small (~32 MB; see
+[`dis-heap-pool-sizes`]).  Hard caps in the C wrappers (per-side dimension, 64
+Mpx area, 256 MB aggregate, frame count) keep an untrusted file from asking for
+gigabytes.  Frame delays are milliseconds (stb converts GIF centiseconds; WebP
+timestamps are differenced).
+
+### Imageanim — playing one
+
+`Imageanim` (`appl/lib/imageanim.b`) drives an `Anim` into a single **ABGR32**
+Draw image on its **own proc**, so the UI thread never blocks on frame timing:
+
+```limbo
+include "imageanim.m";
+	imageanim: Imageanim;
+	Player: import imageanim;
+
+imageanim->init();			# loads Sys, Draw, Imageio
+(p, err) := imageanim->open(display, data, updated);	# updated: chan of int or nil
+# p.img is the surface (frame 0 already drawn); p.w, p.h, p.nframes, p.loop
+p.start();				# spawn the pacing proc
+# ... p.pause(); p.play(); p.stop();
+```
+
+The player writes each frame into `p.img` (a plain Draw op, safe from its proc)
+and, if `updated` is non-nil, pulses it with the frame index; the **consumer**
+issues its own repaint from whichever proc owns the UI.  In wm that repaint is a
+`panel`'s `dirty`/`update` — the per-region repaint mechanism — so only the image
+rectangle is redrawn.  Pacing uses a buffered one-shot sleeper proc that stays
+responsive to the control channel and never leaks (the buffer lets a leftover
+sleeper finish its send and exit even after a stop).
+
+`wm/gifview file` (`appl/wm/gifview.b`) is the worked demo: open a Player on the
+file, `putimage` `p.img` into a panel, and on each `updated` pulse mark the panel
+dirty.  Note it takes the display from **`ctxt.display`**, not `win.image` —
+`win.image` is nil until `tkclient->onscreen()`.
+
 ## Gotchas (learned the hard way)
 
 - **A library that calls Draw *methods* must `load Draw` itself.** `Imageload`
@@ -94,17 +160,30 @@ so a Draw `ABGR32` image's `readpixels` bytes encode directly. Used by
   image from `$Imageio` RGBA instead.
 - The teapot `.obj` ships no UVs; `rayteapot.b` generates an ugly spherical wrap
   for the demo. Texturing needs UVs regardless of the decoder.
+- **stb's GIF decoder can report fewer frames than other tools** on some
+  optimised/disposal-heavy GIFs (a known stb limitation, passed straight
+  through). The frames it does return are correct and full-canvas composited;
+  WebP animation (libwebp) does not have this quirk. If GIF fidelity ever
+  matters, that's the place to look.
 
 ## Build wiring
 
 - `libstb/mkfile` builds `libstb.a` (one TU: `stbwrap.c`, `-Istb` implicit via
-  relative include).
-- `Makefile` `EMUDIRS` includes `libstb` (before `emu`); `emu/Linux/emu` and
-  `emu-g` list `stb` in the `lib` section and `imageio` in the `mod` section.
+  relative include); `libwebp/mkfile` builds `libwebp.a` the same way (`webpwrap.c`
+  + `webpdec.h`).
+- `Makefile` `EMUDIRS` includes `libstb` and `libwebp` (before `emu`);
+  `emu/Linux/emu` and `emu-g` list `stb` **and** `webp` in the `lib` section and
+  `imageio` in the `mod` section.  Both vendored libs are in `CACHED_LIBS`
+  (content-cached; skipped unless their sources change).
 - `$Imageio` registered in `emu/Linux/emu.c` (`imageiomodinit`), wired into
   `libinterp/mkfile` (OFILES, MODULES, `imageiomod.h` gen rule + dep + nuke) and
-  `module/runt.m` like any other builtin.
-- Generated `libinterp/imageiomod.h` is **not** committed (`.gitignore`).
+  `module/runt.m` like any other builtin.  `imageiomodinit` also registers
+  `TAnim` (`dtype` with the `freeanim` finalizer).
+- Generated `libinterp/imageiomod.h` (and the `Imageio_Anim` struct/map in
+  `runt.h`) are **not** committed (`.gitignore`); regenerated every `make all`.
+- `imageanim.dis` (lib) and `gifview.dis` (wm) carry per-target `.m` deps in
+  their mkfiles so an `imageio.m`/`imageanim.m` interface change forces a rebuild
+  (a stale hash fails the runtime link typecheck: `load → nil`).
 
 ## Tests
 
@@ -113,3 +192,8 @@ texels (incl. a non-255 alpha), checks junk input fails gracefully, and renders
 a textured quad through `memmesh` from an `ABGR32` texture (which also validates
 the byte order end-to-end). Headless decode runs without a display; the textured
 quad needs one. `raytest: PASS 24/24` under `emu -g320x240 /dis/raytest.dis`.
+
+`appl/cmd/webptest.b file` decodes a WebP via `decode` + `decodefit`;
+`appl/cmd/animtest.b file` exercises `animopen`/`Anim.frame` on any image
+(prints geometry, per-frame delays, and the out-of-range / post-`close` guards).
+Both are headless. `wm/gifview file` is the interactive playback demo.

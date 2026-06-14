@@ -29,6 +29,7 @@ TARG=\
 	edit.dis\
 	filename.dis\
 	getauthinfo.dis\
+	gifview.dis\
 	keyboard.dis\
 	logon.dis\
 	logwindow.dis\
@@ -109,4 +110,9 @@ DISBIN=$ROOT/dis/wm
 # pleromussy consumes the appl/lib Masto interface (not a SYSMODULE), so it must
 # rebuild when masto.m changes, or a stale interface hash fails the runtime link
 # typecheck (load Masto -> nil).  json.m/imageio.m likewise are not SYSMODULES.
+# gifview consumes the appl/lib Imageanim interface (+ Imageio), neither a
+# SYSMODULE, so it must rebuild when either .m changes (stale hash -> load nil).
+# (Keep this comment ABOVE the rules: a comment directly after a "target: deps"
+# line is taken as that target's empty recipe and suppresses the %.dis build.)
 pleromussy.dis: $MODDIR/masto.m $MODDIR/json.m $MODDIR/imageio.m
+gifview.dis: $MODDIR/imageanim.m $MODDIR/imageio.m

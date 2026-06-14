@@ -27,6 +27,7 @@ TARG=\
 	9srvfs.dis\
 	9win.dis\
 	B.dis\
+	animtest.dis\
 	ar.dis\
 	archfs.dis\
 	auplay.dis\
@@ -174,6 +175,7 @@ TARG=\
 	wav2iaf.dis\
 	wc.dis\
 	webgrab.dis\
+	webptest.dis\
 	whois.dis\
 	wish.dis\
 	wmexport.dis\
@@ -229,6 +231,8 @@ auhdr.dis: auplay.dis
 # is taken as that target's (empty) recipe and suppresses the %.dis build.
 dbfs.dis: $MODDIR/styxservers.m
 fedifs.dis: $MODDIR/styxservers.m $MODDIR/masto.m $MODDIR/json.m
+animtest.dis: $MODDIR/imageio.m
+webptest.dis: $MODDIR/imageio.m
 mastotest.dis: $MODDIR/masto.m $MODDIR/json.m
 mastologin.dis: $MODDIR/masto.m $MODDIR/json.m
 mastoextra.dis: $MODDIR/masto.m $MODDIR/json.m

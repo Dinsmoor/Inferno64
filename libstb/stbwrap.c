@@ -129,6 +129,88 @@ stbwrap_free(void *p)
 	stbi_image_free(p);
 }
 
+/* aggregate frame-store ceiling shared by the animated decoders (256 MB) */
+#define STBWRAP_MAX_TOTAL	(256L * 1024 * 1024)
+
+/*
+ * Decode an animated GIF -- or any single-frame stb format -- to N frames of
+ * 8-bit RGBA.  On success returns a malloc'd buffer of nframes*(*w)*(*h)*4
+ * bytes: frame i begins at i*(*w)*(*h)*4, each top-to-bottom R,G,B,A and
+ * full-canvas composited by stb.  Sets *w,*h,*nframes and *delays to a malloc'd
+ * array of nframes per-frame durations in ms (stb already converts gif
+ * centiseconds to ms).  *loop is set to 0 (infinite) -- stb does not expose the
+ * gif loop count.  Free pixels and the delays array with stbwrap_free.  Returns
+ * NULL on failure with *err set.
+ *
+ * Multi-frame decode is GIF-only; every other stb format decodes as a single
+ * frame (delay 0), so callers get a uniform 1..N frame result.
+ */
+unsigned char*
+stbwrap_decode_anim(const unsigned char *data, int len, int *w, int *h,
+	int *nframes, int **delays, int *loop, const char **err)
+{
+	unsigned char *p;
+	int comp, z, *d;
+
+	*w = 0;
+	*h = 0;
+	*nframes = 0;
+	if(delays != 0)
+		*delays = 0;
+	if(loop != 0)
+		*loop = 0;
+	if(err != 0)
+		*err = 0;
+	if(data == 0 || len <= 0){
+		if(err != 0)
+			*err = "no image data";
+		return 0;
+	}
+
+	if(len >= 6 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F'){
+		d = 0;
+		z = 0;
+		p = stbi_load_gif_from_memory(data, len, &d, w, h, &z, &comp, 4);
+		if(p == 0){
+			if(err != 0)
+				*err = stbi_failure_reason();
+			return 0;
+		}
+		if(z <= 0 || (long)*w * *h * 4 * z > STBWRAP_MAX_TOTAL){
+			stbi_image_free(p);
+			if(d != 0)
+				free(d);
+			*w = 0;
+			*h = 0;
+			if(err != 0)
+				*err = "gif too large";
+			return 0;
+		}
+		*nframes = z;
+		if(delays != 0)
+			*delays = d;	/* hand the caller stb's ms array */
+		else if(d != 0)
+			free(d);
+		return p;
+	}
+
+	/* not a gif: a single still frame */
+	p = stbi_load_from_memory(data, len, w, h, &comp, 4);
+	if(p == 0){
+		if(err != 0)
+			*err = stbi_failure_reason();
+		return 0;
+	}
+	*nframes = 1;
+	if(delays != 0){
+		d = (int*)malloc(sizeof(int));
+		if(d != 0)
+			d[0] = 0;
+		*delays = d;
+	}
+	return p;
+}
+
 /*
  * Growable byte buffer for the stb_image_write memory callback.  `failed` is
  * sticky so a mid-encode realloc failure can't make a later callback deref a

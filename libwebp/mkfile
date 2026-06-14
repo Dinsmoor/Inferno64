@@ -1,0 +1,20 @@
+<../mkconfig
+
+# Vendored WebP decoder (libwebp 1.6.0, decode + demux, BSD-style license; see
+# COPYING and PATENTS), built as one static lib for emu.  The upstream decode
+# path is amalgamated into the single header webpdec.h (mirrors the libstb /
+# libmbedtls vendoring).  webpwrap.c is the only translation unit: it pulls in
+# the WebP *implementation* behind a tiny Inferno-free C API.  It is plain ISO
+# C and must NOT include lib9.h (webpwrap.c sees only libc + webpdec.h).
+#
+# webpdec.h is built fully portable: HAVE_CONFIG_H (with an empty config.h baked
+# in) forces libwebp's generic-C path -- no SIMD, no threads, no host file I/O.
+
+LIB=libwebp.a
+
+OFILES=\
+	webpwrap.$O\
+
+webpwrap.$O: webpwrap.c webpdec.h
+
+<$ROOT/mkfiles/mksyslib-$SHELLTYPE

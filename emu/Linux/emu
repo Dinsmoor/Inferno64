@@ -39,6 +39,7 @@ lib
 	mp
 	mbedtls
 	stb
+	webp
 
 	9
 

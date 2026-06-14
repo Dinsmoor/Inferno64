@@ -6747,14 +6747,20 @@ static stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
             }
 
             if (oldcode >= 0) {
-               p = &g->codes[avail++];
-               if (avail > 8192) {
-                  return stbi__errpuc("too many codes", "Corrupt GIF");
+               // GIF "deferred clear code": once the LZW table is full the
+               // decoder must keep using it (until an explicit clear code)
+               // instead of adding entries or failing.  stb originally errored
+               // here ("too many codes"), truncating any animation whose encoder
+               // relied on deferred clears -- e.g. lib/images/hell.gif decoded
+               // as 4 of its 10 frames.  Freezing the table at capacity matches
+               // giflib/browsers.  [LOCAL PATCH -- re-apply when re-vendoring stb;
+               // see libstb/stb/LOCAL_PATCHES.]
+               if (avail < 8192) {
+                  p = &g->codes[avail++];
+                  p->prefix = (stbi__int16) oldcode;
+                  p->first = g->codes[oldcode].first;
+                  p->suffix = (code == avail) ? p->first : g->codes[code].first;
                }
-
-               p->prefix = (stbi__int16) oldcode;
-               p->first = g->codes[oldcode].first;
-               p->suffix = (code == avail) ? p->first : g->codes[code].first;
             } else if (code == avail)
                return stbi__errpuc("illegal code in raster", "Corrupt GIF");
 
