@@ -22,7 +22,8 @@ The build is factored for multiple boards:
   the identity map from the board's `L1MAPENT0..3`.
 - `os/drivers/` — board-agnostic drivers, one file each: uart-pl011,
   gic-v2 / gic-v3 (board.mk picks one via `GIC=`), the virtio-mmio
-  transport + rng/input/net/blk drivers, ramfb, screen
+  transport + rng/input/net/blk/gpu drivers, gpu-virtio + ramfb (the
+  display; screen.c prefers virtio-gpu and falls back to ramfb), screen
   (memory-Memimage framebuffer), devether, pci + the PCIe drivers.
 - `os/boards/virt64/` (this directory) — what makes a board: `board.h`
   (addresses, IRQ ids, RAM base/size, MMU map, PSCI conduit), `board.c`

@@ -13,7 +13,7 @@ BOARDC  := board
 # the high ECAM block, so no extra MMU work.
 GIC     ?= v2
 
-DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb screen \
+DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb gpu-virtio screen \
 	   devether ether-virtio sd-virtio pci sd-nvme \
 	   sd-scsi sd-ahci devusb usbxhci usbxhcipci
 
@@ -23,11 +23,12 @@ DRIVERC := uart-pl011 gic-$(GIC) virtio rng-virtio input-virtio ramfb screen \
 include ../drivers/groups/ether-pci.mk
 
 # modern virtio (force-legacy=false) is required by the input drivers;
-# rng speaks modern too.  ramfb is the display; keyboard+tablet the input.
+# rng speaks modern too.  virtio-gpu is the display (screen.c falls back
+# to ramfb if it is absent); keyboard+tablet the input.
 # user-mode net (slirp): guest 10.0.2.15, gateway/host 10.0.2.2, dns 10.0.2.3
 # (see README "Networking" for the in-guest configuration).
 QEMUDEVS := -global virtio-mmio.force-legacy=false \
-	    -device virtio-rng-device -device ramfb \
+	    -device virtio-rng-device -device virtio-gpu-device \
 	    -device virtio-keyboard-device -device virtio-tablet-device \
 	    -device qemu-xhci,id=xhci -device usb-kbd \
 	    -netdev user,id=n0 -device virtio-net-device,netdev=n0
