@@ -14,6 +14,6 @@
 
 # ether-mii is the shared MII/PHY helper library (not a card itself); NICs
 # that drive an external PHY — igbe, rtl8169 — link against it.
-DRIVERC    += ether-rtl8139 ether-igbe ether-82563 ether-rtl8169 ether-mii
+DRIVERC    += ether-rtl8139 ether-igbe ether-82563 ether-rtl8169 ether-82598 ether-mii
 
 DRIVERCONF += ../drivers/groups/ether-pci.conf
