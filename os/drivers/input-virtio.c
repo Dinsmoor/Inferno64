@@ -204,6 +204,8 @@ vinputsetup(Vinput *in, Vdev *d)
 	virtiocfgw8(d, Cfgselect, Cfgevbits);
 	virtiocfgw8(d, Cfgsubsel, EVabs);
 	in->abs = virtiocfgr8(d, Cfgsize) > 0;
+	if(in->abs)
+		hostcursor = 1;		/* absolute pointer: qemu draws the host cursor */
 
 	q = virtioqalloc(d, 0, Nevents);
 	if(q == nil)

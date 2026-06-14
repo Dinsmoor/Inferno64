@@ -16,3 +16,4 @@ uchar*	attachscreen(Rectangle*, ulong*, int*, int*, int*);
 void	detachscreen(void);
 void	flushmemscreen(Rectangle);
 void	blankscreen(int);
+void	cursorupdate(int, int);

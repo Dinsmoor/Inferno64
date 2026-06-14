@@ -74,6 +74,29 @@ mousetrack(int b, int x, int y, int isdelta)
 		x += mouse.x;
 		y += mouse.y;
 	}
+	/*
+	 * clamp to the screen.  a relative pointer (PS/2, virtio-mouse)
+	 * integrates deltas, so without this a bogus delta — e.g. the byte
+	 * desync qemu produces when a GTK menu steals the pointer grab —
+	 * walks the position off-screen for good: the software cursor is
+	 * erased at its old spot and redrawn into an empty off-screen rect,
+	 * and never comes back.  Absolute pointers are already in range.
+	 */
+	{
+		int sw, sh;
+
+		screensize(&sw, &sh);
+		if(sw > 0 && sh > 0){
+			if(x < 0)
+				x = 0;
+			else if(x >= sw)
+				x = sw - 1;
+			if(y < 0)
+				y = 0;
+			else if(y >= sh)
+				y = sh - 1;
+		}
+	}
 	msec = TK2MS(MACHP(0)->ticks);
 	if(b && (mouse.b ^ b)&0x1f){
 		if(msec - mouse.msec < 300 && mouse.lastb == b
@@ -101,7 +124,7 @@ mousetrack(int b, int x, int y, int isdelta)
 	ptrq.put++;
 	wakeup(&ptrq.r);
 	drawactive(1);
-	/* TO DO: cursor update */
+	cursorupdate(mouse.x, mouse.y);
 }
 
 static int
@@ -234,6 +257,7 @@ pointerwrite(Chan* c, void* va, long n, vlong)
 	char *a = va;
 	char buf[128];
 	int b, x, y;
+	Drawcursor cur;
 
 	switch((ulong)c->qid.path){
 	case Qpointer:
@@ -250,6 +274,30 @@ pointerwrite(Chan* c, void* va, long n, vlong)
 		else
 			b = mouse.b;
 		mousetrack(b, x, y, 0);
+		break;
+	case Qcursor:
+		/*
+		 *  hotx[4] hoty[4] dx[4] dy[4] clr[dx/8 * dy/2] set[dx/8 * dy/2]
+		 *  big-endian longs; dx a multiple of 8, dy a multiple of 2.
+		 *  An empty write reverts to the default cursor.
+		 */
+		if(n == 0){
+			cur.data = nil;
+			drawcursor(&cur);
+			break;
+		}
+		if(n < 4*4)
+			error(Eshort);
+		cur.hotx = BGLONG((uchar*)va+0*4);
+		cur.hoty = BGLONG((uchar*)va+1*4);
+		cur.minx = 0;
+		cur.miny = 0;
+		cur.maxx = BGLONG((uchar*)va+2*4);
+		cur.maxy = BGLONG((uchar*)va+3*4);
+		if(cur.maxx%8 != 0 || cur.maxy%2 != 0 || n-4*4 != (cur.maxx/8 * cur.maxy))
+			error(Ebadarg);
+		cur.data = (uchar*)va + 4*4;
+		drawcursor(&cur);
 		break;
 	default:
 		error(Ebadusefd);
