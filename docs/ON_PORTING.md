@@ -458,77 +458,69 @@ structs and registration calls in both trees. A 9front driver is an
 **adaptation, not a rewrite** — and 9front, not U-Boot or Linux, is the
 first source for any driver it already carries. U-Boot is the source
 only for SoC-specific MACs and MMC controllers 9front never had; GICv3
-is written fresh (below). The shared seams:
+is written fresh (below).
 
-| Seam | Interface | Registration | Present in both trees as |
-|------|-----------|--------------|--------------------------|
-| Ethernet | `etherif.h` `Ether`, `etheriq()` | `addethercard()` | `os/drivers/devether.c`, `etherif.h` |
+> **The step-by-step procedure** — the per-file checklist, the recurring
+> rules (PCIWADDR width, the gcc-vs-kencc traps, the PIO→MMIO trick,
+> coherent-DMA), the 9front-history review, group manifests, and the worked
+> NIC examples — lives in **ON_PORTING_HW_DRIVERS.md**. This part is the
+> orientation: the seams, the two driver kinds, the three governing facts,
+> and the roadmap of what carries over.
+
+The shared seams:
+
+| Seam | Interface | Registration | Present in the native tree as |
+|------|-----------|--------------|-------------------------------|
+| Ethernet | `etherif.h` `Ether`, `etheriq()` | `addethercard()` | `os/drivers/{devether,etherif.h}` |
 | Storage | `sd.h` `SDifc` | `sdifc[]` | `os/port/devsd.c`, `sd.h` |
-| MII PHY | `ethermii.h` | `mii*()` | `os/port/ethermii.c` (≈ byte-identical) |
+| MII PHY | `ethermii.h` | `mii*()` | `os/drivers/ether-mii.c` (≈ byte-identical) |
+| PCIe | `pci.h` `Pcidev`/`pcimatch` | bus auto-scan | `os/drivers/{pci.c,pci.h}` (ECAM) |
 
 ## Two kinds of driver
 
 - **chan-devices** (`port/dev*.c`) — the `#X` filesystem device a program
   talks to (devether, devsd, devuart, devusb…). The native kernel already
-  carries most of these in `os/port/`; they are ported once and rarely.
+  carries most of these in `os/port/` and `os/drivers/`; they are ported
+  once and rarely.
 - **hardware drivers** — the per-controller code that registers *beneath*
   a chan-device (`ether*.c`, `sd*.c`, USB host controllers). This is where
-  nearly all porting work lives.
+  nearly all porting work lives, and what ON_PORTING_HW_DRIVERS.md covers.
 
-Where the native tree lacks the chan-device itself, that comes first. The
-notable gap is **USB: there is no `devusb` and no host-controller stack in
-`os/`** — bringing up any USB device means porting `devusb` + a host
-controller (xHCI) + a class driver (HID) together.
+Where the native tree lacks the chan-device itself, that comes first.
 
 ## Three facts govern every port
 
 1. **Dialect.** 9front is kencc; `os/` compiles with **gcc**
-   (`os/native.mk`). The in-tree virtio drivers already establish the
-   Plan 9-C-under-gcc idiom — anonymous-struct embedding (`Netif;`),
-   `USED`/`SET`, `nil`, `uchar`/`ulong` — and a port follows it. The
-   residue is mechanical.
-2. **Bus seam.** `os/drivers/etherif.h` is deliberately simplified to
-   virtio-mmio — **no ISAConf, no PCI**. A driver cannot probe a bus that
-   isn't wired up: a PCI driver needs the **devpci enumeration seam**
-   present first; an MMIO driver takes its base address from `board.h` and
-   its IRQ through the **intc** seam. Restore the bus seam before porting
-   drivers that ride it.
+   (`os/native.mk`). The in-tree drivers already establish the Plan 9-C-
+   under-gcc idiom — anonymous-struct embedding (`Netif;`), `USED`/`SET`,
+   `nil`, `uchar`/`ulong`, `volatile` MMIO pointers — and a port follows
+   it. The residue is mechanical (ON_PORTING_HW_DRIVERS.md, "the rules that
+   bite").
+2. **Bus seam.** A driver can only probe a bus that is wired up. **PCIe is
+   wired** (`pci.c` ECAM enumeration + the `Pcidev`/`pcimatch` API), so the
+   whole PCI driver pool is adaptation, not rewrite; an **MMIO** driver
+   takes its base address from `board.h` and its IRQ through the **intc**
+   seam. INTx arrives as a GIC SPI on `p->intl`; **MSI-X** is one call
+   (`pcimsienable`, backed by the GICv3 ITS).
 3. **Width.** Port only from 9front's **64-bit** trees — `pc64`, `arm64`,
    `bcm64`, `lx2k`, `imx8`. They are LP64-clean. The 32-bit trees (`pc`,
    `kw`, `omap`) carry the width assumptions this fork exists to remove.
 
-## The two bus seams a hardware driver rides
-
-- **PCI.** devpci enumerates the bus; a driver matches by vendor/device
-  and maps its BARs. Under qemu this is `-M virt`'s PCIe ECAM bridge; on a
-  board it is the SoC's PCIe controller. Until devpci is in the native
-  tree, PCI drivers have nothing to attach to — it is the keystone that
-  turns the whole `pc64` driver pool from rewrite into adaptation.
-- **MMIO.** No enumeration: the driver's `reset()` probes a fixed base
-  address (from `board.h`) and registers its interrupt through intc. This
-  is how the virtio-mmio drivers already work, and how SoC peripherals
-  attach.
-
-## DMA cache coherency is per-driver discipline
-
-qemu's virtio DMA is cache-coherent, so the in-tree drivers never flush.
-Real device DMA usually is **not**. Every driver that hands a buffer to
-hardware cleans/invalidates that address range around the transfer. Write
-the dcache clean/invalidate-range helpers once; call them in every DMA
-path. (Restated from Part II because it is a property of the driver, not
-of the board.)
-
 ## What carries over, by class
 
 - **Already in-tree — sync, don't port.** devether, devsd, devmnt,
-  devuart, devi2c, devpci, ethermii, ethervirtio10, sdvirtio10. Diff
-  against 9front for fixes; don't re-port.
-- **Adapt cleanly** (Plan 9 C + a bus seam): PCI NICs (`ether8169`,
-  `etherigbe`/`ether82563`), AHCI (`sdiahci`), NVMe (`sdnvme`), HD-audio
-  (`audiohda`), and the USB stack (`devusb` + `usbxhci` + an HID driver).
+  devuart, devusb, pci, ethermii, ether-virtio, sd-virtio, sd-ahci,
+  sd-nvme, usbxhci, gic-v2/v3. Diff against 9front for fixes; don't
+  re-port.
+- **PCI NICs — done** (the proven worked examples): `ether-rtl8139`,
+  `ether-igbe`, `ether-82563`, `ether-rtl8169`, `ether-82598`,
+  `ether-x550`, `ether-i225` (status table in ON_PORTING_HW_DRIVERS.md).
+- **Adapt cleanly when wanted**: HD-audio (`audiohda`), more of the
+  `pc64` PCI pool — all pure seam work now that PCIe + MSI are in.
 - **Per-SoC, from the matching 64-bit board tree**: `ethergenet` + `sdhc`
   (bcm64), `etherimx` + `usdhc` + `usbxhciimx` (imx8), `usbxhcilx2k` +
-  `pcilx2k` (lx2k), and so on — ported when that board is taken on.
+  `pcilx2k` (lx2k), and so on — ported when that board is taken on. These
+  come from U-Boot, not Linux, when 9front lacks them.
 - **Network storage with no hardware driver**: `sdaoe` + `devaoe`
   (ATA-over-Ethernet) is portable and needs no controller — durable block
   storage for any netbooted board.
@@ -549,44 +541,16 @@ drives the `ICC_*` system-register CPU interface. EL1 reaches those sysregs
 only because `l.S` sets `ICC_SRE_EL2.Enable` on the EL2→EL1 drop (harmless
 on a GICv2 build). The board picks the controller: `board.mk GIC=v2`
 (default) or `GIC=v3` (which also adds `gic-version=3` to the run target).
-Single-cpu: no SMP redistributor walk and no ITS, so MSI/MSI-X is still a
-gap (INTx is delivered as a GIC SPI either way). Modern SoCs (e.g. BPI-R4)
-use the v3 path.
+The v3 build also drives an **ITS**, so MSI/MSI-X works (`pcimsienable`);
+INTx is delivered as a GIC SPI either way. Modern SoCs (e.g. BPI-R4) use
+the v3 path.
 
 ## Bring drivers up under qemu first
 
 Level 3 proves level 4 (Part II) applies per *driver class*: qemu emulates
-enough hardware — PCIe, AHCI, e1000/rtl8169, NVMe, xHCI, GICv3
-(`-M virt,gic-version=3`), intel-hda — to bring up a driver headless
+enough hardware — PCIe, AHCI, e1000/e1000e/rtl8139/rtl8169, NVMe, xHCI,
+GICv3 (`-M virt,gic-version=3`), intel-hda — to bring up a driver headless
 before it meets real silicon. A driver lands by being proven against the
-matching qemu `-device`, not on a board.
-
-## Porting one driver
-
-1. Copy from the **64-bit** 9front tree into `os/drivers/<name>.c`.
-2. Make the kencc→gcc dialect pass (headers, `USED`/`SET`, `nil`, anon
-   embedding) — follow an existing `os/drivers/*.c` driver as the model.
-3. Wire the bus seam: PCI driver → match through devpci; MMIO driver →
-   base in `board.h`, IRQ through intc.
-4. Add dcache clean/invalidate around every device-visible buffer.
-5. Register it (`addethercard()` / `sdifc[]` / the USB Hci table) and add
-   it to a board's `DRIVERC` in `board.mk`.
-6. Prove it against the matching qemu `-device`, headless, before any real
-   hardware.
-
-## MMIO register pointers are `volatile`
-
-kencc never narrows or reorders a load; gcc does. At `-O1`, gcc turns a
-sub-field extraction off a non-`volatile` MMIO dereference —
-`(ctlr->mmio[REG] >> 24) & 0xFF` — into a **single-byte** load at the
-register's high byte, and a device whose config space only answers
-full-word reads (qemu's xHCI capability registers among them) returns 0
-for that access. The full-word value reads fine; only the narrowed field
-is wrong, so the symptom is a register that "reads back as its low bits
-but zero everywhere else." Declare every pointer that addresses device
-registers `volatile u32int*` (as `ether-rtl8139`'s csr accessors do).
-A driver that only ever reads/writes whole registers — `sdnvme`,
-`sdiahci` — can get away without it; one that extracts bitfields straight
-off the MMIO dereference (xHCI's `HCSPARAMS`) cannot. Load an MMIO word
-into a local before picking it apart, and keep `coherence()` between a
-DMA buffer write and the doorbell that hands it to the device.
+matching qemu `-device`, not on a board; where qemu emulates no such
+device, build-test-only is the bar (ON_PORTING_HW_DRIVERS.md, "build and
+validate").
