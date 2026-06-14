@@ -27,6 +27,13 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 
 ## Find the doc for your task
 
+### Build & run
+
+| task | read |
+|---|---|
+| build it, pick a profile, run emu, the prerequisites and gotchas | [`ON_BUILDING.md`](ON_BUILDING.md) |
+| every make target and option (both build systems + native `make image-<board>`) | [`ON_MAKE.md`](ON_MAKE.md) |
+
 ### Writing Limbo
 
 | task | read |
