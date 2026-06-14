@@ -17,6 +17,13 @@
 
 void (*comvec)(void);
 
+/*
+ * Inert here (no JIT): the native kernel's main.c sets these like the
+ * other arches do, and a real x86-64 back-end would honor them.
+ */
+ulong	jitarenasize;
+int	jitsinglearena;
+
 int
 compile(Module *m, int size, Modlink *ml)
 {

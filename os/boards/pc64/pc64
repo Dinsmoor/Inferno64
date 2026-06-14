@@ -1,0 +1,99 @@
+dev
+	root
+	cons
+	env
+	mnt
+	prog
+	pipe
+	dup
+	srv
+	draw
+	pointer
+	ip
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+lib
+	interp
+	kern
+
+mod
+	sys
+	draw
+	tk
+	loader
+	math
+	raster3
+	keyring
+	crypt
+	ipints
+
+port
+	alarm
+	alloc
+	allocb
+	chan
+	dev
+	dial
+	dis
+	discall
+	exception
+	exportfs
+	inferno
+	latin1
+	nocache
+	nodynld
+	parse
+	pgrp
+	print
+	proc
+	qio
+	qlock
+	random
+	sysfile
+	taslock
+	xalloc
+
+link
+
+code
+	int main_pool_pcnt = 40;
+	int heap_pool_pcnt = 30;
+	int image_pool_pcnt = 20;	/* memdraw images live here; 0 panics in screeninit */
+
+	int consoleprint = 1;
+	int redirectconsole = 0;
+	char debug_keys = 1;
+	int panicreset = 0;
+	void pseudoRandomBytes(uchar *a, int n){memset(a, 0, n);}
+	Type *Trdchan;
+	Type *Twrchan;
+
+init
+	virtinit
+
+root
+	/chan
+	/dev
+	/dis
+	/env
+	/fd
+	/mnt
+	/n
+	/n/disk
+	/n/kfs
+	/n/local
+	/n/remote
+	/net
+	/prog
+	/tmp
+	/usr
+	/usr/inferno
+	/osinit.dis
+# Just the structure (plus the init module).  The Makefile appends the rest
+# when it generates pc64.gen: every file under the USERSPACE root trees.

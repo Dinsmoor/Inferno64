@@ -419,8 +419,14 @@ $(O)/root.o: $(GENCONF).root.s | $(O)
 
 # ---- link ----
 
+# POSTLINK: optional per-arch fixup run on the linked $(KERNEL) (e.g. amd64
+# rewrites the ELF container to elf32 so qemu's multiboot loader accepts it).
+# Empty for arches that boot the elf64 directly (aarch64).
+POSTLINK ?=
+
 $(KERNEL): $(OBJ) $(BOARD)/kernel.ld $(VARSTAMP)
 	$(LD) -T $(BOARD)/kernel.ld -o $@ $(OBJ) $(shell $(CC) -print-libgcc-file-name)
+	$(POSTLINK)
 	@echo "built $@"
 
 clean:

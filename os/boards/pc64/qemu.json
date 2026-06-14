@@ -1,0 +1,8 @@
+{
+  "_comment": "qemu test profile for tests/kernel — how to boot pc64 headlessly. Serial-only during bring-up; gui_devices fill in once ramfb+PS/2 land.",
+  "arch": "amd64",
+  "qemu": "qemu-system-x86_64",
+  "machine": ["-M", "q35", "-m", "512"],
+  "gui_devices": [],
+  "bootsecs": 25
+}
