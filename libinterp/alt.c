@@ -13,6 +13,32 @@ extern	OP(isend);
 extern	OP(irecv);
 
 /*
+ * Array-of-channels alt: the compiler builds the receive destination as the
+ * tuple (int index, T value) -- see typecheck.c, Orcv on a Tarray.  The index
+ * is one int at offset 0; the value follows at align(IBY2WD, align(T)).  Under
+ * LP64 a value that holds a pointer (or any 8-aligned datum) is placed at
+ * IBY2PTR, not IBY2WD, so the fixed `ptr + 1` (one Dis word) step put the value
+ * -- and its pointer slots -- 4 bytes low.  freeptrs()/movtmp() then read those
+ * slots straddling a word boundary and destroy() a spliced wild pointer,
+ * corrupting the heap (e.g. re-receiving a (count, array of byte, ...) reply on
+ * an array-of-files alt).  The .dis type descriptor carries no alignment, but
+ * its pointer map does: a nonzero map byte means T contains a pointer and is
+ * thus IBY2PTR-aligned.  Deriving the offset this way keeps the runtime in step
+ * with the compiler's sizeids() without an ABI/align field on the wire.
+ */
+static int
+altvaloff(Type *t)
+{
+	int i;
+
+	if(t != nil)
+		for(i = 0; i < t->np; i++)
+			if(t->map[i] != 0)
+				return IBY2PTR;	/* pointer-bearing value: 8-aligned */
+	return IBY2WD;			/* word-aligned value follows the index */
+}
+
+/*
  * Count the number of ready channels in an array of channels
  * Set each channel's alt pointer to the owning prog
  */
@@ -60,7 +86,7 @@ altunmark(Channel *c, WORD *ptr, Prog *p, int sr, Channel **sel, int dn)
 			cqdelp(&c->recv, p);
 		if(sr == 1 && *sel == c) {
 			W(p->R.d) = dn;
-			p->ptr = ptr + 1;
+			p->ptr = (WORD*)((uchar*)ptr + altvaloff(c->mid.t));
 			ptr[0] = n;
 			*sel = nil;
 		}
@@ -226,7 +252,7 @@ altcomm(Alt *a, int which)
 					W(R.d) = n;
 					R.s = &c;
 					ptr = ac->ptr;
-					R.d = ptr + 1;
+					R.d = (WORD*)((uchar*)ptr + altvaloff(c->mid.t));
 					ptr[0] = an;
 					irecv();
 					return;
