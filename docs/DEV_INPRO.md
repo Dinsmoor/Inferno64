@@ -62,24 +62,12 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 - [ ] **Off-boot-path LP64 items** — `asm.c` `-S` `Tcasec` listing; `devprog.c`/
       `devprof.c` pointer↔text casts. Listing/debug only. `ON_C_IN_DIS.md`
       §"Deferred LP64 items".
-- [x] **amd64 (x86-64) JIT** — `libinterp/comp-amd64.c` is now a real LP64 x86-64
-      JIT (was a 34-line stub), ported from the `ilp64` backend but rebuilt to
-      mirror `comp-aarch64.c`'s width discipline (word ops = 32-bit movl, pointer/
-      big = 64-bit movq) and punt set. Natively compiles moves/word+byte+long
-      add-sub-and-or-xor/shifts/conversions/indexing/length/branches/IJMP/IMCALL;
-      punts FP, mul/div/mod, channels, alloc, refcounted pointer moves, IRET/
-      IFRAME/IMFRAME, and relocates IGOTO/ICASE/ICASEL/ICASEC tables (`emu -c1`;
-      `-c0` unaffected). Validated bit-identically vs the interpreter (integer
-      loops, fib(28) recursion, big arithmetic, arrays, lists, channels/spawn,
-      strings) + 8× stable. **Validation recipe** (this is an aarch64 host): cross
-      the amd64 target toolchain to `x86_64-linux-gnu-gcc -c -m64` / `... -m64
-      -static` (edit `mkfiles/mkfile-Linux-amd64` AS/CC/LD), `make OBJTYPE=amd64
-      CONF=emu-g PROFILE=release FORCE=1 emu`, run under `qemu-x86_64`. `jitcode()`
-      maps the code arena below 2GB (32-bit jump tables): `MAP_32BIT` on a native
-      amd64 host, with a `MAP_FIXED_NOREPLACE` low-hint fallback because
-      qemu-user ignores `MAP_32BIT`. Remaining: native SSE2 FP + the mul/div/mod
-      group (currently punted; perf only), and a real `das-amd64.c` (debug-only).
-      Doc `ON_JIT.md`. Still UNCOMMITTED.
+- [x] **amd64 (x86-64) JIT** — `libinterp/comp-amd64.c` is a working LP64 x86-64
+      JIT (`emu -c1`; `-c0` unaffected), mirroring `comp-aarch64.c`'s width split
+      and punt set. Cross-build + qemu validation recipe and internals:
+      `ON_JIT.md` §"amd64 (x86-64) JIT Implementation". Remaining (perf/cleanup):
+      native SSE2 FP + the mul/div/mod group (currently punted), and a real
+      `das-amd64.c` (debug-only).
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".

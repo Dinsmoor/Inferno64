@@ -86,28 +86,20 @@ root-caused to a specific non-stride cause with a fix or a precise bug write-up.
 
 ---
 
-## Job 2 — Port the amd64 JIT from `ilp64` to master (LP64) — **DONE (uncommitted)**
+## Job 2 — Port the amd64 JIT from `ilp64` to master (LP64) — **DONE** (commit `79692575`)
 
-**Status (2026-06-15):** ported and validated. `libinterp/comp-amd64.c` is now a
-real LP64 x86-64 JIT, rebuilt around `comp-aarch64.c`'s width discipline rather
-than copied verbatim from `ilp64` (which assumed `IBY2WD==IBY2PTR==8`). Native:
-moves, word/byte/long add-sub-and-or-xor, shifts, conversions, `ILEN*`, indexing,
-all branches, `IJMP`, `IMCALL`. Punts (matching aarch64) channels, refcounted
-moves, alloc, `IRET/IFRAME/IMFRAME`, table-bearing ops — **plus**, in this cut,
-all FP and the mul/div/mod group (correctness-complete, perf-incomplete; native
-SSE2 FP + mul/div is the next increment). Cross-built (`x86_64-linux-gnu-gcc`,
-static) and run under `qemu-x86_64`; **bit-identical to the interpreter** across
-integer loops, `fib(28)` recursion (~318k cross-module calls — exercises the
-`commcall`/`macmcal` path), 64-bit big arithmetic, arrays, lists, channels +
-`spawn`, strings; 8× stable. Recipe + internals: `ON_JIT.md` "amd64 (x86-64) JIT
-Implementation". Three LP64 bugs found and fixed vs the `ilp64` source: `R.t`
-compared 64-bit (it is a 4-byte `WORD`), runt fn passed through 4-byte `R.dt`
-instead of 8-byte `R.d`, and `sizeof(Modl)==8` index scale (it is 16 on LP64);
-plus two amd64-specific bugs surfaced in validation — `con()` must be
-fixed-length (pass stability) and `macmcal` must `pop` to balance the `call`.
-Remaining before this is "complete": native FP/mul/div, a real `das-amd64.c`
-(debug-only), the `kernel/pc64` cell (needs an amd64 native kernel + a kernel-
-side `jitcode` like aarch64's, neither on master), and a commit.
+`libinterp/comp-amd64.c` is a working LP64 x86-64 JIT, rebuilt around
+`comp-aarch64.c`'s width discipline (not copied verbatim from `ilp64`, whose
+`IBY2WD==IBY2PTR==8` assumption is wrong under LP64). Same native/punt split as
+the aarch64 backend, plus FP and the mul/div/mod group punted in this first cut.
+Cross-built and validated bit-identically against the interpreter under
+qemu-x86_64. Internals + the cross-build/qemu recipe: `ON_JIT.md` §"amd64
+(x86-64) JIT Implementation".
+
+Remaining (perf/cleanup, not blocking): native SSE2 FP + mul/div, a real
+`das-amd64.c` (debug-only), and the `kernel/pc64` cell — which needs an amd64
+native kernel plus a kernel-side `jitcode` (xalloc-backed, like aarch64's),
+neither of which is on master.
 
 **Goal (original):** bring x86-64 native codegen to master. Today amd64 runs every
 module interpreted (`comp-amd64.c` is a stub); `kernel/pc64` is green without it.

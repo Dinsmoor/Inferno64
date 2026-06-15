@@ -629,14 +629,13 @@ proc does the compiling and feeds progress over a channel.
 
 ---
 
-# amd64 (x86-64) JIT Implementation (LP64) — status and internals
+# amd64 (x86-64) JIT Implementation (LP64) — internals
 
 `libinterp/comp-amd64.c` is a real LP64 x86-64 JIT, modelled on the aarch64
 backend. It is **off by default** (`cflag==0` runs everything interpreted) and
-activates with `emu -c1`. On master amd64 was previously an interpreter-only
-34-line stub; the working backend is ported from the parked `ilp64` branch but
-**rebuilt around the aarch64 width discipline**, because the two ABIs differ in
-exactly the way that bites:
+activates with `emu -c1`. It is ported from the `ilp64` branch's x86-64 codegen
+but **rebuilt around the aarch64 width discipline**, because the two ABIs differ
+in exactly the way that matters:
 
 - The `ilp64` x86-64 backend assumed `IBY2WD == IBY2PTR == 8` and widened every
   operand to 64 bits (`rex` + `movabs` everywhere). Under LP64 that is wrong:
@@ -690,20 +689,20 @@ next increment.
 
 ## Building and validating on a non-amd64 host
 
-There is no amd64 hardware in the loop here; the backend is cross-built and run
-under qemu-user on the aarch64 dev box:
+On a build host that is not amd64, cross-build the backend and run it under
+qemu-user:
 
 1. Point the amd64 *target* toolchain at the cross compiler, static-linked so
    qemu-user needs no x86-64 loader: in `mkfiles/mkfile-Linux-amd64` set
    `AS`/`CC` to `x86_64-linux-gnu-gcc -c -m64` and `LD` to
    `x86_64-linux-gnu-gcc -m64 -static`. (Host tools — `mk`, `limbo` — stay native
-   via `mkhost-Linux`; the shared `/dis` tree is arch-independent.)
+   via `mkhost-Linux`; the shared `/dis` tree is arch-independent.) This edit is
+   host-specific; restore the file afterwards.
 2. `make OBJTYPE=amd64 CONF=emu-g PROFILE=release FORCE=1 emu`.
 3. `qemu-x86_64 Linux/amd64/bin/emu-g -c1 -r. /dis/sh.dis -c '<cmd>'`.
 
 Validate by bit-identity against the interpreter: run the same workload under
-`-c0` and `-c1` and `diff`. The exercised set that matches today includes
-integer loops, deep recursion (`fib(28)`, ~318k cross-module calls), 64-bit big
-arithmetic, array indexing, lists, channels + `spawn`, and string building —
-plus repeated runs for stability. Restore `mkfile-Linux-amd64` afterwards; the
-cross edit is host-specific, not a tree change.
+`-c0` and `-c1` and `diff`. Representative workloads that must stay bit-identical
+cover integer loops, deep recursion (`fib(28)`, ~318k cross-module calls through
+`commcall`/`macmcal`), 64-bit big arithmetic, array indexing, lists, channels +
+`spawn`, and string building.
