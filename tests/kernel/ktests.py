@@ -501,15 +501,23 @@ def test_cursor():
     gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
     g = Guest(extra=gui + netdev_opt(), bootsecs=PROF.get("bootsecs", 25) + 20)
     s, cmd = qmp_open(qmp)
-    # the cursor boots centred over the desktop; nudge it and see the scanout move
+    # The cursor boots centred over the desktop; nudge it down-right (away from
+    # any edge, so it stays on-screen) and watch the scanout move.  A loaded TCG
+    # cross-boot processes the PS/2 reports + redraw slowly, so inject a burst,
+    # let it settle, and retry until the framebuffer changes (or we give up).
     before = _screendump_pixels(cmd)
-    for _ in range(4):
-        cmd("human-monitor-command", **{"command-line": "mouse_move 40 40"})
-        time.sleep(0.2)
-    after = _screendump_pixels(cmd)
+    diff = 0
+    for _ in range(6):
+        for _ in range(4):
+            cmd("human-monitor-command", **{"command-line": "mouse_move 40 40"})
+            time.sleep(0.3)
+        time.sleep(1.5)
+        after = _screendump_pixels(cmd)
+        diff = sum(1 for a, b in zip(before, after) if a != b)
+        if diff > 30:
+            break
     s.close()
     g.close()
-    diff = sum(1 for a, b in zip(before, after) if a != b)
     assert diff > 30, \
         f"cursor did not move the framebuffer ({diff} bytes changed) — " \
         "missing, frozen, or off-screen"
