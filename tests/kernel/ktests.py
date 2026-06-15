@@ -149,6 +149,8 @@ def test_igbe():
     to ARP, so send several); the igbe-only ifstats fields (Ctrlext/rintr/
     tintr) prove it is the igbe driver — not virtio-net — doing it, with
     interrupts actually firing."""
+    if not PROF.get("netdev_device"):
+        raise SkipTest(f"board {HWTARG} has no networking — no igbe path")
     g = Guest(extra=netdev(device="e1000"))
     g.run(NETCONF + [
         ("ip/ping -n 4 10.0.2.2", 12),
@@ -163,13 +165,37 @@ def test_igbe():
 
 
 def test_dns():
-    """ndb/cs + ndb/dns out of the box: resolve + fetch by hostname.
-    Needs host internet (slirp NATs UDP to the public resolvers in ndb)."""
+    """ndb/cs + ndb/dns resolve + fetch by hostname.  The guest forwards to
+    qemu slirp's built-in DNS proxy (10.0.2.3), which answers from the *host's*
+    own resolver — so this passes whenever the host has working DNS at all,
+    instead of requiring the guest to reach one specific public resolver
+    (8.8.8.8 stays as a fallback).  The dnsquery is retried because ndb/dns can
+    be slow to come up when the box is loaded (e.g. mid-`make check`)."""
+    if not PROF.get("netdev_device"):
+        raise SkipTest(f"board {HWTARG} has no networking")
     g = Guest(extra=netdev())
+    # Override the resolver list: slirp's proxy first (host resolver, local and
+    # fast), public DNS as fallback.  ndb reads /lib/ndb/local for the database
+    # file list and the infernosite `dns=` forwarders; bind a writable copy over
+    # it before cs/dns start.  Continuation lines are tab-indented (ndb syntax).
     g.run(NETCONF + [
+        ("echo 'database=' > /tmp/nl", 1),
+        ("echo '\tfile=/lib/ndb/local' >> /tmp/nl", 1),
+        ("echo '\tfile=/lib/ndb/dns' >> /tmp/nl", 1),
+        ("echo '\tfile=/lib/ndb/inferno' >> /tmp/nl", 1),
+        ("echo '\tfile=/lib/ndb/common' >> /tmp/nl", 1),
+        ("echo 'infernosite=' >> /tmp/nl", 1),
+        ("echo '\tdns=10.0.2.3' >> /tmp/nl", 1),
+        ("echo '\tdns=8.8.8.8' >> /tmp/nl", 1),
+        ("bind /tmp/nl /lib/ndb/local", 1),
         ("ndb/cs &", 4),
-        ("ndb/dns &", 4),
-        ("ndb/dnsquery example.com", 10),
+        ("ndb/dns &", 5),
+    ])
+    for _ in range(4):
+        g.run([("ndb/dnsquery example.com", 8)])
+        if "example.com ip" in g.output():
+            break
+    g.run([
         ("webgrab -o /tmp/web.txt http://example.com/", 15),
         ("echo dns-marker", 2),
     ])
