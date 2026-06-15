@@ -495,6 +495,7 @@ struct Proc
 	int		fpstate;
 	int		procctl;	/* Control for /proc debugging */
 	ulong		pc;		/* DEBUG only */
+	int		nlocks;		/* spinlocks held; maintained + checked only in PARANOID builds (faultarm64 fail-fast).  Field is unconditional so Proc layout never depends on the build flag. */
 	Lock	rlock;	/* sync between sleep/swiproc for r */
 	Rendez*		r;		/* rendezvous point slept on */
 	Rendez		sleep;		/* place for syssleep/debug */

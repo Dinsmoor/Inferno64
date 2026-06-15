@@ -361,11 +361,15 @@ $(O)/brd_%.o: $(BOARD)/%.c $(HDRS) $(GENH) | $(O)
 $(O)/port_%.o: ../port/%.c $(HDRS) $(GENH) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# Recompile alloc.c when PARANOID changes value (stamp only updates then).
+# Recompile the POOLPARANOID-sensitive objects when PARANOID changes value
+# (stamp only updates then).  alloc.c: the free-tree audit.  port_taslock.o +
+# trap.o: the nlocks held-lock accounting and the faultarm64 fail-fast guard.
+# The Proc.nlocks *field* is unconditional, so layout never skews — only this
+# code is gated — but these objects must still rebuild on a flag switch.
 $(O)/paranoid.stamp: force | $(O)
 	@[ "`cat $@ 2>/dev/null`" = "$(PARANOID)" ] || echo $(PARANOID) > $@
 force: ;
-$(O)/port_alloc.o: $(O)/paranoid.stamp
+$(O)/port_alloc.o $(O)/port_taslock.o $(O)/trap.o: $(O)/paranoid.stamp
 
 $(O)/ip_%.o: ../ip/%.c $(HDRS) | $(O)
 	$(CC) $(CFLAGS) -c -o $@ $<

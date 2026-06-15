@@ -157,6 +157,24 @@ faultarm64(Ureg *ur)
 {
 	char buf[ERRMAX];
 
+#if POOLPARANOID
+	/*
+	 * PARANOID build only (make PARANOID=0 drops this).  A synchronous
+	 * data/instruction abort is NOT masked by splhi (which only sets
+	 * DAIF.I), so it can be taken inside a spinlock-held critical region.
+	 * Routing such a fault to disfault() would raise a Dis exception whose
+	 * error()/longjmp unwind abandons the held spinlock, which then
+	 * lockloops for the next acquirer.  A fault with locks held is a kernel
+	 * bug (a wild pointer in kernel C), not a recoverable Dis fault: fail
+	 * fast, at the fault, instead of leaving a cryptic downstream lockloop.
+	 */
+	if(up->nlocks){
+		setpanic();
+		dumpregs(ur);
+		panic("fault with %d lock(s) held: pc=%#llux addr=%#llux esr=%#llux",
+			up->nlocks, ur->pc, ur->far, ur->esr);
+	}
+#endif
 	spllo();
 	if(ur->far < BY2PG)
 		disfault(ur, "dereference of nil");

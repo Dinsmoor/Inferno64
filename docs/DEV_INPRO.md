@@ -33,13 +33,27 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 ## Parked / deferred
 
 - [ ] **Native-kernel scheduler lockloop (flaky)** — the `kernel/virt64` check
-      cell can fail on the dns/tls tests: panic `lockloop` with `ready()`'s
-      `lock(runq)` (os/port/proc.c:119) as both holder and spinner, JIT
-      `rmcall` in the trace, triggered by webgrab's TCP path. Timing-dependent
-      (fails in streaks, passes on rerun); bisect shows it predates the
-      2026-06-12 build factoring. Suspects: an interrupt path doing `wakeup()`
-      outside splhi coverage, or the JIT entering the scheduler unmasked.
-      Start by making taslock's lockloop report dump the holder's trace.
+      cell could panic `lockloop` with `ready()`'s `lock(runq)`
+      (os/port/proc.c:119) as both holder and spinner, JIT `rmcall` in the
+      trace, on webgrab's TCP path. The mechanism was a **wild `Proc` pointer
+      reaching `ready()`** — i.e. heap corruption — so a Dis fault inside the
+      runq-locked region unwound and abandoned the lock. **Likely resolved
+      2026-06-15** by the array-of-channels alt LP64 fix (`libinterp/alt.c`,
+      commit d4b74d3e — the same shared Dis heap-corruption bug; see memory
+      `array-alt-lp64-misalign`): 9+ post-fix kernel runs show **zero**
+      lockloop/panic/core. Not yet proven against a streaky baseline, so kept
+      parked. The residual `kernel/virt64` make-check failures are now
+      network-layer (kernel alive), handled by the dns/tls cell hardening
+      below.
+- [ ] **Remove the `nlocks` fail-fast guard from PARANOID builds** (followup;
+      added 2026-06-15) — `os/aarch64/faultarm64` panics on a fault taken with
+      spinlocks held (`up->nlocks`), gated behind `#if POOLPARANOID` so
+      `make PARANOID=0` release images already drop it. It was the instrument
+      that localized the array-alt wild-pointer bug and is a cheap keeper while
+      LP64/aarch64 kernel C keeps landing. **Delete it outright** (the
+      `up->nlocks` accounting in `os/port/taslock.c`, the field in `portdat.h`,
+      and the trap.c check) once the wild-pointer/use-after-free class is closed
+      out (cf. `aarch64-unlock-release-barrier`, `charon-close-heap-corruption`).
 - [ ] **Idle-Charon heap corruption** (poolcheck abort on window close) —
       characterised, not root-caused. The bit-36 stray-free-tree-pointer bug.
       Detail: `ON_C_IN_DIS.md` §"Open runtime bug" + memory

@@ -50,6 +50,9 @@ lock(Lock *l)
 	l->pri = up->pri;
 	up->pri = PriLock;
 	l->pc = pc;
+#if POOLPARANOID
+	up->nlocks++;		/* held-lock count for the faultarm64 fail-fast guard */
+#endif
 }
 
 void
@@ -88,6 +91,9 @@ canlock(Lock *l)
 	if(up){
 		l->pri = up->pri;
 		up->pri = PriLock;
+#if POOLPARANOID
+		up->nlocks++;
+#endif
 	}
 	l->pc = getcallerpc(&l);
 	return 1;
@@ -105,6 +111,10 @@ unlock(Lock *l)
 	l->key = 0;
 	coherence();
 	if(up){
+#if POOLPARANOID
+		if(up->nlocks > 0)
+			up->nlocks--;
+#endif
 		up->pri = p;
 		if(up->state == Running && anyhigher())
 			sched();
