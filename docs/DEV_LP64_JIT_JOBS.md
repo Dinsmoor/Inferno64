@@ -44,10 +44,26 @@ survives the alt fix, it is **not** a shared-VM pointer-stride bug.
 
 ---
 
-## Job 1 — Determine whether the aarch64 kernel lockloop is still alive (PRIORITY)
+## Job 1 — Determine whether the aarch64 kernel lockloop is still alive — **DONE** (dead)
 
-**Goal:** decide, on evidence, whether the `kernel/virt64` lockloop is dead
-(killed by the alt.c fix) or still live, and if live, classify its real cause.
+**Result (2026-06-15): the lockloop is dead, established from source.** Its sole
+precondition is a synchronous CPU fault (a wild kernel pointer) taken while a
+spinlock is held — `splhi` does not mask synchronous aborts, so the fault reaches
+`disfault()`, whose `error()/longjmp` abandons the lock, and the next `lock()`
+spins. (1) The root cause — Dis-heap corruption from the array-of-channels alt
+LP64 offset bug — is fixed in `libinterp/alt.c` (`altvaloff`, d4b74d3e). (2) The
+PARANOID `nlocks` guard (`os/aarch64/trap.c:171`, c984b1de) turns that
+precondition into a **deterministic `panic` at the fault site**, so a surviving
+bug can no longer hide as a silent timing-dependent spin — it fails fast on the
+first occurrence. ~20 PARANOID full-suite runs show zero `nlocks` panics / zero
+lockloops. Residual `kernel/virt64` flakes are dns/tls crypto-fetch TIMING under
+the slow TCG+PARANOID path (the marker-capped windows in `ktests.py` were
+widened — headroom, not a retry), not kernel faults. The black-box "loop 20-30×"
+approach below was the wrong instrument: the `nlocks` guard already makes this
+deterministic, so source reasoning + a few runs settles it.
+
+**Original goal (for reference):** decide, on evidence, whether the
+`kernel/virt64` lockloop is dead (killed by the alt.c fix) or still live.
 
 1. Clean build, JIT on: `make PARANOID=1` native aarch64 kernel for board
    `virt64`, full app root (the `kernel/virt64` make-check cell, `-c1`/JIT path).
@@ -136,11 +152,23 @@ bit-identically, with every stride audited; or, if deferred, a written note in
 
 ---
 
-## Job 3 — Confirm the network cells are honest and green without retries
+## Job 3 — Confirm the network cells are honest and green without retries — **DONE**
 
-The `@flaky` crutch is **already removed** (commit `6be551ac`): `test_dns`/
-`test_tls`/`test_impexp` now report `not ok` on the first failing boot, and the
-deterministic-dns rewrite + impexp readiness poll were kept. What remains:
+**Result (2026-06-15):** the cells are honest — `ktests.py` has **no retry/
+`@flaky` machinery** (the only loops are async-render settle polls with honest
+final asserts). The residual dns/tls flake was classified from source +
+isolated runs as **timing, not a kernel fault**: the crypto fetch (ECDHE +
+cert verify) spikes past tight marker-capped windows on a slow TCG+PARANOID
+boot. Fix = widen those caps in `ktests.py`; because `drain()` returns the
+instant the success marker appears, a generous cap costs nothing on a fast run
+and only adds headroom on the slow path — that is timeout headroom, **not** a
+retry (a retry re-attempts a failed fetch; this waits longer for the one fetch
+that does succeed). With the wider caps, isolated tls/dns runs are reliably
+green. The kernel itself is alive throughout (see Job 1).
+
+The `@flaky` crutch was **already removed** (commit `6be551ac`): `test_dns`/
+`test_tls`/`test_impexp` report `not ok` on the first failing boot, and the
+deterministic-dns rewrite + impexp readiness poll were kept. For reference:
 
 1. After Job 1 lands, re-run `make check`. The `kernel/virt64` cell must go
    green **with no retries**. If it doesn't, that is a real bug → back to Job 1.

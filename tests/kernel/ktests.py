@@ -250,16 +250,24 @@ def test_dns():
         ("echo '' >> /tmp/nl", 1),
         ("echo 'sys=ktesthost dom=ktesthost.local ip=10.0.2.2' >> /tmp/nl", 1),
         ("bind /tmp/nl /lib/ndb/local", 1),
-        ("ndb/cs &", 4),
+        # cs must be up and serving before the resolve below; on a slow
+        # TCG+PARANOID boot 4s was not always enough (the dominant dns flake),
+        # so give the connection server real headroom to start.  dns/cs daemon
+        # startup is a fixed wait (no console marker to drain on).
+        ("ndb/cs &", 12),
         ("ndb/dns &", 5),
     ])
     # deterministic: resolve the local name and fetch it over TCP.  webgrab
     # prints "created <file>, <n> bytes" on success.
     g.run([
-        (f"webgrab -o /tmp/byname.txt http://ktesthost:{port}/", 15,
+        # Caps are generous because drain() returns the instant the marker
+        # appears, so a fast fetch still exits early; the headroom only matters
+        # on a slow TCG+PARANOID boot, where the resolve+connect+fetch can spike
+        # well past a tight window.  This is timeout headroom, not a retry.
+        (f"webgrab -o /tmp/byname.txt http://ktesthost:{port}/", 40,
          "created /tmp/byname.txt"),
-        ("cat /tmp/byname.txt*", 3, "hello-by-name"),
-        ("echo dns-marker", 2, "dns-marker"),
+        ("cat /tmp/byname.txt*", 8, "hello-by-name"),
+        ("echo dns-marker", 5, "dns-marker"),
     ])
     out = g.output()
     g.close()
@@ -431,9 +439,12 @@ def test_tls():
         g.run([(f"echo '{line.rstrip()}' >> /tmp/ca.pem", 0.4)])
     g.run([
         ("bind /tmp/ca.pem /lib/tls/ca-certificates.crt", 2),
-        (f"webgrab -o /tmp/tls.txt 'https://10.0.2.2:{httpsport}/'", 15, "created /tmp/tls.txt"),
-        ("cat /tmp/tls.txt*", 3, "hello-over-TLS"),
-        ("echo tls-marker", 2, "tls-marker"),
+        # Generous caps (drain() exits on the marker, so fast runs pay nothing):
+        # the ECDHE handshake + cert verify is crypto-heavy and spikes past a
+        # tight window on a slow TCG+PARANOID boot.  Headroom, not a retry.
+        (f"webgrab -o /tmp/tls.txt 'https://10.0.2.2:{httpsport}/'", 40, "created /tmp/tls.txt"),
+        ("cat /tmp/tls.txt*", 8, "hello-over-TLS"),
+        ("echo tls-marker", 5, "tls-marker"),
     ])
     out = g.output()
     g.close()

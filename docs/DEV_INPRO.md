@@ -32,19 +32,22 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 
 ## Parked / deferred
 
-- [ ] **Native-kernel scheduler lockloop (flaky)** — the `kernel/virt64` check
-      cell could panic `lockloop` with `ready()`'s `lock(runq)`
-      (os/port/proc.c:119) as both holder and spinner, JIT `rmcall` in the
-      trace, on webgrab's TCP path. The mechanism was a **wild `Proc` pointer
-      reaching `ready()`** — i.e. heap corruption — so a Dis fault inside the
-      runq-locked region unwound and abandoned the lock. **Likely resolved
-      2026-06-15** by the array-of-channels alt LP64 fix (`libinterp/alt.c`,
-      commit d4b74d3e — the same shared Dis heap-corruption bug; see memory
-      `array-alt-lp64-misalign`): 9+ post-fix kernel runs show **zero**
-      lockloop/panic/core. Not yet proven against a streaky baseline, so kept
-      parked. The residual `kernel/virt64` make-check failures are now
-      network-layer (kernel alive), handled by the dns/tls cell hardening
-      below.
+- [x] **Native-kernel scheduler lockloop** — RESOLVED (Job 1, 2026-06-15). The
+      lockloop has one precondition: a synchronous CPU fault (a wild kernel
+      pointer) taken while a spinlock is held — `splhi` does not mask synchronous
+      aborts, so the fault reaches `disfault()`, whose `error()/longjmp` abandons
+      the lock, and the next `lock()` spins. Two things close it: (1) the root
+      cause — Dis-heap corruption from the array-of-channels alt LP64 offset bug —
+      is fixed in `libinterp/alt.c` (`altvaloff`, commit d4b74d3e; see memory
+      `array-alt-lp64-misalign`); (2) the PARANOID `nlocks` guard
+      (`os/aarch64/trap.c:171`, commit c984b1de) makes the precondition a
+      **deterministic panic at the fault site** — a fault with locks held can no
+      longer become a silent lockloop, so a surviving bug announces itself on the
+      first occurrence rather than needing a timing window. ~20 PARANOID
+      full-suite runs (this audit + prior) show zero `nlocks` panics and zero
+      lockloops. Residual `kernel/virt64` flakes are network-layer timing only
+      (the dns/tls crypto-fetch windows, widened in `ktests.py` for the slow
+      TCG+PARANOID path), not kernel faults.
 - [ ] **Remove the `nlocks` fail-fast guard from PARANOID builds** (followup;
       added 2026-06-15) — `os/aarch64/faultarm64` panics on a fault taken with
       spinlocks held (`up->nlocks`), gated behind `#if POOLPARANOID` so
