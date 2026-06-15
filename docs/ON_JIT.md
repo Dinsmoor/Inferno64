@@ -626,3 +626,84 @@ compile has already released the VM and needs no VM token to finish.
 GUI lesson (see `ON_GRAPHICS.md`): a Tk toplevel must be driven from the proc
 that *owns* it — warmup's main proc owns Tk + animates, while a separate `warmer`
 proc does the compiling and feeds progress over a channel.
+
+---
+
+# amd64 (x86-64) JIT Implementation (LP64) — status and internals
+
+`libinterp/comp-amd64.c` is a real LP64 x86-64 JIT, modelled on the aarch64
+backend. It is **off by default** (`cflag==0` runs everything interpreted) and
+activates with `emu -c1`. On master amd64 was previously an interpreter-only
+34-line stub; the working backend is ported from the parked `ilp64` branch but
+**rebuilt around the aarch64 width discipline**, because the two ABIs differ in
+exactly the way that bites:
+
+- The `ilp64` x86-64 backend assumed `IBY2WD == IBY2PTR == 8` and widened every
+  operand to 64 bits (`rex` + `movabs` everywhere). Under LP64 that is wrong:
+  a Dis word/int is 4 bytes, a pointer/big/real is 8.
+- The amd64 backend therefore splits operand width per opcode, mirroring
+  `comp-aarch64.c`'s `Ldw/Stw` (32-bit, no `REX.W`) vs `Ldp/Stp` (64-bit,
+  `REX.W`): word arithmetic/moves/compares are 32-bit `movl`/`cmp`; pointer,
+  big(int64) and real(double) moves are 64-bit `movq`. `IMOVF` is a plain 8-byte
+  bit-copy; `IMOVW` is 32-bit even though `ilp64` left it 64-bit "for channels".
+
+## What it compiles vs punts
+
+Native: data moves, `ICVTBW/WB/WL/LW`, word+byte+long `ADD/SUB/AND/OR/XOR`,
+word/byte shifts, `ILEN{A,C,L}`, array indexing (`IINDW/L/F/B/X` — note `IINDW`
+scales by **4** under LP64, not 8), all conditional branches + `IJMP`, and the
+cross-module `IMCALL` (`commcall`/`macmcal`). Everything else **punts** to the
+interpreter, matching the aarch64 punt set: `IALT/INBALT/ISEND/IRECV` (so the
+array-of-channels alt offset bug class cannot recur here), refcounted pointer
+moves and the `ICONS`/`IHEAD`/`ITAIL` family, allocation, `IRET/IFRAME/IMFRAME`,
+and `IGOTO/ICASE/ICASEL/ICASEC` after relocating their dst slots (`comgoto`/
+`comcase`/`comcasel`/`comcasec`, with `uncase` undoing the pass-0 marks on a
+compile-arena-full bail). In this first cut it **additionally punts all floating
+point and the multiply/divide/modulo group** — correctness-complete (they run
+interpreted), perf-incomplete. Native SSE2 FP + native mul/div are the obvious
+next increment.
+
+## amd64-specific realities (vs aarch64)
+
+- **No persistent `&R` register.** `RFP`=rsi and `RMP`=rdi hold the Dis frame /
+  module pointers; both are caller-saved on SysV, so generated code reloads them
+  from `R.FP`/`R.MP` after every C call, and materialises `&R` into `RTMP`=rbx on
+  demand. `comvec`'s prologue pushes rbx/rcx/rdx/rsi/rdi; every path back to the
+  C caller pops them and `ret`s (there is no `R.xpc`/`schedret` dance).
+- **`con()` is fixed-length on purpose.** It always emits the 10-byte `movabs`,
+  never a shorter encoding for 0 — the two compile passes must emit identical
+  byte counts, and base-relative addresses are 0 in pass 0 (base==nil, forward
+  `patch[]`==0) but nonzero in pass 1. A value-dependent length desyncs the
+  passes ("phase error").
+- **`macmcal` must balance the `call`.** `commcall` reaches `macmcal` via `call`
+  (not aarch64's `bl`), but the compiled-callee path `jmp`s into the callee and
+  the interpreted path `ret`s to the *scheduler* — neither returns to `commcall`,
+  so `macmcal` must `pop` the pushed return address before the compiled/interp
+  branch. Omitting it leaks 8 bytes of stack per compiled cross-module call.
+- **Low-2GB code arena.** Like aarch64, native addresses are stored truncated to
+  32 bits in the module's WORD jump tables, so `jitcode()` maps the arena below
+  2GB: `MAP_32BIT` on a native amd64 host, with a `MAP_FIXED_NOREPLACE` low-hint
+  fallback for hosts (notably **qemu-user**) that silently ignore `MAP_32BIT` and
+  return a high address. `jitlo`/`jithi` bound the single native-PC dispatch
+  range in `xec()`.
+- `das-amd64.c` stays the no-op stub (reachable only at `cflag>4`, debug-only).
+
+## Building and validating on a non-amd64 host
+
+There is no amd64 hardware in the loop here; the backend is cross-built and run
+under qemu-user on the aarch64 dev box:
+
+1. Point the amd64 *target* toolchain at the cross compiler, static-linked so
+   qemu-user needs no x86-64 loader: in `mkfiles/mkfile-Linux-amd64` set
+   `AS`/`CC` to `x86_64-linux-gnu-gcc -c -m64` and `LD` to
+   `x86_64-linux-gnu-gcc -m64 -static`. (Host tools — `mk`, `limbo` — stay native
+   via `mkhost-Linux`; the shared `/dis` tree is arch-independent.)
+2. `make OBJTYPE=amd64 CONF=emu-g PROFILE=release FORCE=1 emu`.
+3. `qemu-x86_64 Linux/amd64/bin/emu-g -c1 -r. /dis/sh.dis -c '<cmd>'`.
+
+Validate by bit-identity against the interpreter: run the same workload under
+`-c0` and `-c1` and `diff`. The exercised set that matches today includes
+integer loops, deep recursion (`fib(28)`, ~318k cross-module calls), 64-bit big
+arithmetic, array indexing, lists, channels + `spawn`, and string building —
+plus repeated runs for stability. Restore `mkfile-Linux-amd64` afterwards; the
+cross edit is host-specific, not a tree change.
