@@ -150,19 +150,6 @@ def netdev_opt():
 
 # ---- the tests -----------------------------------------------------
 
-def flaky(retries):
-    """Mark a cell whose only realistic failures are environmental/timing — no
-    panic, no core (verified for the network cells: slirp TCP setup can miss
-    when the box is loaded).  main() reboots and retries up to `retries` times,
-    passing if any boot succeeds.  A genuine breakage fails every boot and still
-    fails the gate; only a transient is masked.  Keep this OFF cells whose
-    failures would indicate a real bug (panics, corruption)."""
-    def deco(f):
-        f._retries = retries
-        return f
-    return deco
-
-
 def test_boot():
     """Boots to sh; devices probe; the board's boot markers appear."""
     g = Guest()
@@ -213,7 +200,6 @@ def test_igbe():
     assert "Ctrlext:" in out, "ifstats not from igbe — wrong driver claimed the card"
 
 
-@flaky(2)
 def test_dns():
     """ndb/cs + the resolver chain + webgrab's TCP path, proven
     deterministically.  A synthetic host name is mapped to the slirp host
@@ -268,8 +254,7 @@ def test_dns():
         ("ndb/dns &", 5),
     ])
     # deterministic: resolve the local name and fetch it over TCP.  webgrab
-    # prints "created <file>, <n> bytes" on success; a boot-persistent miss is
-    # retried at the boot level (@flaky), not here.
+    # prints "created <file>, <n> bytes" on success.
     g.run([
         (f"webgrab -o /tmp/byname.txt http://ktesthost:{port}/", 15,
          "created /tmp/byname.txt"),
@@ -393,13 +378,11 @@ def test_audio():
         f"silent capture ({len(pcm)} pcm bytes, {nonzero} nonzero) — audio did not play"
 
 
-@flaky(3)
 def test_tls():
     """devtls + mbedTLS: unknown CA refused, then TLS 1.3 fetch with the
-    test CA bound over the bundle (real verification, IP-SAN check).  The
-    verified fetch occasionally misses on slirp TCP setup timing under load
-    (no panic, kernel alive) — @flaky reboots and retries so the gate tracks
-    real TLS faults, not the environment."""
+    test CA bound over the bundle (real verification, IP-SAN check).  A failure
+    here is a real fault — do not paper over it with a retry; if it misses,
+    investigate (see docs/DEV_LP64_JIT_JOBS.md, Job 1)."""
     import http.server
     import ssl
     import threading
@@ -461,12 +444,11 @@ def test_tls():
     assert "hello-over-TLS" in out, "verified TLS fetch failed"
 
 
-@flaky(2)
 def test_impexp():
     """Namespace both ways over the kernel IP stack: hosted emu mounts the
     guest's export (via hostfwd); the guest mounts the hosted emu's.  Network
-    + styx over slirp, plus a host-side emu that must come up first — the same
-    load-correlated timing family as dns/tls, so @flaky reboots and retries."""
+    + styx over slirp, plus a host-side emu that must come up first (readiness
+    is polled below, not slept on)."""
     if not os.path.exists(EMU):
         raise SkipTest(f"hosted emu not built ({EMU})")
     fwd = freeport()
@@ -650,24 +632,14 @@ def main():
     failed = 0
     for i, t in enumerate(tests, 1):
         name = t.__name__[5:]
-        tries = getattr(t, "_retries", 1)
-        for attempt in range(1, tries + 1):
-            try:
-                t()
-                print(f"ok {i} - {name}")
-                break
-            except SkipTest as e:
-                print(f"ok {i} - {name} # SKIP {e}")
-                break
-            except Exception as e:
-                if attempt < tries:
-                    # @flaky cell: a boot-persistent miss; reboot and retry.
-                    print(f"# {name}: attempt {attempt}/{tries} failed "
-                          f"({e}); retrying on a fresh boot")
-                    continue
-                failed += 1
-                suffix = f" (after {tries} attempts)" if tries > 1 else ""
-                print(f"not ok {i} - {name}: {e}{suffix}")
+        try:
+            t()
+            print(f"ok {i} - {name}")
+        except SkipTest as e:
+            print(f"ok {i} - {name} # SKIP {e}")
+        except Exception as e:
+            failed += 1
+            print(f"not ok {i} - {name}: {e}")
     return 1 if failed else 0
 
 
