@@ -32,7 +32,17 @@ emu for impexp).
 Notes for writing more of these: serial gives no echo and qemu boots
 faster than a client can connect — the harness uses
 `-serial tcp:...,server=on,wait=on` and marker-based scoring
-(positive evidence only; never score on "no error output").  Inferno
-sh has no `&&`.  Each guest gets its own qemu; kill by handle
-(`terminate()`), never by name — a developer's live qemu desktop may
-be running.
+(positive evidence only; never score on "no error output").  The harness
+syncs on evidence rather than fixed sleeps: boot waits until the shell
+echoes a probe (`wait_ready`), and a command can carry a completion marker
+(`(cmd, cap, marker)`) so it returns the instant that output appears, `cap`
+being only a ceiling.  The marker must be output the command prints *as it
+completes* (a result line or an `echo` sentinel) — never interim output: a
+command that keeps running past its marker (e.g. `ping -n N` prints "rtt"
+on the first reply but sends N) would let the next command be sent while it
+still owns the shell, so leave those unmarked.  A test that depends on
+asynchronous *boot* output (usbd enumerating, the wm desktop painting) must
+wait for its own evidence (`drain(cap, until=[...])` / a screendump retry),
+not on boot-settle slack.  Inferno sh has no `&&`.  Each guest gets its own
+qemu; kill by handle (`terminate()`), never by name — a developer's live
+qemu desktop may be running.

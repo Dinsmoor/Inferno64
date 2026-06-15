@@ -13,7 +13,15 @@ make check        # the pre-push gate: builds + every required suite, PASS/FAIL 
 `make check` runs the per-platform capability matrix declared in
 `tests/check/platforms/<SYSTARG>-<OBJTYPE>.manifest` and exits nonzero iff a
 `require` cell fails. Run it before pushing; expect a few minutes (it builds
-debug, link-checks release, restores debug, then runs the suites).
+debug, link-checks release, restores debug, then runs the suites). The light
+suites run in parallel lanes (cells that share a build directory stay serial
+within a lane); the kernel cells run serially after, since their qemu boots are
+load-sensitive.
+
+To check just what you touched, pass filter words: `make check kernel`,
+`make check dis web`. Only cells whose name contains a word run (the rest print
+`---`), and a filtered run also skips the release link-check, the debug restore,
+and any build no selected test needs — so it is much faster than the full gate.
 
 ## The map: layer → suite
 
@@ -68,7 +76,10 @@ testbed site.
 
 **`tests/kernel/` — native-kernel end-to-end.** Boots the built kernel image
 once per test under the board's qemu profile (`os/boards/<board>/qemu.json`)
-and drives the serial console (and QMP for the display): boot, networking,
+and drives the serial console (and QMP for the display). It syncs on evidence
+rather than fixed sleeps — boot waits until the shell echoes a probe, and slow
+commands return as soon as their completion output appears — so a cell takes
+about as long as the work actually needs. Tests: boot, networking,
 DNS, disk persistence, the storage/audio/USB C drivers, TLS verification,
 import/export against a hosted emu, a screendump check that the desktop
 renders, and the software mouse cursor (inject motion, require the scanout to

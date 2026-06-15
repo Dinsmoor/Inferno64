@@ -368,9 +368,23 @@ test_jitperf:
 # what catches a config that breaks only the headless build, or a release build
 # that rots, before it reaches master.  Builds debug, does a release link-check,
 # and restores the debug tree -- expect a few minutes.
-#   make check       run the gate for the current platform
+#   make check               run the whole gate for the current platform
+#   make check kernel        run only matching cells (substring on the cell name)
+#   make check web jitperf   several filters; build deps still build, release
+#                            link-check + the unmatched cells are skipped
+# The filter words are real make goals, so they are swallowed as no-ops here --
+# but only while `check` is itself a goal, so `make all` etc. are untouched.  A
+# filter word that is also a build target (`dis`, `all`, `emu`) prints a benign
+# "overriding recipe" warning; use the full cell path (e.g. `dis/emu-g`) to dodge it.
+ifneq ($(filter check,$(MAKECMDGOALS)),)
+CHECKARGS := $(filter-out check,$(MAKECMDGOALS))
+ifneq ($(CHECKARGS),)
+$(CHECKARGS):
+	@:
+endif
+endif
 check:
-	@ROOT=$(ROOT) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) MAKE='$(MAKE)' bash $(ROOT)/tests/check/run.sh
+	@ROOT=$(ROOT) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) MAKE='$(MAKE)' bash $(ROOT)/tests/check/run.sh $(CHECKARGS)
 
 # Debug build of the "Valgrind for Dis pointers" checker (#5): rebuild
 # libinterp's gc.c with -DDISPTRCHECK and relink emu. The result validates

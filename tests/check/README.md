@@ -10,10 +10,20 @@ and rots the test path unnoticed — `emu-g` is a hard `require` cell here.
 
 ```sh
 make check                 # gate for the current platform (Linux/$OBJTYPE)
+make check kernel          # only cells whose name contains a filter word
+make check dis web         # several filters at once
 ```
 
 It builds debug, does a `PROFILE=release` link-check, then restores the debug
-tree, and runs the suites — expect a few minutes.
+tree, and runs the suites — expect a few minutes. The light suites run in
+parallel lanes (a "lane" is a build directory cells contend for, so cells that
+share one stay serial within it); the kernel cells run serially afterward
+because their qemu boots flake under contention.
+
+A filtered run (`make check <word>...`) runs only the matching cells — the rest
+print `---` and never gate — and skips the release link-check, the debug
+restore, and any build no selected test needs, so it returns quickly when you
+just want to re-check one suite.
 
 ## The manifest
 

@@ -32,6 +32,7 @@ gated behind `FORCE=1`.
 | build a native kernel image | `make image-virt64` |
 | list native boards + their arch | `make boards` |
 | run the pre-push gate | `make check` |
+| run the gate for just some cells | `make check kernel` / `make check dis web` |
 | C unit tests | `make test_all_unit` |
 | the 64→32 narrowing lint | `make lint` |
 | see this, tersely | `make help` |
@@ -52,7 +53,7 @@ gated behind `FORCE=1`.
 | `bootstrap` | (re)build the `mk` binary if missing (a fresh tree/worktree has none). Runs automatically as a prerequisite too. |
 | `clean` | remove object files. |
 | `nuke` | remove objects **and** the generated `.dis` tree + the vendored-lib slot cache. |
-| `check` | the pre-push gate: builds each required CONF, runs every required suite (cunit, dis+web, jitperf), prints a PASS/FAIL/SKIP matrix. Exits nonzero iff a required cell fails. |
+| `check` | the pre-push gate: builds each required CONF, runs every required suite (cunit, dis+web, jitperf), prints a PASS/FAIL/SKIP matrix. Exits nonzero iff a required cell fails. Pass filter words (`make check kernel dis`) to run only matching cells — the rest print `---`; a filtered run also skips the release link-check, the debug restore, and any build no selected test needs. |
 | `test_all_unit` | C unit tests for every section under `tests/cunit/`. |
 | `test_<section>_unit` | one section, e.g. `make test_lib9_unit`. |
 | `test_jitperf` | JIT-vs-interpreter throughput benchmark (pass `ARGS=…`). |
@@ -193,7 +194,9 @@ cd os/aarch64 && make run
 cd os/aarch64 && make CROSS=aarch64-linux-gnu- image
 
 # Verify before pushing
-make check
+make check                  # whole gate
+make check kernel           # only cells matching a word (here: both kernel boards)
+make check dis web jitperf  # several filters at once
 make test_all_unit
 make lint
 ```

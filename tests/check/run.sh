@@ -12,13 +12,18 @@
 # failure mode this gate exists to prevent).
 #
 # Invoked by `make check`.  Honors env: ROOT, SYSTARG, OBJTYPE, MAKE (else derived).
+# Positional args are filter words ('make check kernel dis'): only cells whose
+# name contains a word run; the rest print as '---' and never gate.  A filtered
+# run also skips the release link-check, the debug restore, and any build cell
+# no selected test needs.
 #
 # Phasing (fixed, regardless of manifest order):
 #   1. debug builds   -- `make all` (emu+dis), then targeted relinks of other CONFs
-#   2. tests          -- run against the debug binaries just built
-#   3. release builds  -- full PROFILE=release rebuild link-check (clobbers to release)
-#   4. restore         -- if any release build ran, `make all` to return to debug
-#   5. docs            -- (todo) doc-coverage checks
+#   2. tests          -- light cells in parallel lanes (lane_of), kernel cells serial
+#   3. release builds -- PROFILE=release link-check (clobbers emu to release)
+#   4. restore        -- if any release ran, rebuild debug emu (.dis is ABI-identical
+#                        across profiles, so it is left intact)
+#   5. docs           -- (todo) doc-coverage checks
 set -u
 
 ROOT=${ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}
@@ -34,9 +39,12 @@ PLAT="$SYSTARG-$OBJTYPE"
 OBJDIR="$SYSTARG/$OBJTYPE"
 BIN="$ROOT/$OBJDIR/bin"
 MK="$BIN/mk"
+export PATH="$BIN:$PATH"   # so limbo/mk/emu resolve whether run.sh is invoked
+                           # directly or via `make check` (which sets PATH itself)
 MANIFEST="$ROOT/tests/check/platforms/$PLAT.manifest"
 MAKE=${MAKE:-make}
 MFLAGS="ROOT=$ROOT SYSTARG=$SYSTARG OBJTYPE=$OBJTYPE"
+FILTER=("$@")   # selective run: only cells whose name contains a filter word
 
 [ -f "$MANIFEST" ] || { echo "make check: no manifest for $PLAT ($MANIFEST)" >&2; exit 2; }
 cd "$ROOT" || exit 2
@@ -70,6 +78,68 @@ set_v() {  # <idx> <verdict> [detail]
 	return 0
 }
 
+# --- selective run ('make check <word>...'): a cell runs iff its name contains
+# a filter word.  No filter (or the word 'all') means the whole matrix. ---
+filtering() {
+	[ ${#FILTER[@]} -eq 0 ] && return 1
+	case " ${FILTER[*]} " in *" all "*) return 1;; esac
+	return 0
+}
+selected() {  # <cell>
+	filtering || return 0
+	local f; for f in "${FILTER[@]}"; do case "$1" in *"$f"*) return 0;; esac; done
+	return 1
+}
+
+# Is <conf>'s binary required by a selected test cell?  Lets a filtered run build
+# only what it needs (e.g. `make check cunit` skips the emu-g relink, while
+# `make check dis` still gets it).  Only meaningful while filtering.
+conf_needed() {  # <conf>
+	local c=$1 i s cf
+	for i in $(seq 0 $((N-1))); do
+		[ "${R_CHECK[$i]}" = test ] && [ "${R_STATUS[$i]}" = require ] || continue
+		selected "${R_CELL[$i]}" || continue
+		IFS=/ read -r s cf _ <<<"${R_CELL[$i]}"
+		case "$s" in dis|web) [ "$cf" = "$c" ] && return 0;; esac
+	done
+	return 1
+}
+
+# A "lane" is a build directory that cells contend for: cells in the same lane
+# must run serially, different lanes run in parallel.  cunit and its cross
+# canaries all `mk` in the shared lib source dirs; the two dis run-modes share
+# tests/dis/_build; web and jitperf each own their own dir.
+lane_of() {  # <cell> -> lane key
+	case "$1" in
+	cunit*)  echo cunit;;
+	dis/*)   echo dis;;
+	web/*)   echo web;;
+	*)       echo "${1%%/*}";;
+	esac
+}
+
+# Run one test cell by index: prints its own output, returns its exit status.
+# Used by both the parallel lanes and the serial kernel pass.
+do_test_cell() {  # <idx>
+	local i=$1 suite conf rm
+	IFS=/ read -r suite conf rm <<<"${R_CELL[$i]}"
+	case "$suite" in
+	cunit)
+		if [ -n "$conf" ]; then bash "$ROOT/tests/cunit/cross.sh" "$conf"
+		else "$MAKE" $MFLAGS test_all_unit; fi;;
+	jitperf)
+		"$MAKE" $MFLAGS test_jitperf;;
+	kernel)
+		HWTARG="${conf:-virt64}" bash "$ROOT/tests/kernel/run.sh";;
+	dis|web)
+		local emubin="$BIN/$conf"
+		[ -x "$emubin" ] || { echo "binary $conf missing" >&2; return 2; }
+		EMU="$emubin" EMUFLAGS="$(runflag "$rm")" bash "$ROOT/tests/$suite/run.sh";;
+	*)
+		echo "unknown suite '$suite'" >&2; return 3;;
+	esac
+}
+
 # `make all` (debug emu + coherent .dis tree). Idempotent within one run.
 ensure_base() {
 	[ "$base_built" = 1 ] && return 0
@@ -95,6 +165,10 @@ for i in $(seq 0 $((N-1))); do
 	case "$cell" in */release) conf=${cell%/release}; mode=release;; esac
 	[ "$mode" = release ] && continue                      # phase 3
 	if [ "$st" != require ]; then set_v "$i" "$(up "$st")"; continue; fi
+	# under a filter, build only the base emu plus confs a selected test needs
+	if filtering && [ "$conf" != emu ] && ! selected "$cell" && ! conf_needed "$conf"; then
+		set_v "$i" --- "not needed by filter"; continue
+	fi
 	note "build $cell (debug)"
 	if [ "$conf" = emu ]; then
 		if ensure_base; then set_v "$i" PASS; else set_v "$i" FAIL "make all failed"; fi
@@ -106,32 +180,49 @@ for i in $(seq 0 $((N-1))); do
 done
 
 # ---- phase 2: tests (against debug binaries) ----
+# Light cells are bucketed into lanes (lane_of) and the lanes run in parallel,
+# serial within a lane.  Kernel cells boot qemu and are load-sensitive (TCG
+# cross-boot flakes under contention), so they form a serial pass afterwards.
+LIGHT=(); HEAVY=()
 for i in $(seq 0 $((N-1))); do
 	[ "${R_CHECK[$i]}" = test ] || continue
 	cell=${R_CELL[$i]}; st=${R_STATUS[$i]}
 	if [ "$st" != require ]; then set_v "$i" "$(up "$st")"; continue; fi
-	note "test $cell"
-	if ! ensure_base; then set_v "$i" FAIL "base build failed"; continue; fi
-	IFS=/ read -r suite conf rm <<<"$cell"
-	case "$suite" in
-	cunit)
-		# bare `cunit` = host ABI via make; `cunit/<objtype>` = the
-		# cross-ABI canary (32-bit/big-endian libs under qemu-user)
-		if [ -n "$conf" ]; then
-			if bash "$ROOT/tests/cunit/cross.sh" "$conf"; then set_v "$i" PASS; else set_v "$i" FAIL; fi
-		elif "$MAKE" $MFLAGS test_all_unit; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
-	jitperf)
-		if "$MAKE" $MFLAGS test_jitperf; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
-	kernel)
-		if HWTARG="${conf:-virt64}" bash "$ROOT/tests/kernel/run.sh"; then set_v "$i" PASS; else set_v "$i" FAIL; fi;;
-	dis|web)
-		emubin="$BIN/$conf"
-		if [ ! -x "$emubin" ]; then set_v "$i" FAIL "binary $conf missing"; continue; fi
-		if EMU="$emubin" EMUFLAGS="$(runflag "$rm")" bash "$ROOT/tests/$suite/run.sh"; then
-			set_v "$i" PASS; else set_v "$i" FAIL; fi;;
-	*)
-		set_v "$i" FAIL "unknown suite '$suite'";;
-	esac
+	if ! selected "$cell"; then set_v "$i" --- "filtered out"; continue; fi
+	case "${cell%%/*}" in kernel) HEAVY+=("$i");; *) LIGHT+=("$i");; esac
+done
+
+# every suite reads the debug tree from phase 1; ensure it once here, before any
+# lane forks -- concurrent base builds would race.
+if [ $(( ${#LIGHT[@]} + ${#HEAVY[@]} )) -gt 0 ] && ! ensure_base; then
+	for i in ${LIGHT[@]+"${LIGHT[@]}"} ${HEAVY[@]+"${HEAVY[@]}"}; do set_v "$i" FAIL "base build failed"; done
+	LIGHT=(); HEAVY=()
+fi
+
+if [ ${#LIGHT[@]} -gt 0 ]; then
+	declare -A LANE=()
+	for i in "${LIGHT[@]}"; do
+		k=$(lane_of "${R_CELL[$i]}"); LANE[$k]="${LANE[$k]:-} $i"
+	done
+	note "tests: ${#LANE[@]} lane(s) in parallel (${!LANE[*]})"
+	RESDIR=$(mktemp -d)
+	for k in "${!LANE[@]}"; do
+		( for i in ${LANE[$k]}; do
+			do_test_cell "$i" >"$RESDIR/$i.log" 2>&1; echo $? >"$RESDIR/$i.rc"
+		  done ) &
+	done
+	wait
+	for i in "${LIGHT[@]}"; do   # replay logs + record verdicts in manifest order
+		note "test ${R_CELL[$i]}"
+		cat "$RESDIR/$i.log" 2>/dev/null
+		[ "$(cat "$RESDIR/$i.rc" 2>/dev/null)" = 0 ] && set_v "$i" PASS || set_v "$i" FAIL
+	done
+	rm -rf "$RESDIR"
+fi
+
+for i in ${HEAVY[@]+"${HEAVY[@]}"}; do
+	note "test ${R_CELL[$i]}"
+	if do_test_cell "$i"; then set_v "$i" PASS; else set_v "$i" FAIL; fi
 done
 
 # ---- phase 3: release builds (clobber to release; restored after) ----
@@ -142,13 +233,18 @@ for i in $(seq 0 $((N-1))); do
 	case "$cell" in */release) ;; *) continue;; esac
 	conf=${cell%/release}
 	if [ "$st" != require ]; then set_v "$i" "$(up "$st")"; continue; fi
+	if ! selected "$cell"; then set_v "$i" --- "filtered out"; continue; fi
 	note "build $cell (release link-check, instrumentation off)"
 	if "$MAKE" $MFLAGS PROFILE=release CONF="$conf" emu FORCE=1; then set_v "$i" PASS; else set_v "$i" FAIL; fi
 	released=1
 done
 if [ "$released" = 1 ]; then
-	note "restore debug build (make all)"
-	"$MAKE" $MFLAGS all || echo "WARN: debug restore failed -- run 'make all' before using emu" >&2
+	# Only the C side was clobbered to release; the .dis tree is ABI-identical
+	# across profiles (debug/release differ in C optimisation/instrumentation
+	# only), so restoring it is a needless recompile of thousands of Limbo
+	# files.  Rebuild emu (debug) and leave the existing valid .dis tree.
+	note "restore debug build (emu only; .dis tree is ABI-identical)"
+	"$MAKE" $MFLAGS emu FORCE=1 || echo "WARN: debug restore failed -- run 'make all' before using emu" >&2
 fi
 
 # ---- phase 4: docs ----
@@ -171,9 +267,10 @@ for i in $(seq 0 $((N-1))); do
 		"${R_CHECK[$i]}" "${R_CELL[$i]}" "${R_STATUS[$i]}" "${R_VERDICT[$i]:-?}" "${R_DETAIL[$i]}"
 done
 echo
+scope=""; filtering && scope=" [filter: ${FILTER[*]} -- '---' cells were not run]"
 if [ "$gate_fail" = 0 ]; then
-	echo "make check: PASS ($PLAT) -- all 'require' cells green"
+	echo "make check: PASS ($PLAT)$scope -- all run 'require' cells green"
 	exit 0
 fi
-echo "make check: FAIL ($PLAT) -- a 'require' cell failed (see matrix above)"
+echo "make check: FAIL ($PLAT)$scope -- a 'require' cell failed (see matrix above)"
 exit 1

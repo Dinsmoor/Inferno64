@@ -71,22 +71,58 @@ class Guest:
         self.s = socket.create_connection(("127.0.0.1", self.port), timeout=10)
         self.s.settimeout(0.5)
         self.buf = b""
-        self.drain(bootsecs)
+        self.wait_ready(bootsecs)
 
-    def drain(self, secs):
+    def drain(self, secs, until=None):
+        # Read serial for up to `secs`.  If `until` (a list of marker strings)
+        # is given, return as soon as any marker has appeared anywhere in the
+        # buffer -- `secs` becomes a cap, not a fixed wait.  Positive-evidence
+        # semantics are preserved: a kernel that never prints the marker still
+        # waits the full cap and the caller proceeds (and fails as it would have).
         end = time.time() + secs
+        umark = [m.encode() for m in until] if until else None
         while time.time() < end:
             try:
                 d = self.s.recv(4096)
                 if d:
                     self.buf += d
+                    if umark and any(m in self.buf for m in umark):
+                        return
             except OSError:
                 pass
 
+    def wait_ready(self, cap):
+        # Sync on the shell instead of sleeping a fixed `bootsecs`: poke the
+        # console with `echo <nonce>` and return the moment it comes back, so a
+        # boot that settles in ~10s doesn't burn the whole 25-45s window.  Input
+        # sent before the shell is reading is queued and echoed once it is, so
+        # this is strictly more reliable than a timed sleep.  Falls back to the
+        # full cap if the nonce never appears (the test then runs and fails as
+        # a fixed-sleep run would have).
+        nonce = b"KREADY%d" % self.port
+        end = time.time() + cap
+        while time.time() < end:
+            self.s.sendall(b"echo " + nonce + b"\n")
+            self.drain(min(2.0, max(0.2, end - time.time())), until=[nonce.decode()])
+            if nonce in self.buf:
+                return
+
     def run(self, cmds):
-        for c, t in cmds:
-            self.s.sendall(c.encode() + b"\n")
-            self.drain(t)
+        # Each item is (cmd, cap) or (cmd, cap, marker).  With a marker, `cap`
+        # is a ceiling: the command returns the instant its expected output
+        # appears, instead of always sleeping the full time.  Without one it
+        # drains the whole `cap` (unchanged).
+        #
+        # The marker MUST be output the command prints only as it *completes*
+        # (a command's result line, an `echo` sentinel) -- not interim output.
+        # A command that keeps running after its marker prints (e.g. `ping -n N`
+        # emits "rtt" on the first reply but runs N more) would let the next
+        # command be sent while it still owns the shell; leave those unmarked.
+        for item in cmds:
+            cmd, cap = item[0], item[1]
+            mark = item[2] if len(item) > 2 else None
+            self.s.sendall(cmd.encode() + b"\n")
+            self.drain(cap, until=[mark] if mark else None)
 
     def output(self):
         return self.buf.decode("utf-8", "replace")
@@ -117,7 +153,7 @@ def netdev_opt():
 def test_boot():
     """Boots to sh; devices probe; the board's boot markers appear."""
     g = Guest()
-    g.run([("echo boot-marker", 3)])
+    g.run([("echo boot-marker", 3, "boot-marker")])
     out = g.output()
     g.close()
     assert "boot-marker" in out, "no shell prompt traffic"
@@ -131,9 +167,9 @@ def test_net():
     """Static slirp config; ping the gateway; conversation dirs appear."""
     g = Guest(extra=netdev())
     g.run(NETCONF + [
-        ("ip/ping -n 2 10.0.2.2", 8),
+        ("ip/ping -n 2 10.0.2.2", 8),   # no marker: ping runs past its first reply
         ("netstat", 4),
-        ("echo net-marker", 2),
+        ("echo net-marker", 2, "net-marker"),
     ])
     out = g.output()
     g.close()
@@ -153,9 +189,9 @@ def test_igbe():
         raise SkipTest(f"board {HWTARG} has no networking — no igbe path")
     g = Guest(extra=netdev(device="e1000"))
     g.run(NETCONF + [
-        ("ip/ping -n 4 10.0.2.2", 12),
+        ("ip/ping -n 4 10.0.2.2", 12),   # no marker: ping runs past its first reply
         ("cat /net/ether0/ifstats", 3),
-        ("echo igbe-marker", 2),
+        ("echo igbe-marker", 2, "igbe-marker"),
     ])
     out = g.output()
     g.close()
@@ -192,12 +228,12 @@ def test_dns():
         ("ndb/dns &", 5),
     ])
     for _ in range(4):
-        g.run([("ndb/dnsquery example.com", 8)])
+        g.run([("ndb/dnsquery example.com", 8, "example.com ip")])
         if "example.com ip" in g.output():
             break
     g.run([
-        ("webgrab -o /tmp/web.txt http://example.com/", 15),
-        ("echo dns-marker", 2),
+        ("webgrab -o /tmp/web.txt http://example.com/", 15, "created /tmp/web.txt"),
+        ("echo dns-marker", 2, "dns-marker"),
     ])
     out = g.output()
     g.close()
@@ -219,7 +255,7 @@ def _kfs_persist(disk, unit):
         (f"mount -c {{disk/kfs -r /dev/{unit}/data}} /n/kfs", 8),
         ("echo persistent-data-survives > /n/kfs/persist.txt", 2),
         ("unmount /n/kfs", 3),
-        ("echo first-marker", 2),
+        ("echo first-marker", 2, "first-marker"),
     ])
     first = g.output()
     g.close()
@@ -229,8 +265,8 @@ def _kfs_persist(disk, unit):
     g.run([
         ("bind -a '#S' /dev", 2),
         (f"mount -c {{disk/kfs /dev/{unit}/data}} /n/kfs", 8),
-        ("cat /n/kfs/persist.txt", 3),
-        ("echo second-marker", 2),
+        ("cat /n/kfs/persist.txt", 3, "persistent-data-survives"),
+        ("echo second-marker", 2, "second-marker"),
     ])
     out = g.output()
     g.close()
@@ -299,7 +335,7 @@ def test_audio():
         ("bind -a '#A' /dev", 2),
         # sh reads `name=val` as assignment, so cat (not dd) feeds the device
         ("cat /dis/sh.dis > /dev/audio", 8),
-        ("echo audio-marker", 2),
+        ("echo audio-marker", 2, "audio-marker"),
     ])
     out = g.output()
     g.close()
@@ -367,9 +403,9 @@ def test_tls():
         g.run([(f"echo '{line.rstrip()}' >> /tmp/ca.pem", 0.4)])
     g.run([
         ("bind /tmp/ca.pem /lib/tls/ca-certificates.crt", 2),
-        (f"webgrab -o /tmp/tls.txt 'https://10.0.2.2:{httpsport}/'", 15),
-        ("cat /tmp/tls.txt*", 3),
-        ("echo tls-marker", 2),
+        (f"webgrab -o /tmp/tls.txt 'https://10.0.2.2:{httpsport}/'", 15, "created /tmp/tls.txt"),
+        ("cat /tmp/tls.txt*", 3, "hello-over-TLS"),
+        ("echo tls-marker", 2, "tls-marker"),
     ])
     out = g.output()
     g.close()
@@ -407,8 +443,8 @@ def test_impexp():
     time.sleep(4)
     g.run([
         (f"mount -A 'tcp!10.0.2.2!{hsrv}' /n/remote", 5),
-        ("cat /n/remote/tmp/hostmarker", 3),
-        ("echo impexp-marker", 2),
+        ("cat /n/remote/tmp/hostmarker", 3, "hello-from-hosted-emu"),
+        ("echo impexp-marker", 2, "impexp-marker"),
     ])
     out = g.output()
     g.close()
@@ -458,8 +494,11 @@ def test_usb():
     devs = PROF.get("usb_devices")
     if not devs:
         raise SkipTest(f"board {HWTARG} declares no qemu usb device")
-    g = Guest(extra=devs, bootsecs=PROF.get("bootsecs", 25) + 15)
-    g.run([("echo usb-marker", 2)])
+    g = Guest(extra=devs)
+    # usbd enumerates the HID device asynchronously, after the shell is already
+    # up -- so wait for that evidence directly rather than for a fixed settle.
+    g.drain(30, until=["HID keyboard live", "class 3"])
+    g.run([("echo usb-marker", 2, "usb-marker")])
     out = g.output()
     g.close()
     assert "usb-marker" in out
@@ -475,12 +514,20 @@ def test_gui():
     qmp = tempfile.mktemp(prefix="ktest-qmp-")
     gui = PROF["gui_devices"] + ["-qmp", f"unix:{qmp},server=on,wait=off"]
     # wm + warmup settle
-    g = Guest(extra=gui + netdev_opt(), bootsecs=PROF.get("bootsecs", 25) + 20)
+    g = Guest(extra=gui + netdev_opt())
     s, cmd = qmp_open(qmp)
-    pix = _screendump_pixels(cmd)
+    # wm + the warmup splash render asynchronously after the shell is up; retry
+    # the screendump until the framebuffer is non-blank rather than depend on a
+    # fixed boot settle.
+    colours = set()
+    for _ in range(8):
+        pix = _screendump_pixels(cmd)
+        colours = set(pix[i:i+3] for i in range(0, min(len(pix), 3*1024*768), 3))
+        if len(colours) > 16:
+            break
+        time.sleep(2)
     s.close()
     g.close()
-    colours = set(pix[i:i+3] for i in range(0, min(len(pix), 3*1024*768), 3))
     assert len(colours) > 16, f"flat framebuffer ({len(colours)} colours) — no desktop"
 
 
