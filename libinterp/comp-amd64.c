@@ -1758,8 +1758,8 @@ compile(Module *m, int size, Modlink *ml)
 	}
 
 	if(cflag > 3)
-		print("dis=%5d amd64=%5d asm=%.8zx lit=%d: %s\n",
-			size, n, (uintptr)base, nlit, m->name);
+		print("dis=%5d amd64=%5d asm=%p lit=%d: %s\n",
+			size, n, base, nlit, m->name);	/* %p, not %zx: Inferno print has no %z */
 
 	pass++;
 	nlit = 0;

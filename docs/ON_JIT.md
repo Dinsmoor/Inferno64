@@ -695,7 +695,13 @@ fixed-point `IMULX*`/`ICVTXX*`/`ICVTFX`/`ICVTXF` family, `IEXP*`, and `IADDC`.
   fallback for hosts (notably **qemu-user**) that silently ignore `MAP_32BIT` and
   return a high address. `jitlo`/`jithi` bound the single native-PC dispatch
   range in `xec()`.
-- `das-amd64.c` stays the no-op stub (reachable only at `cflag>4`, debug-only).
+- `das-amd64.c` is a real (subset) x86-64 disassembler — `emu -c5` lists every
+  native instruction the back-end emits, address + raw bytes + Intel-syntax
+  mnemonic. It decodes exactly the forms `comp-amd64.c` produces; the property
+  that matters is correct variable-length decoding so the listing never desyncs
+  (an unrecognised byte prints `.byte` and advances one). Note `-c4`/`-c5`
+  require the `cflag>3` trace `print` to use `%p`, not `%z` (Inferno's `print`
+  has no `%z` verb — using it desyncs the varargs into a wild deref).
 
 ## Building and validating on a non-amd64 host
 
