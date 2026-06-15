@@ -36,6 +36,7 @@ test   dis/emu-g/interp  require
 test   dis/emu-g/jit     require    aarch64 Dis JIT is trusted
 test   web/emu-g/interp   require
 test   jitperf            require    also a JIT bit-identity correctness gate
+test   crossjit           require    amd64 Dis JIT bit-identity vs interp (x86_64 cross-build under qemu)
 test   kernel/virt64      require    native-kernel e2e under the board's qemu profile (~4 min)
 test   kernel/pc64        require    amd64 kernel e2e (boot/gui/cursor) under TCG cross-boot
 

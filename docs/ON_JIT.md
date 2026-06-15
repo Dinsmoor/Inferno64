@@ -657,10 +657,20 @@ array-of-channels alt offset bug class cannot recur here), refcounted pointer
 moves and the `ICONS`/`IHEAD`/`ITAIL` family, allocation, `IRET/IFRAME/IMFRAME`,
 and `IGOTO/ICASE/ICASEL/ICASEC` after relocating their dst slots (`comgoto`/
 `comcase`/`comcasel`/`comcasec`, with `uncase` undoing the pass-0 marks on a
-compile-arena-full bail). In this first cut it **additionally punts all floating
-point and the multiply/divide/modulo group** — correctness-complete (they run
-interpreted), perf-incomplete. Native SSE2 FP + native mul/div are the obvious
-next increment.
+compile-arena-full bail).
+
+Floating point is native (SSE2 scalar double): `IADDF/ISUBF/IMULF/IDIVF`
+(`addsd/subsd/mulsd/divsd`), `INEGF` (`xorpd` sign flip), `ICVTWF/ICVTLF`
+(`cvtsi2sd`), `ICVTFW/ICVTFL` (`cvttsd2si` after a branchless
+`copysign(0.5,f)` bias that reproduces the interpreter's round-half-away), and
+the six `IB*F` compare-branches (`ucomisd` + `jp`-guarded `jcc` so the unordered
+NaN case takes the interpreter's edge). The integer `IMUL/IDIV/IMOD` group
+(word/byte/big) and the long/logical shifts (`ISHLL/ISHRL/ILSRL/ILSRW`) are also
+native — `imul`/`idiv` mirror the interpreter's C `*`/`/`/`%` exactly (truncating
+division, and the same SIGFPE on divide-by-zero, since `xec.c` divides with raw
+C; aarch64 punts these because `sdiv` cannot trap, so amd64's reference is the
+x86 interpreter, which it matches bit-for-bit). Still interpreted: the
+fixed-point `IMULX*`/`ICVTXX*`/`ICVTFX`/`ICVTXF` family, `IEXP*`, and `IADDC`.
 
 ## amd64-specific realities (vs aarch64)
 
@@ -706,3 +716,12 @@ Validate by bit-identity against the interpreter: run the same workload under
 cover integer loops, deep recursion (`fib(28)`, ~318k cross-module calls through
 `commcall`/`macmcal`), 64-bit big arithmetic, array indexing, lists, channels +
 `spawn`, and string building.
+
+This is automated as the **`crossjit`** make-check cell
+(`tests/check/amd64jit.sh` + the `amd64jit.b` fixture), a `require` cell on the
+aarch64 manifest. It does the toolchain swap above, builds the amd64 emu-g, runs
+the fixture (which exercises every native op — FP, mul/div/mod, shifts,
+conversions, NaN compares, a Mandelbrot escape loop) under `-c0` and `-c1`, and
+fails on any diff. It runs serially and rebuilds the host tree on exit, because
+amd64 and aarch64 share Plan 9 object letter `o` and a cross-build transiently
+overwrites the host's `*.o`. The mkfile edit is reverted with `git checkout`.

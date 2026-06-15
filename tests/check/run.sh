@@ -131,6 +131,8 @@ do_test_cell() {  # <idx>
 		"$MAKE" $MFLAGS test_jitperf;;
 	kernel)
 		HWTARG="${conf:-virt64}" bash "$ROOT/tests/kernel/run.sh";;
+	crossjit)
+		bash "$ROOT/tests/check/amd64jit.sh";;
 	dis|web)
 		local emubin="$BIN/$conf"
 		[ -x "$emubin" ] || { echo "binary $conf missing" >&2; return 2; }
@@ -189,7 +191,9 @@ for i in $(seq 0 $((N-1))); do
 	cell=${R_CELL[$i]}; st=${R_STATUS[$i]}
 	if [ "$st" != require ]; then set_v "$i" "$(up "$st")"; continue; fi
 	if ! selected "$cell"; then set_v "$i" --- "filtered out"; continue; fi
-	case "${cell%%/*}" in kernel) HEAVY+=("$i");; *) LIGHT+=("$i");; esac
+	# kernel + crossjit boot qemu / cross-build + rebuild the host tree, so they
+	# are load-sensitive and contend for the shared source dirs -- run serially.
+	case "${cell%%/*}" in kernel|crossjit) HEAVY+=("$i");; *) LIGHT+=("$i");; esac
 done
 
 # every suite reads the debug tree from phase 1; ensure it once here, before any

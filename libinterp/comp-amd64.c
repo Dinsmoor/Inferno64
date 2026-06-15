@@ -25,10 +25,12 @@
  * aarch64 one, IALT/INBALT/ISEND/IRECV, every refcounted pointer move
  * (IMOVP, IHEADP, ITAIL, the ICONS family), allocation, IGOTO/ICASE/ICASEL/ICASEC (after
  * relocating their dst slots from Dis PC to native address), IRET, IFRAME and
- * IMFRAME.  It additionally PUNTS, in this first cut, all floating point and the
- * multiply/divide/modulo group; those run interpreted.  (IMOVF is kept native
- * as a plain 8-byte bit-copy.)  Punting the channel ops means the array-of-
- * channels alt LP64 offset bug class (libinterp/alt.c) cannot recur here.
+ * IMFRAME.  Floating point (scalar double via SSE2), the integer
+ * multiply/divide/modulo group and the long/logical shifts are compiled
+ * natively (see the FP and muls/divs/shiftl helpers); the fixed-point (IMULX
+ * etc.), IEXP*, and IADDC ops still run interpreted.  Punting the channel ops
+ * means the array-of-channels alt LP64 offset bug class (libinterp/alt.c)
+ * cannot recur here.
  *
  * Register state across native code: RFP (rsi) = Dis frame pointer, RMP (rdi) =
  * Dis module data pointer; both are saved by comvec's prologue and reloaded
@@ -89,6 +91,7 @@ enum
 	Ojaeb	= 0x73,		/* JAE (unsigned >=) */
 	Ojeqb	= 0x74,
 	Ojneb	= 0x75,
+	Ojpb	= 0x7a,		/* JP  (parity/unordered), rel8 */
 	Ojgeb	= 0x7d,
 	Ojleb	= 0x7e,
 	Ojgtb	= 0x7f,
@@ -102,6 +105,7 @@ enum
 	Ojael	= 0x83,
 	Ojbel	= 0x86,
 	Ojhil	= 0x87,
+	Ojpl	= 0x8a,		/* near JP (parity/unordered), rel32 */
 	Ojmp	= 0xe9,
 	Ojmpb	= 0xeb,
 	Ojmprm	= 0xff,
@@ -1109,6 +1113,247 @@ indarr(Inst *i, int shift, int dynsize)
 }
 
 /* ---------------------------------------------------------------------- *
+ *  Integer multiply / divide / modulo and the long/logical shifts.
+ *  x86 imul/idiv mirror the interpreter's C `*` `/` `%` exactly (truncating
+ *  division toward zero, and — like the interpreter on this host — a SIGFPE on
+ *  divide-by-zero or INT_MIN/-1, since xec.c divides with raw C too).  aarch64
+ *  punts the divides (sdiv can't trap), so there is no aarch64 reference for
+ *  these; the reference is the x86 interpreter, which these match bit-for-bit.
+ * ---------------------------------------------------------------------- */
+
+/* D = M * S (signed).  sz: 0 = 32-bit word, 1 = 64-bit big. */
+static void
+muls(Inst *i, int sz)
+{
+	midn(i, Oldw, RAX, sz);			/* M -> rax/eax */
+	opwldn(i, Oldw, RCX, sz);		/* S -> rcx/ecx (con() for AIMM) */
+	if(sz)
+		rex();
+	genb(0x0f); gen2(0xaf, (3<<6)|(RAX<<3)|RCX);	/* imul rax, rcx */
+	opwstn(i, Ostw, RAX, sz);
+}
+
+/* byte multiply: low 8 bits of the product depend only on the low bytes, so a
+ * 32-bit imul of the byte-loaded operands and an 8-bit store is exact. */
+static void
+mulb(Inst *i)
+{
+	midw(i, Oldb, RAX);
+	opwldw(i, Oldb, RCX);
+	genb(0x0f); gen2(0xaf, (3<<6)|(RAX<<3)|RCX);
+	opwstw(i, Ostb, RAX);
+}
+
+/* signed divide.  rem: 0 -> quotient (rax), 1 -> remainder (rdx, moved to rax
+ * before the store so an indirect dst — which uses RTA=rdx as its base — can't
+ * clobber it). */
+static void
+divs(Inst *i, int sz, int rem)
+{
+	midn(i, Oldw, RAX, sz);			/* dividend -> rax/eax */
+	opwldn(i, Oldw, RCX, sz);		/* divisor  -> rcx/ecx */
+	if(sz)
+		rex();
+	genb(Ocdq);				/* cdq/cqo: sign-extend rax into rdx */
+	if(sz)
+		rex();
+	gen2(0xf7, (3<<6)|(7<<3)|RCX);		/* idiv rcx/ecx (/7) */
+	if(rem) {
+		if(sz)
+			rex();
+		gen2(0x89, (3<<6)|(RDX<<3)|RAX);	/* mov rax, rdx */
+	}
+	opwstn(i, Ostw, RAX, sz);
+}
+
+/* byte divide/modulo.  Limbo `byte` is unsigned 0..255, so zero-extend both
+ * operands; a 32-bit idiv of two non-negative values is the unsigned result. */
+static void
+divb(Inst *i, int rem)
+{
+	midw(i, Oldb, RAX);
+	genb(0x0f); gen2(Omovzxb, (3<<6)|(RAX<<3)|RAX);	/* movzbl eax, al */
+	opwldw(i, Oldb, RCX);
+	genb(0x0f); gen2(Omovzxb, (3<<6)|(RCX<<3)|RCX);	/* movzbl ecx, cl */
+	genb(Ocdq);					/* edx = 0 (eax >= 0) */
+	gen2(0xf7, (3<<6)|(7<<3)|RCX);			/* idiv ecx */
+	if(rem)
+		gen2(0x89, (3<<6)|(RDX<<3)|RAX);	/* mov eax, edx */
+	opwstw(i, Ostb, RAX);
+}
+
+/* 64-bit shift: value V(m) -> rax, count W(s) -> cl.  digit picks shl(4)/shr(5)/
+ * sar(7).  The CPU masks the count to 6 bits exactly as C `<<`/`>>` do here. */
+static void
+shiftl(Inst *i, int digit)
+{
+	mid(i, Oldw, RAX);
+	opwldw(i, Oldw, RCX);			/* count is a word */
+	rex(); gen2(0xd3, (3<<6)|(digit<<3)|RAX);
+	opwst(i, Ostw, RAX);
+}
+
+/* ---------------------------------------------------------------------- *
+ *  Floating point (SSE2 scalar double).  REAL is an 8-byte host double, so the
+ *  generated SSE matches the interpreter's C double arithmetic bit-for-bit
+ *  (same rounding, same NaN propagation).  xmm0/xmm1/xmm2 are scratch (volatile
+ *  on SysV) and hold no value across Dis instructions.
+ * ---------------------------------------------------------------------- */
+#define	FSIGNBIT	((uintptr)0x8000000000000000ULL)
+#define	FHALF		((uintptr)0x3FE0000000000000ULL)	/* 0.5 */
+
+/* movsd between xmm `xr` and [base+disp]: op 0x10 loads xmm<-mem, 0x11 stores. */
+static void
+fmem(int op, uintptr disp, int base, int xr)
+{
+	genb(0xf2); genb(0x0f);
+	modrmw(op, disp, base, xr);
+}
+
+static void
+fopwld(Inst *i, int xr)				/* F(s) -> xmm xr */
+{
+	switch(UXSRC(i->add)) {
+	default:
+		urk("fopwld");
+	case SRC(AFP):
+		fmem(0x10, i->s.ind, RFP, xr); return;
+	case SRC(AMP):
+		fmem(0x10, i->s.ind, RMP, xr); return;
+	case SRC(AIND|AFP):
+		modrm(Oldw, i->s.i.f, RFP, RTA);
+		fmem(0x10, i->s.i.s, RTA, xr); return;
+	case SRC(AIND|AMP):
+		modrm(Oldw, i->s.i.f, RMP, RTA);
+		fmem(0x10, i->s.i.s, RTA, xr); return;
+	}
+}
+
+static void
+fopwst(Inst *i, int xr)				/* xmm xr -> F(d) */
+{
+	switch(UXDST(i->add)) {
+	default:
+		urk("fopwst");
+	case DST(AFP):
+		fmem(0x11, i->d.ind, RFP, xr); return;
+	case DST(AMP):
+		fmem(0x11, i->d.ind, RMP, xr); return;
+	case DST(AIND|AFP):
+		modrm(Oldw, i->d.i.f, RFP, RTA);
+		fmem(0x11, i->d.i.s, RTA, xr); return;
+	case DST(AIND|AMP):
+		modrm(Oldw, i->d.i.f, RMP, RTA);
+		fmem(0x11, i->d.i.s, RTA, xr); return;
+	}
+}
+
+static void
+fmid(Inst *i, int xr)				/* F(m) -> xmm xr (defaults to dst) */
+{
+	switch(i->add&ARM) {
+	case AXINF:
+		fmem(0x10, i->reg, RFP, xr); return;
+	case AXINM:
+		fmem(0x10, i->reg, RMP, xr); return;
+	case AXIMM:
+		urk("fmid/imm"); return;
+	default:
+		switch(UXDST(i->add)) {
+		default:
+			urk("fmid");
+		case DST(AFP):
+			fmem(0x10, i->d.ind, RFP, xr); return;
+		case DST(AMP):
+			fmem(0x10, i->d.ind, RMP, xr); return;
+		case DST(AIND|AFP):
+			modrm(Oldw, i->d.i.f, RFP, RTA);
+			fmem(0x10, i->d.i.s, RTA, xr); return;
+		case DST(AIND|AMP):
+			modrm(Oldw, i->d.i.f, RMP, RTA);
+			fmem(0x10, i->d.i.s, RTA, xr); return;
+		}
+	}
+}
+
+static void
+fmovq(uintptr v, int xr)			/* movq xmm xr, imm64 (via rax) */
+{
+	con(v, RAX);
+	genb(0x66); rex(); genb(0x0f); gen2(0x6e, (3<<6)|(xr<<3)|RAX);
+}
+
+/* xmm dst OP= xmm src; op is an F2-prefixed scalar-double opcode byte. */
+static void
+fsse(int op, int dst, int src)
+{
+	genb(0xf2); genb(0x0f); gen2(op, (3<<6)|(dst<<3)|src);
+}
+
+static void
+arithf(Inst *i, int op)				/* F(d) = F(m) OP F(s) */
+{
+	fmid(i, 1);				/* xmm1 = F(m) */
+	fopwld(i, 0);				/* xmm0 = F(s) */
+	fsse(op, 1, 0);				/* xmm1 OP= xmm0 */
+	fopwst(i, 1);
+}
+
+/*
+ * real -> integer: replicate the interpreter's round-half-away-from-zero
+ * (f<0 ? f-.5 : f+.5) then truncate toward zero.  bias = copysign(0.5, f) =
+ * (f & signbit) | 0.5, computed branchlessly; cvttsd2si truncates.  sz: 0 ->
+ * W(d) (32-bit), 1 -> V(d) (64-bit).
+ */
+static void
+cvtfi(Inst *i, int sz)
+{
+	fopwld(i, 0);				/* xmm0 = f */
+	fmovq(FSIGNBIT, 1);			/* xmm1 = signbit */
+	genb(0x66); genb(0x0f); gen2(0x54, (3<<6)|(1<<3)|0);	/* andpd xmm1, xmm0 */
+	fmovq(FHALF, 2);			/* xmm2 = 0.5 */
+	genb(0x66); genb(0x0f); gen2(0x56, (3<<6)|(1<<3)|2);	/* orpd  xmm1, xmm2 */
+	fsse(0x58, 0, 1);			/* addsd xmm0, xmm1 (f + bias) */
+	genb(0xf2); if(sz) rex(); genb(0x0f);
+	gen2(0x2c, (3<<6)|(RAX<<3)|0);		/* cvttsd2si rax/eax, xmm0 */
+	opwstn(i, Ostw, RAX, sz);
+}
+
+/*
+ * FP conditional branch.  ucomisd F(s), F(m) sets CF/ZF/PF (PF = unordered).
+ * The ordered comparisons (<,<=,==) must be FALSE on a NaN, so they are guarded
+ * by `jp` over the branch; > and >= are naturally false on unordered (CF=1);
+ * != is TRUE on unordered (an extra `jp` to the target).
+ */
+static void
+cbraf(Inst *i, int op)
+{
+	uintptr d;
+
+	schedcheck(i);
+	fopwld(i, 0);				/* F(s) -> xmm0 */
+	fmid(i, 1);				/* F(m) -> xmm1 */
+	genb(0x66); genb(0x0f); gen2(0x2e, (3<<6)|(0<<3)|1);	/* ucomisd xmm0, xmm1 */
+	d = patch[i->d.ins-mod->prog];
+	switch(op) {
+	case IBEQF:
+		gen2(Ojpb, 6); genb(0x0f); rbra(d, Ojeql); break;
+	case IBLTF:
+		gen2(Ojpb, 6); genb(0x0f); rbra(d, Ojbl); break;
+	case IBLEF:
+		gen2(Ojpb, 6); genb(0x0f); rbra(d, Ojbel); break;
+	case IBGTF:
+		genb(0x0f); rbra(d, Ojhil); break;
+	case IBGEF:
+		genb(0x0f); rbra(d, Ojael); break;
+	case IBNEF:
+		genb(0x0f); rbra(d, Ojpl);	/* unordered -> branch */
+		genb(0x0f); rbra(d, Ojnel);	/* != -> branch */
+		break;
+	}
+}
+
+/* ---------------------------------------------------------------------- *
  *  The big translation switch.
  * ---------------------------------------------------------------------- */
 static void
@@ -1361,32 +1606,59 @@ comp(Inst *i)
 		punt(i, SRCOP|DSTOP|THREOP, optab[i->op]);
 		break;
 
-	/* ---- multiply/divide/modulo + FP + extended: punt (interpreted) ---- */
+	/* ---- multiply/divide/modulo + long/logical shifts (native) ---- */
+	case IMULW: muls(i, 0); break;
+	case IMULL: muls(i, 1); break;
+	case IMULB: mulb(i); break;
+	case IDIVW: divs(i, 0, 0); break;
+	case IMODW: divs(i, 0, 1); break;
+	case IDIVL: divs(i, 1, 0); break;
+	case IMODL: divs(i, 1, 1); break;
+	case IDIVB: divb(i, 0); break;
+	case IMODB: divb(i, 1); break;
+	case ILSRW: shiftw(i, 5); break;	/* logical (unsigned) shift right, word */
+	case ISHLL: shiftl(i, 4); break;
+	case ISHRL: shiftl(i, 7); break;	/* V signed -> arithmetic */
+	case ILSRL: shiftl(i, 5); break;	/* logical (unsigned) shift right, big */
+
+	/* ---- floating point (native, scalar double) ---- */
+	case IADDF: arithf(i, 0x58); break;	/* addsd */
+	case ISUBF: arithf(i, 0x5c); break;	/* subsd */
+	case IMULF: arithf(i, 0x59); break;	/* mulsd */
+	case IDIVF: arithf(i, 0x5e); break;	/* divsd */
+	case INEGF:				/* F(d) = -F(s) */
+		fopwld(i, 0);
+		fmovq(FSIGNBIT, 1);
+		genb(0x66); genb(0x0f); gen2(0x57, (3<<6)|(0<<3)|1);	/* xorpd xmm0, xmm1 */
+		fopwst(i, 0);
+		break;
+	case ICVTWF:				/* F(d) = (real) W(s)  int32 -> double */
+		opwldw(i, Oldw, RAX);
+		genb(0xf2); genb(0x0f); gen2(0x2a, (3<<6)|(0<<3)|RAX);	/* cvtsi2sd xmm0, eax */
+		fopwst(i, 0);
+		break;
+	case ICVTLF:				/* F(d) = (real) V(s)  int64 -> double */
+		opwld(i, Oldw, RAX);
+		genb(0xf2); rex(); genb(0x0f); gen2(0x2a, (3<<6)|(0<<3)|RAX);	/* cvtsi2sd xmm0, rax */
+		fopwst(i, 0);
+		break;
+	case ICVTFW: cvtfi(i, 0); break;	/* W(d) = round(F(s)) */
+	case ICVTFL: cvtfi(i, 1); break;	/* V(d) = round(F(s)) */
+	case IBEQF: case IBNEF: case IBLTF: case IBLEF: case IBGTF: case IBGEF:
+		cbraf(i, i->op);
+		break;
+
+	/* ---- fixed point, exp, carry: still interpreted ---- */
 	case IMOVPC:
 		punt(i, DSTOP, optab[i->op]);
 		break;
 	case IADDC:
-	case IMULW: case IDIVW: case IMODW:
-	case IMULB: case IDIVB: case IMODB:
-	case IMULL: case IDIVL: case IMODL:
-	case ILSRW: case ILSRL:
-	case ISHLL: case ISHRL:
 	case IMULX: case IDIVX: case ICVTXX:
 	case IMULX0: case IDIVX0: case ICVTXX0:
 	case IMULX1: case IDIVX1: case ICVTXX1:
 	case ICVTFX: case ICVTXF:
 	case IEXPW: case IEXPL: case IEXPF:
 		punt(i, SRCOP|DSTOP|THREOP, optab[i->op]);
-		break;
-	case IADDF: case ISUBF: case IMULF: case IDIVF:
-		punt(i, SRCOP|DSTOP|THREOP, optab[i->op]);
-		break;
-	case INEGF:
-	case ICVTWF: case ICVTFW: case ICVTLF: case ICVTFL:
-		punt(i, SRCOP|DSTOP, optab[i->op]);
-		break;
-	case IBEQF: case IBNEF: case IBLTF: case IBLEF: case IBGTF: case IBGEF:
-		punt(i, SRCOP|DBRAN|NEWPC|WRTPC, optab[i->op]);
 		break;
 	case ISELF:
 		punt(i, DSTOP, optab[i->op]);

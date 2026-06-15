@@ -64,10 +64,11 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
       §"Deferred LP64 items".
 - [x] **amd64 (x86-64) JIT** — `libinterp/comp-amd64.c` is a working LP64 x86-64
       JIT (`emu -c1`; `-c0` unaffected), mirroring `comp-aarch64.c`'s width split
-      and punt set. Cross-build + qemu validation recipe and internals:
-      `ON_JIT.md` §"amd64 (x86-64) JIT Implementation". Remaining (perf/cleanup):
-      native SSE2 FP + the mul/div/mod group (currently punted), and a real
-      `das-amd64.c` (debug-only).
+      and punt set. Native SSE2 FP + the integer mul/div/mod group + long/logical
+      shifts are compiled (the fixed-point/`IEXP`/`IADDC` ops still interpret).
+      Bit-identity is gated by the `crossjit` make-check cell (qemu-x86_64 cross).
+      Internals + recipe: `ON_JIT.md` §"amd64 (x86-64) JIT Implementation".
+      Remaining (debug-only): a real `das-amd64.c` disassembler.
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".

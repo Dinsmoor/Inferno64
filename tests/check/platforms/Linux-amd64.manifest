@@ -19,9 +19,10 @@ test   cunit              require
 test   cunit/arm          require    ILP32 canary (qemu-user; tests/cunit/cross.sh arm)
 test   cunit/m68k         require    big-endian canary (qemu-user; tests/cunit/cross.sh m68k)
 test   dis/emu-g/interp  require    interpreter is the portable reference path
-test   dis/emu-g/jit     skip       comp-amd64.c unverified under LP64
+test   dis/emu-g/jit     require    amd64 Dis JIT (FP/mul/div native); validated bit-identically via crossjit
 test   web/emu-g/interp   require
-test   jitperf            skip       needs a trusted JIT; revisit with dis/.../jit
+test   jitperf            require    JIT bit-identity + speedup; amd64 backend now native FP
+test   crossjit           require    amd64 JIT bit-identity fixture (native build on an amd64 host)
 test   kernel/pc64        require    native amd64 kernel e2e (boot/gui/cursor) under qemu q35
 test   kernel/virt64      skip       aarch64 image; qemu TCG cross-boot untested here
 
