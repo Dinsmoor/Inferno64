@@ -1,0 +1,1 @@
+emu/port/devprog.c: warning: non size-preserving pointer to integer cast

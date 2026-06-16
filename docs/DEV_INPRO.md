@@ -87,9 +87,21 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
       Detail: `ON_C_IN_DIS.md` §"Open runtime bug" + memory
       `charon-close-heap-corruption`. Next: static hunt for the `1<<36` /
       `-0x1000000000` pointer-arith site, or mine a fresh core.
-- [ ] **Off-boot-path LP64 items** — `asm.c` `-S` `Tcasec` listing; `devprog.c`/
-      `devprof.c` pointer↔text casts. Listing/debug only. `ON_C_IN_DIS.md`
-      §"Deferred LP64 items".
+- [ ] **Off-boot-path LP64 items** — `asm.c` `-S` `Tcasec` listing; `devprof.c`
+      pointer↔text casts. Listing/debug only. `ON_C_IN_DIS.md`
+      §"Deferred LP64 items". (`devprog.c progheap` is now bounds-guarded — see
+      the sparse item below; `modstatus`'s `(WORD)` truncations are the accepted
+      sparse baseline, a coordinated `/prog` text-format change when tackled.)
+- [ ] **sparse static-analysis gate** — `make sparse` (Linus' sparse, baseline
+      diff like `make lint`) catches the *cast* form of pointer↔WORD truncation
+      and `__dis` Dis/userspace-address misuse (`include/disptr.h`). Found+fixed
+      the `das-aarch64.c` truncated-JIT-pointer deref; hardened `devprog.c
+      progheap` with the `disok()` pool-bounds trust check. Apply `__dis`
+      incrementally at more trust boundaries (Styx offsets, frame slots).
+      `ON_SPARSE.md`. Follow-up: `progstack` prints frame/MP addresses with
+      `%.8lux (ulong)` — 64-bit addresses truncated in the listing; the wm/deb
+      stack parser already tolerates this (tokenised), but widen when the
+      `/prog` text format is revisited.
 - [x] **amd64 (x86-64) JIT** — `libinterp/comp-amd64.c` is a working LP64 x86-64
       JIT (`emu -c1`; `-c0` unaffected), mirroring `comp-aarch64.c`'s width split
       and punt set. Native SSE2 FP + the integer mul/div/mod group + long/logical
