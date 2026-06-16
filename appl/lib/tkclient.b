@@ -144,8 +144,10 @@ wmctl(top: ref Tk->Toplevel, req: string): string
 		return wmreq(top, c, req, next);
 	"theme" =>
 		# wm pushes a system theme: "theme set <key> <val> ...".  Apply it
-		# (mutates the shared libtk palette) then repaint this toplevel.
+		# (mutates the shared libtk palette), recolour the titlebar (its
+		# colours are explicit, not inherited), then repaint this toplevel.
 		cmd(top, req);
+		titlebar->retheme(top);
 		cmd(top, "theme reapply");
 	* =>
 		return wmreq(top, c, req, next);

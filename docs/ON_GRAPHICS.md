@@ -631,11 +631,21 @@ line): `default` (the built-in grey), `dark`, `temple`. `--apply` resolves the
 file to a `set …` line, writes it to `/chan/wmtheme`, and saves it for next
 login.
 
-Two boundaries are deliberate. The window **titlebar** (`appl/lib/titlebar.b`)
-hardcodes its colours, so it is not yet theme-driven. An app that styles its own
-text widgets (explicit `-foreground`/`-font`) picks up a theme **at launch**
-(new windows are born themed) but does not live-update on `--apply`, because its
-COW'd envs hold the colours it chose.
+The window **titlebar** (`appl/lib/titlebar.b`) is themed by three dedicated
+keys — `titlebg` (unfocused bar), `titlefocusbg` (focused bar), `titlefg`
+(text) — because its colours are explicit, not inherited from the palette.
+`titlebar.b` reads them from `theme get` when it builds the bar and re-reads on
+live re-theme via `titlebar->retheme()`, which `tkclient` calls in its `theme`
+ctl verb. This is the seam for image-based chrome (a width-sized texture behind
+the bar): Tk labels take `-image`, so a generated titlebar texture can replace
+the flat `-bg` later.
+
+Two boundaries remain. Apps built on **`wmclient`** directly (e.g. `wm/clock`),
+rather than `tkclient`, don't process the `theme` ctl push, so they aren't
+re-themed. And an app that styles its own text widgets (explicit
+`-foreground`/`-font`) picks up a theme **at launch** (new windows are born
+themed) but does not live-update on `--apply`, because its COW'd envs hold the
+colours it chose.
 
 ## Key Files
 

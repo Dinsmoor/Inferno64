@@ -44,6 +44,7 @@ THEMEDIR:	con "/lib/themes";					# preset theme files
 themekeys := array[] of {
 	"fg", "foreground", "bg", "background", "activebg", "activefg",
 	"select", "selectbg", "selectfg", "disablefg",
+	"titlebg", "titlefg", "titlefocusbg",
 	"font", "borderwidth", "relief",
 };
 

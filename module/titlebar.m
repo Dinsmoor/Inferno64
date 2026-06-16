@@ -15,4 +15,5 @@ Titlebar: module{
 	title:		fn(top: ref Tk->Toplevel): string;
 	settitle:	fn(top: ref Tk->Toplevel, title: string): string;
 	sendctl:	fn(top: ref Tk->Toplevel, c: string);
+	retheme:	fn(top: ref Tk->Toplevel);
 };

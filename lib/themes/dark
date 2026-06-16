@@ -7,5 +7,8 @@ select		#5e9ec0
 selectbg	#1f5d8c
 selectfg	#ffffff
 disablefg	#707070
+titlebg		#202020
+titlefg		#d6d6d6
+titlefocusbg	#1f5d8c
 relief		raised
 borderwidth	1

@@ -26,36 +26,29 @@ enum
  * The eight base colours below are the only ones a theme names; the light/dark
  * shades of the three "group of 3" colours are derived with tkrgbashade().
  */
-TkTheme tktheme =
-{
-	RGB(0, 0, 0),					/* fg */
-	RGB(tkBackR, tkBackG, tkBackB),			/* bg */
-	RGB(tkBackR+0x10, tkBackG+0x10, tkBackB+0x10),	/* activebg */
-	RGB(0, 0, 0),					/* activefg */
-	RGB(tkSelectR, tkSelectG, tkSelectB),		/* select */
-	RGB(tkSelectbgndR, tkSelectbgndG, tkSelectbgndB),	/* selectbg */
-	RGB(0xff, 0xff, 0xff),				/* selectfg */
-	RGB(0x88, 0x88, 0x88),				/* disablefg */
-	1,						/* borderwidth */
-	"raised",					/* relief */
-};
+#define THEMEDEFAULTS \
+{ \
+	RGB(0, 0, 0),					/* fg */ \
+	RGB(tkBackR, tkBackG, tkBackB),			/* bg */ \
+	RGB(tkBackR+0x10, tkBackG+0x10, tkBackB+0x10),	/* activebg */ \
+	RGB(0, 0, 0),					/* activefg */ \
+	RGB(tkSelectR, tkSelectG, tkSelectB),		/* select */ \
+	RGB(tkSelectbgndR, tkSelectbgndG, tkSelectbgndB),	/* selectbg */ \
+	RGB(0xff, 0xff, 0xff),				/* selectfg */ \
+	RGB(0x88, 0x88, 0x88),				/* disablefg */ \
+	RGB(0xaa, 0xaa, 0xaa),				/* titlebg (unfocused) */ \
+	RGB(0xff, 0xff, 0xff),				/* titlefg */ \
+	RGB(0x00, 0x00, 0xff),				/* titlefocusbg (focused) */ \
+	1,						/* borderwidth */ \
+	"raised",					/* relief */ \
+}
+
+TkTheme tktheme = THEMEDEFAULTS;
 
 void
 tkthemereset(void)
 {
-	static TkTheme defs =
-	{
-		RGB(0, 0, 0),
-		RGB(tkBackR, tkBackG, tkBackB),
-		RGB(tkBackR+0x10, tkBackG+0x10, tkBackB+0x10),
-		RGB(0, 0, 0),
-		RGB(tkSelectR, tkSelectG, tkSelectB),
-		RGB(tkSelectbgndR, tkSelectbgndG, tkSelectbgndB),
-		RGB(0xff, 0xff, 0xff),
-		RGB(0x88, 0x88, 0x88),
-		1,
-		"raised",
-	};
+	static TkTheme defs = THEMEDEFAULTS;
 	tktheme = defs;
 }
 

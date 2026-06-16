@@ -429,6 +429,9 @@ struct TkTheme
 	ulong	selectbg;	/* selection background base */
 	ulong	selectfg;
 	ulong	disablefg;
+	ulong	titlebg;	/* window titlebar (unfocused) */
+	ulong	titlefg;	/* window titlebar text */
+	ulong	titlefocusbg;	/* window titlebar (focused) */
 	int	borderwidth;	/* advisory default (consumed by Limbo chrome) */
 	char	relief[16];	/* advisory default relief name */
 };

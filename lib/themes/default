@@ -9,5 +9,8 @@ select		#b03060
 selectbg	#404040
 selectfg	#ffffff
 disablefg	#888888
+titlebg		#aaaaaa
+titlefg		#ffffff
+titlefocusbg	#0000ff
 relief		raised
 borderwidth	1

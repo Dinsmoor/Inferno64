@@ -42,6 +42,12 @@ themecolour(char *key)
 		return &tktheme.selectfg;
 	if(strcmp(key, "disablefg") == 0)
 		return &tktheme.disablefg;
+	if(strcmp(key, "titlebg") == 0)
+		return &tktheme.titlebg;
+	if(strcmp(key, "titlefg") == 0)
+		return &tktheme.titlefg;
+	if(strcmp(key, "titlefocusbg") == 0)
+		return &tktheme.titlefocusbg;
 	return nil;
 }
 
@@ -107,6 +113,10 @@ themeget(char **ret)
 		return e;
 	e = tkvalue(ret, "select #%.8lux selectbg #%.8lux selectfg #%.8lux disablefg #%.8lux ",
 		RGBA32(tktheme.select), RGBA32(tktheme.selectbg), RGBA32(tktheme.selectfg), RGBA32(tktheme.disablefg));
+	if(e != nil)
+		return e;
+	e = tkvalue(ret, "titlebg #%.8lux titlefg #%.8lux titlefocusbg #%.8lux ",
+		RGBA32(tktheme.titlebg), RGBA32(tktheme.titlefg), RGBA32(tktheme.titlefocusbg));
 	if(e != nil)
 		return e;
 	return tkvalue(ret, "font %s borderwidth %d relief %s",
