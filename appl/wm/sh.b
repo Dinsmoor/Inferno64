@@ -65,7 +65,7 @@ shwin_cfg := array[] of {
 	"frame .b -bd 1 -relief ridge",
 	"frame .ft -bd 0",
 	"scrollbar .ft.scroll -command {send scroll t}",
-	"text .ft.t -bd 1 -relief flat -yscrollcommand {send scroll s} -bg white -selectforeground black -selectbackground #CCCCCC",
+	"text .ft.t -bd 1 -relief flat -yscrollcommand {send scroll s}",
 	".ft.t tag configure sel -relief flat",
 	"pack .ft.scroll -side left -fill y",
 	"pack .ft.t -fill both -expand 1",
@@ -288,6 +288,10 @@ main(ctxt: ref Draw->Context, argv: list of string)
 			setcols(t);
 		}
 		tkclient->wmctl(t, c);
+		# a live theme push re-set the env palette; re-derive our explicit
+		# text colours from the new theme
+		if(flds != nil && hd flds == "theme")
+			setcols(t);
 	ecmd := <-edit =>
 		editor(t, ecmd);
 		sendinput(t);
@@ -542,16 +546,21 @@ setholding(t: ref Tk->Toplevel, hold: int)
 
 setcols(t: ref Tk->Toplevel)
 {
-	fgcol := "black";
+	# Pull the prompt/output colours from the live theme so the shell follows
+	# the desktop palette: normal text = fg, held output = the accent (select),
+	# and an unfocused window dims to disablefg.  Fall back to the historical
+	# hues when no theme is set.
+	fgcol := tkclient->themecolour(t, "fg");
+	if(fgcol == nil)
+		fgcol = "black";
 	if(holding){
-		if(haskbdfocus)
+		fgcol = tkclient->themecolour(t, "select");
+		if(fgcol == nil)
 			fgcol = "#000099FF";	# DMedblue
-		else
-			fgcol = "#005DBBFF";	# DGreyblue
-	}else{
-		if(haskbdfocus)
-			fgcol = "black";
-		else
+	}
+	if(!haskbdfocus){
+		fgcol = tkclient->themecolour(t, "disablefg");
+		if(fgcol == nil)
 			fgcol = "#666666FF";	# dark grey
 	}
 	cmd(t, ".ft.t configure -foreground "+fgcol+" -selectforeground "+fgcol);

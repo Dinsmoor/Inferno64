@@ -129,6 +129,7 @@ init(ctxt: ref Draw->Context, argv: list of string)
 
 	(win, wmctl) := tkclient->toplevel(ctxt, nil, "Ftree", winopts);
 	tkwin = win;
+	items->setfg(themefg());		# draw the tree labels in the theme colour
 	for (i := 0; i < len tkcmds; i++)
 		cmd(win, tkcmds[i]);
 	fittoscreen(win);
@@ -185,6 +186,11 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		if (noexit && s == "exit")
 			s = "task";
 		tkclient->wmctl(win, s);
+		if (len s >= 5 && s[0:5] == "theme") {
+			fg := themefg();
+			items->setfg(fg);
+			cmd(win, ".c itemconfigure ftext -fill " + fg);
+		}
 	s := <-event =>
 		(target, ev) := eventtarget(s);
 		sendevent(target, ev);
@@ -607,6 +613,15 @@ expand(t: ref Tree.N, it: Item)
 		# make coords relative to parent
 		t.e.children[i] = t.e.children[i].subpt(it.r.min);
 	}
+}
+
+# the live theme foreground for canvas labels (the tree text), with a fallback
+themefg(): string
+{
+	fg := tkclient->themecolour(tkwin, "fg");
+	if (fg == nil)
+		return "black";
+	return fg;
 }
 
 makenode(isdir: int, title, tagname: string): (ref Tree, Item)

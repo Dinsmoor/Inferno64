@@ -94,6 +94,29 @@ r2s(r: Rect): string
 }
 
 # commands originating both from tkclient and wm (via ctl)
+# Look up one colour/value from the live system theme.  "theme get" reports
+# the palette as "key val key val ..."; match key as a whole word so "bg" does
+# not match inside "titlebg".  Returns "" when the key is absent (or theming is
+# unavailable), so callers can fall back to their own default.
+themecolour(top: ref Tk->Toplevel, key: string): string
+{
+	s := tk->cmd(top, "theme get");
+	if(s == nil || s[0] == '!')
+		return "";
+	target := key + " ";
+	n := len s;
+	tlen := len target;
+	for(i := 0; i + tlen <= n; i++)
+		if((i == 0 || s[i-1] == ' ') && s[i:i+tlen] == target){
+			j := i + tlen;
+			k := j;
+			while(k < n && s[k] != ' ')
+				k++;
+			return s[j:k];
+		}
+	return "";
+}
+
 wmctl(top: ref Tk->Toplevel, req: string): string
 {
 #sys->print("wmctl %s\n", req);

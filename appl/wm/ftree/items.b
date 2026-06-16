@@ -16,11 +16,22 @@ Lineopts: con " -width 1 -fill gray";
 Ovalopts: con " -outline gray";
 Crossopts: con " -fill red";
 
+textfg := "black";			# theme foreground for canvas text (see setfg)
+
 init()
 {
 	sys = load Sys Sys->PATH;
 	draw = load Draw Draw->PATH;
 	tk = load Tk Tk->PATH;
+}
+
+# Set the colour future maketext() labels are drawn in.  Canvas items carry no
+# env palette, so ftree feeds us the live theme foreground; every label is also
+# tagged "ftext" so the caller can re-colour the whole tree in one itemconfigure.
+setfg(col: string)
+{
+	if(col != nil)
+		textfg = col;
 }
 
 blankexpander: Expander;
@@ -246,10 +257,11 @@ fontheight(win: ref Tk->Toplevel, font: string): int
 
 maketext(win: ref Tk->Toplevel, cvs: string, name: string, text: string): Item
 {
-	tag := " -tags " + name;
+	tag := " -tags {" + name + " ftext}";
 	it := Item(name, ((0, 0), (0, 0)), (0, 0));
 	ttid := cmd(win, cvs + " create text 0 0 " +
 		" -anchor nw" + tag +
+		" -fill " + textfg +
 		" -text '" + text);
 	it.r = bbox(win, cvs, ttid);
 	h := fontheight(win, cmd(win, cvs + " itemcget " + ttid + " -font"));

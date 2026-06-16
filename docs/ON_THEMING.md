@@ -90,6 +90,40 @@ re-themed. And an app that styles its own text widgets (explicit
 themed) but does not live-update on `--apply`, because its COW'd envs hold the
 colours it chose.
 
+### Planned: theming the app suite
+
+The system theme covers every *default-styled* widget, but much of the existing
+app suite predates it and hardcodes its own look, so those apps sit outside the
+theme. Two distinct problems, each with a different fix:
+
+1. **`wmclient`-only apps** (`wm/clock`, `acme/gui`, `wm/drawmux/dmwm`) never
+   receive the `theme` ctl push — only `tkclient` decodes that verb. Fix: give
+   `wmclient` the same `theme` ctl handling (run the `set` + `reapply` on its
+   toplevel), or convert the app to `tkclient`.
+
+2. **`tkclient` apps that set explicit options** override the palette on the
+   widgets they touch, so those widgets are *not* born-themed and never
+   live-update. Two sub-patterns: the pervasive `-bg white` on `text`/`entry`
+   widgets (`wm/bible`, `wm/pleromussy`, many others), and per-tag styling tables
+   built with explicit `-foreground #…` / `-background #…` / `-font` (e.g.
+   `wm/pleromussy`'s NAME/META/BTN/RXN/RXME tags, `wm/bible`'s HEAD/VNUM/HL_*
+   tags).
+
+The enabling pieces to build first, before touching individual apps:
+
+- **A Limbo palette-query helper** so apps stop hardcoding hex. Something like
+  `tkclient->themecolour(top, key): string` (wrapping `tk->cmd(top,"theme get")`
+  and the whole-word parse `titlebar.b` already does in `themeval`), so an app
+  builds its tag table from the live palette instead of literals.
+- **A theme-changed hook.** `tkclient`'s `theme` ctl verb already re-runs
+  `reapply`; extend it to also notify the app (a callback or a readable event)
+  so an app that owns a tag table can rebuild it from the new palette on a live
+  `--apply`. Without this, app-styled text can only ever be born-themed.
+
+Then the per-app work is mechanical: drop `-bg white` where the palette default
+is wanted, and rebuild explicit tag tables from `themecolour()` in the hook.
+Tracked in `DEV_INPRO.md` §Active.
+
 ## The mouse cursor (mono, colour, and animated)
 
 The pointer image is set by writing the **cursor file** (`/dev/cursor`, the

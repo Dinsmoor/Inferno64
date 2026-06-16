@@ -22,6 +22,17 @@ pointer here.
 - [ ] **Charon form controls** — full-width dark-themed search input (CSS-themed
       `<input>`); part of the ongoing Charon modern-web / CSS-rendering work
       (`ON_CHARON.md`, memory `charon-css-engine`, `charon-modernization`).
+- [ ] **Theme the userspace app suite** — the system theme (colours/font/titlebar,
+      `ON_THEMING.md`) is live and persisted, but individual apps still hardcode
+      styling, so they sit outside it. Two classes: (1) `wmclient`-only apps
+      (`wm/clock`, `acme/gui`, `drawmux/dmwm`) never receive the `theme` ctl push;
+      (2) `tkclient` apps that set explicit options — pervasive `-bg white` on
+      text/entry widgets plus per-tag `-foreground #…`/`-font` tables (e.g.
+      `wm/pleromussy` NAME/META/BTN/RXN tags, `wm/bible` HEAD/VNUM/HL_* tags) —
+      which override the palette (not even born-themed for those widgets) and
+      never live-update. Plan + scope in `ON_THEMING.md` §"Planned: theming the
+      app suite". Done first: a Limbo palette-query helper so apps stop hardcoding
+      hex, and a theme-changed hook apps can rebuild their tag tables from.
 
 ## Recently landed (move detail into the subsystem doc, then drop)
 

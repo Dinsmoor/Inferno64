@@ -122,6 +122,20 @@ profacc: ref Account;		# backing the profile view
 profarr: list of ref Status;	# the profile's statuses, newest first
 nextid:	string;			# max_id for the next page of the current view
 
+# theme-derived colours, refreshed by loadthemecols() from the live system
+# theme at start-up and on every theme push.  Used by mktags() (the .view.t
+# text tags) and the inline reaction-chip / emoji-panel backgrounds, neither of
+# which "theme reapply" can recolour.  The plain-text colours follow the
+# palette; the chip/selection backgrounds stay fixed light tints (with dark
+# text) so they read as raised affordances on any palette, including dark.
+thINK: string;		# primary text (display names, post bodies)
+thMUTED: string;	# meta / separators
+thACCENT: string;	# links, media, the "load more" affordance
+thCHIPFG: con "#182860";	# inline-button / reaction text
+thCHIPBG: con "#eef0f2";	# reaction-chip background (others')
+thCHIPMEBG: con "#cfe0ff";	# reaction-chip background (our own reactions)
+thSELBG: con "#d7e6ff";		# selected-post highlight
+
 # Back history: snapshots of prior views, most-recent-first.  Navigating to a
 # new view pushes the current one; Back pops and restores it (no re-fetch).
 history: list of ref Snap;
@@ -186,7 +200,7 @@ tkconfig := array[] of {
 	"pack .top.home .top.public .top.notifs .top.back -side left",
 	"pack .top -fill x",
 	"frame .view",
-	"text .view.t -state disabled -width 0 -height 0 -bg white -wrap word"+
+	"text .view.t -state disabled -width 0 -height 0 -wrap word"+
 		" -yscrollcommand {.view.yscroll set} -padx 2 -pady 2",
 	"bind .view.t <Button-1> {focus .view.t; send sel %x %y}",
 	"bind .view.t <Double-Button-1> {send dsel %x %y}",
@@ -213,7 +227,7 @@ tkconfig := array[] of {
 	# in a selectable (snarfable) entry filling the rest
 	"frame .bot",
 	"label .bot.msg -anchor w",
-	"entry .bot.url -bg white",
+	"entry .bot.url",
 	"bind .bot.url <Button-1> {.bot.url select 0 end; focus .bot.url}",
 	"pack .bot.msg -side left -padx 4",
 	"pack .bot.url -side left -fill x -expand 1 -padx 4 -pady 1",
@@ -225,12 +239,12 @@ tkconfig := array[] of {
 
 logincfg := array[] of {
 	"label .hl -text {Instance:} -anchor w",
-	"entry .host -bg white",
+	"entry .host",
 	"label .ul -text {Username:} -anchor w",
-	"entry .user -bg white",
+	"entry .user",
 	"label .pl -text {Password:} -anchor w",
-	"entry .pass -bg white -show *",
-	"label .status -text { } -anchor w -foreground #a00000",
+	"entry .pass -show *",
+	"label .status -text { } -anchor w",
 	"frame .b",
 	"button .b.ok -text Login -command {send b login}",
 	"button .b.cancel -text Cancel -command {send b cancel}",
@@ -247,14 +261,14 @@ logincfg := array[] of {
 composecfg := array[] of {
 	"label .l -text {Compose} -anchor w",
 	"frame .tf",
-	"text .body -width 44 -height 7 -wrap word -bg white"+
+	"text .body -width 44 -height 7 -wrap word"+
 		" -yscrollcommand {.tf.sb set}",
 	"scrollbar .tf.sb -orient vertical -command {.body yview}",
 	"pack .tf.sb -in .tf -side right -fill y",
 	"pack .body -in .tf -side left -fill both -expand 1",
 	"label .vl -text {Visibility (public/unlisted/private/direct):} -anchor w",
-	"entry .vis -bg white",
-	"label .status -text { } -anchor w -foreground #a00000",
+	"entry .vis",
+	"label .status -text { } -anchor w",
 	"frame .b",
 	"button .b.post -text Post -command {send b post}",
 	"button .b.cancel -text Cancel -command {send b cancel}",
@@ -425,6 +439,10 @@ init(actxt: ref Draw->Context, argv: list of string)
 		# left those alive, so the window's input channels stopped being
 		# drained and the wm's demux proc wedged -> hang on close.
 		tkclient->wmctl(window, s);
+		# a theme push re-themes the plain widgets via "theme reapply"
+		# inside wmctl; the .view.t text tags are not, so redo them.
+		if(s != nil && len s >= 6 && s[0:6] == "theme ")
+			mktags();
 	xy := <-sel =>
 		selectat(xy);
 	xy := <-dsel =>
@@ -810,11 +828,11 @@ logindialog(h: string, out: chan of ref Session)
 			# repurpose the dialog for code paste: drop user/pass, show the
 			# (snarfable) URL and a code field, retask the OK button.
 			tkcmd(lw, "pack forget .ul .user .pl .pass");
-			tkcmd(lw, "entry .url -bg white");
+			tkcmd(lw, "entry .url");
 			tkcmd(lw, ".url insert 0 " + tk->quote(ourl));
 			tkcmd(lw, "bind .url <Button-1> {.url select 0 end; focus .url}");
 			tkcmd(lw, "label .cl -text {Paste code from browser:} -anchor w");
-			tkcmd(lw, "entry .code -bg white");
+			tkcmd(lw, "entry .code");
 			tkcmd(lw, "bind .code <Key-\n> {send b finish}");
 			tkcmd(lw, "pack .url .cl .code -before .status -fill x -side top -padx 4 -pady 2");
 			tkcmd(lw, ".b.ok configure -text Finish -command {send b finish}");
@@ -1769,10 +1787,10 @@ renderreactions(idx: int, s: ref Status)
 	for(l := s.reactions; l != nil; l = tl l){
 		rx := hd l;
 		tag := "RXN";
-		bg := "#eef0f2";
+		bg := thCHIPBG;
 		if(rx.me){
 			tag = "RXME";
-			bg = "#cfe0ff";
+			bg = thCHIPMEBG;
 		}
 		startidx := tkcmd(window, ".view.t index {end -1c}");
 		# the emoji itself: an inline image when we have the asset, else the
@@ -2044,7 +2062,7 @@ reactpicker(t: ref Status, out: chan of (ref Status, string))
 		img := emojiimage(emoji[k]);
 		if(img != nil){
 			tkcmd(pw, "panel " + cell + " -bd 1 -relief raised -width " +
-				string EMOJIPX + " -height " + string EMOJIPX + " -background white");
+				string EMOJIPX + " -height " + string EMOJIPX + " -background " + thCHIPBG);
 			tkcmd(pw, "grid " + cell + pos);
 			tk->putimage(pw, cell, img, img);
 		} else {
@@ -2574,30 +2592,52 @@ wmtitle(): string
 	return "Pleromussy — as " + who + " on " + pagename();
 }
 
+# refresh the theme-derived colour globals from the live system theme
+loadthemecols()
+{
+	thINK = themecol("fg", "#202020");
+	thMUTED = themecol("disablefg", "#808080");
+	thACCENT = themecol("select", "#1a4ba0");
+}
+
+themecol(key, def: string): string
+{
+	v := tkclient->themecolour(window, key);
+	if(v == nil || v == "")
+		return def;
+	return v;
+}
+
+# (Re)configure the .view.t text tags from the current theme.  .view.t is
+# -state disabled, so a tag with no explicit foreground renders in the env's
+# *disabled* colour (a light grey, illegible on a dark theme) -- every text tag
+# therefore sets a foreground.  Called at start-up and on every theme push
+# (tag colours are not covered by "theme reapply").
 mktags()
 {
-	tkcmd(window, ".view.t tag configure NAME -font " + NAMEFONT + " -foreground #102a54");
-	tkcmd(window, ".view.t tag configure META -font " + METAFONT + " -foreground #808080");
-	tkcmd(window, ".view.t tag configure BODY -font " + BODYFONT);
-	tkcmd(window, ".view.t tag configure MEDIA -font " + METAFONT + " -foreground #1a4ba0");
-	# inline action buttons: a raised, bordered, shaded span
+	loadthemecols();
+	tkcmd(window, ".view.t tag configure NAME -font " + NAMEFONT + " -foreground " + thINK);
+	tkcmd(window, ".view.t tag configure META -font " + METAFONT + " -foreground " + thMUTED);
+	tkcmd(window, ".view.t tag configure BODY -font " + BODYFONT + " -foreground " + thINK);
+	tkcmd(window, ".view.t tag configure MEDIA -font " + METAFONT + " -foreground " + thACCENT);
+	# inline action buttons: a raised, bordered, shaded span (fixed light chip)
 	tkcmd(window, ".view.t tag configure BTN -font " + METAFONT +
-		" -foreground #182860 -background #e8e8ec -relief raised -borderwidth 1");
+		" -foreground " + thCHIPFG + " -background " + thCHIPBG + " -relief raised -borderwidth 1");
 	# per-post padding: left/right margins + a little vertical breathing room
 	tkcmd(window, ".view.t tag configure POST -lmargin1 8 -lmargin2 8 -rmargin 8"+
 		" -spacing1 3 -spacing3 3");
 	# faint rule between posts
-	tkcmd(window, ".view.t tag configure SEP -font " + METAFONT + " -foreground #dcdce2");
+	tkcmd(window, ".view.t tag configure SEP -font " + METAFONT + " -foreground " + thMUTED);
 	# emoji-reaction chips: a rounded shaded span; RXME (the user's own
 	# reactions) is tinted blue to stand out from RXN (others')
 	tkcmd(window, ".view.t tag configure RXN -font " + METAFONT +
-		" -background #eef0f2 -relief raised -borderwidth 1");
+		" -foreground " + thCHIPFG + " -background " + thCHIPBG + " -relief raised -borderwidth 1");
 	tkcmd(window, ".view.t tag configure RXME -font " + METAFONT +
-		" -foreground #0a2a78 -background #cfe0ff -relief raised -borderwidth 1");
-	tkcmd(window, ".view.t tag configure SEL -background #d7e6ff");
+		" -foreground " + thCHIPFG + " -background " + thCHIPMEBG + " -relief raised -borderwidth 1");
+	tkcmd(window, ".view.t tag configure SEL -background " + thSELBG + " -foreground #202020");
 	# the inline "load older posts" affordance
 	tkcmd(window, ".view.t tag configure MORE -font " + METAFONT +
-		" -foreground #1a4ba0 -justify center -spacing1 4 -spacing3 4");
+		" -foreground " + thACCENT + " -justify center -spacing1 4 -spacing3 4");
 	# thread reply-depth: D<d> indents a reply by its depth in the chain so the
 	# thread reads as a tree (used in place of POST in the thread view)
 	for(d := 0; d <= MAXDEPTH; d++){

@@ -88,6 +88,8 @@ realinit(ctxt: ref Draw->Context)
 			return;
 		}
 		tkclient->wmctl(t, s);
+		if(len s >= 5 && s[0:5] == "theme")
+			retheme();
 	pid = <-tick =>
 		update(mfd);
 		for(i := 0; i < n; i++) {
@@ -129,10 +131,16 @@ ticker(c: chan of int)
 
 initdraw(n: int): int
 {
+	# canvas items have no env palette, so text defaults to black -- invisible on
+	# a dark theme.  Tag every plain label "txt" and fill it with the theme
+	# foreground; retheme() re-fills them all live on a theme push.
+	fgcol := tkclient->themecolour(t, "fg");
+	if(fgcol == nil)
+		fgcol = "black";
 	y := 15;
 	maxx := 0;
 	for (i := 0; i < n; i++) {
-		id := cmd(t, ".c create text 5 "+string y+" -anchor w -text "+a[i].name);
+		id := cmd(t, ".c create text 5 "+string y+" -anchor w -fill "+fgcol+" -tags txt -text "+a[i].name);
 		r := s2r(cmd(t, ".c bbox " + id));
 		if (r.max.x > maxx)
 			maxx = r.max.x;
@@ -147,9 +155,9 @@ initdraw(n: int): int
 		a[i].taghw = cmd(t, s);
 		s = sys->sprint(".c create rectangle %d %d 230 %d -fill red", maxx, y+4, y+8);
 		a[i].tag = cmd(t, s);
-		s = sys->sprint(".c create text 230 %d -anchor e -text '%s", y - 2, sizestr(a[i].limit));
+		s = sys->sprint(".c create text 230 %d -anchor e -fill %s -tags txt -text '%s", y - 2, fgcol, sizestr(a[i].limit));
 		cmd(t, s);
-		s = sys->sprint(".c create text %d %d -anchor w -text '%s", maxx, y - 2, string a[i].size);
+		s = sys->sprint(".c create text %d %d -anchor w -fill %s -tags txt -text '%s", maxx, y - 2, fgcol, string a[i].size);
 		a[i].tagsz = cmd(t, s);
 		s = sys->sprint(".c create text 120 %d -fill red -anchor w -text '%d", y - 2, a[i].allocs-a[i].frees);
 		a[i].tagiu = cmd(t, s);
@@ -159,6 +167,14 @@ initdraw(n: int): int
 	cmd(t, ".c configure -height "+string y);
 	cmd(t, "update");
 	return maxx;
+}
+
+retheme()
+{
+	fgcol := tkclient->themecolour(t, "fg");
+	if(fgcol == nil)
+		fgcol = "black";
+	cmd(t, ".c itemconfigure txt -fill "+fgcol);
 }
 
 sizestr(n: int): string

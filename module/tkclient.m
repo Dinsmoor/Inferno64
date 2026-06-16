@@ -23,4 +23,8 @@ Tkclient: module
 
 	snarfput:	fn(buf: string);
 	snarfget:	fn(): string;
+
+	# look up one value from the live system theme (libtk "theme get");
+	# "" if absent.  Lets an app derive its own colours/tags from the theme.
+	themecolour:	fn(top: ref Tk->Toplevel, key: string): string;
 };

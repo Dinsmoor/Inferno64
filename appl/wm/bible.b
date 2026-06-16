@@ -126,10 +126,10 @@ init(ctxt: ref Context, nil: list of string)
 	navpn = Paned.new(window, ".main.nav", Tkwidgets->Vert, array[] of {380, 200});
 	tkcmd("pack .main.nav -side left -fill y");
 	books = Scrolledlist.new(window, navpn.pane(0) + ".l", 168, 0,
-		"-selectmode browse -bg white -font " + UIFONT);
+		"-selectmode browse -font " + UIFONT);
 	tkcmd("pack " + books.fr + " -fill both -expand 1");
 	chaps = Scrolledlist.new(window, navpn.pane(1) + ".l", 168, 0,
-		"-selectmode browse -bg white -font " + UIFONT);
+		"-selectmode browse -font " + UIFONT);
 	tkcmd("pack " + chaps.fr + " -fill both -expand 1");
 
 	# right context: a Notebook with Cross-refs and Dictionary tabs (each a
@@ -139,7 +139,7 @@ init(ctxt: ref Context, nil: list of string)
 	tkcmd("pack .main.ctx -side right -fill y");
 	ctxnb = Notebook.new(window, ".main.ctx.nb");
 	tkcmd("pack .main.ctx.nb -fill both -expand 1");
-	CTXOPTS := "-state disabled -bg white -wrap word -padx 4 -pady 2";
+	CTXOPTS := "-state disabled -wrap word -padx 4 -pady 2";
 	xst := Scrolledtext.new(window, ctxnb.add("xref", "Cross-refs") + ".st", 0, 0, CTXOPTS);
 	tkcmd("pack " + xst.fr + " -fill both -expand 1");
 	XT = xst.t;
@@ -149,7 +149,7 @@ init(ctxt: ref Context, nil: list of string)
 
 	# centre reading pane (a read-only Scrolledtext)
 	rt := Scrolledtext.new(window, ".read", 0, 0,
-		"-state disabled -bg white -wrap word -padx 8 -pady 4");
+		"-state disabled -wrap word -padx 8 -pady 4");
 	tkcmd("pack .read -in .main -side left -fill both -expand 1");
 	tkcmd("bind .read.t <Button-3> {send rdsel %x %y}");	# right-click: define
 	tkcmd("bind .read.t <Key-\uE012> {send key up}");
@@ -163,7 +163,7 @@ init(ctxt: ref Context, nil: list of string)
 
 	# bottom: note editor (editable Scrolledtext) strip, then the status bar
 	noteed := Scrolledtext.new(window, ".note.tf", 0, 0,
-		"-bg white -wrap word -padx 4 -pady 2 -font " + UIFONT);
+		"-wrap word -padx 4 -pady 2 -font " + UIFONT);
 	tkcmd("grid .note.tf -row 1 -column 0 -sticky nsew");
 	sb = Statusbar.new(window, ".sb");
 	tkcmd("pack .sb -side bottom -fill x");
@@ -194,6 +194,10 @@ init(ctxt: ref Context, nil: list of string)
 	s = <-window.wreq or
 	s = <-winctl =>
 		tkclient->wmctl(window, s);
+		# the wm pushed a system theme: widget backgrounds re-theme via
+		# "theme reapply" inside wmctl, but text tags do not -- redo them.
+		if(s != nil && len s >= 6 && s[0:6] == "theme ")
+			mktags();
 	cm := <-nav =>
 		case cm {
 		"prev" =>	histback();
@@ -242,14 +246,14 @@ tkconfig := array[] of {
 	# propagate 0 gives them a visible, clickable width (see DEV_TK_EXTENSIONS).
 	"frame .top.gof -width 120 -height 22",
 	"pack propagate .top.gof 0",
-	"entry .top.gof.e -bg white",
+	"entry .top.gof.e",
 	"bind .top.gof.e <Button-1> {focus .top.gof.e}",
 	"bind .top.gof.e <Key-\n> {send go}",
 	"pack .top.gof.e -fill both -expand 1",
 	"label .top.sl -text {Search:}",
 	"frame .top.sf -width 150 -height 22",
 	"pack propagate .top.sf 0",
-	"entry .top.sf.e -bg white",
+	"entry .top.sf.e",
 	"bind .top.sf.e <Button-1> {focus .top.sf.e}",
 	"bind .top.sf.e <Key-\n> {send search}",
 	"pack .top.sf.e -fill both -expand 1",
@@ -292,30 +296,58 @@ tkconfig := array[] of {
 	". configure -width 760 -height 680",
 };
 
+# one theme value with a fallback; lets the reading tags follow the live palette
+themecol(key, def: string): string
+{
+	v := tkclient->themecolour(window, key);
+	if(v == nil || v == "")
+		return def;
+	return v;
+}
+
+# (Re)configure the text tags from the current system theme.  The reading and
+# context panes are -state disabled, so untagged/body text would otherwise pick
+# up the env's *disabled* foreground (a light grey, illegible on a dark theme):
+# every body tag therefore sets an explicit foreground.  Called at start-up and
+# again whenever the wm pushes a theme change (tag colours are not covered by
+# "theme reapply", unlike the now-unstyled widget backgrounds).
 mktags()
 {
-	tkcmd(".read.t tag configure HEAD -font " + HEADFONT + " -foreground #202020 -spacing3 8");
-	tkcmd(".read.t tag configure BODY -font " + BODYFONT + " -lmargin1 4 -lmargin2 4" +
-		" -rmargin 4 -spacing1 2 -spacing3 2");
-	tkcmd(".read.t tag configure VNUM -font " + VNUMFONT + " -foreground #3060a0 -offset 4");
-	tkcmd(".read.t tag configure SEL -background #fff0b0");
-	tkcmd(".read.t tag configure RES -font " + BODYFONT + " -lmargin1 4 -lmargin2 16" +
-		" -spacing1 2 -spacing3 2");
-	tkcmd(".read.t tag configure REF -font " + VNUMFONT + " -foreground #3060a0");
-	# note highlight tints; a verse with a note but no chosen colour gets HL_note
-	tkcmd(".read.t tag configure HL_gold -background #ffe9a8");
-	tkcmd(".read.t tag configure HL_green -background #cdeec0");
-	tkcmd(".read.t tag configure HL_blue -background #c8dcf8");
-	tkcmd(".read.t tag configure HL_pink -background #f8cce0");
-	tkcmd(".read.t tag configure HL_note -background #eaeaea");
-	tkcmd(".read.t tag raise SEL");		# selection shows over any highlight
+	ink := themecol("fg", "#202020");		# primary text
+	accent := themecol("select", "#3060a0");	# verse numbers / refs
+	muted := themecol("disablefg", "#606060");	# context headings
+
+	tkcmd(".read.t tag configure HEAD -font " + HEADFONT + " -foreground " + ink + " -spacing3 8");
+	tkcmd(".read.t tag configure BODY -font " + BODYFONT + " -foreground " + ink +
+		" -lmargin1 4 -lmargin2 4 -rmargin 4 -spacing1 2 -spacing3 2");
+	tkcmd(".read.t tag configure VNUM -font " + VNUMFONT + " -foreground " + accent + " -offset 4");
+	tkcmd(".read.t tag configure RES -font " + BODYFONT + " -foreground " + ink +
+		" -lmargin1 4 -lmargin2 16 -spacing1 2 -spacing3 2");
+	tkcmd(".read.t tag configure REF -font " + VNUMFONT + " -foreground " + accent);
+	# the current-verse cursor (SEL) and the note tints are fixed light pastels;
+	# force dark text on them so a highlighted verse stays legible under any
+	# palette (a light-on-pastel verse would vanish under the dark theme).
+	tkcmd(".read.t tag configure SEL -background #fff0b0 -foreground #202020");
+	tkcmd(".read.t tag configure HL_gold -background #ffe9a8 -foreground #202020");
+	tkcmd(".read.t tag configure HL_green -background #cdeec0 -foreground #202020");
+	tkcmd(".read.t tag configure HL_blue -background #c8dcf8 -foreground #202020");
+	tkcmd(".read.t tag configure HL_pink -background #f8cce0 -foreground #202020");
+	tkcmd(".read.t tag configure HL_note -background #eaeaea -foreground #202020");
+	# highlight tints must out-rank BODY so their forced-dark text wins; the
+	# current-verse cursor shows over any highlight.
+	tkcmd(".read.t tag raise HL_gold");
+	tkcmd(".read.t tag raise HL_green");
+	tkcmd(".read.t tag raise HL_blue");
+	tkcmd(".read.t tag raise HL_pink");
+	tkcmd(".read.t tag raise HL_note");
+	tkcmd(".read.t tag raise SEL");
 	# context-page tags (same on both notebook pages)
 	for(p := list of {XT, DT}; p != nil; p = tl p){
 		w := hd p;
-		tkcmd(w + " tag configure XHEAD -font " + CTXHEADFONT + " -foreground #404040 -spacing3 4");
-		tkcmd(w + " tag configure XREF -font " + VNUMFONT + " -foreground #3060a0 -spacing1 2");
-		tkcmd(w + " tag configure XBODY -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
-		tkcmd(w + " tag configure DEF -font " + UIFONT + " -lmargin1 4 -lmargin2 4 -spacing3 4");
+		tkcmd(w + " tag configure XHEAD -font " + CTXHEADFONT + " -foreground " + muted + " -spacing3 4");
+		tkcmd(w + " tag configure XREF -font " + VNUMFONT + " -foreground " + accent + " -spacing1 2");
+		tkcmd(w + " tag configure XBODY -font " + UIFONT + " -foreground " + ink + " -lmargin1 4 -lmargin2 4 -spacing3 4");
+		tkcmd(w + " tag configure DEF -font " + UIFONT + " -foreground " + ink + " -lmargin1 4 -lmargin2 4 -spacing3 4");
 	}
 }
 

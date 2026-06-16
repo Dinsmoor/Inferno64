@@ -720,7 +720,7 @@ con_cfg := array[] of
 	".srcm add command -text {Dump all procs to host file} -command {send logcmd dumpprocs}",
 	".srcm add command -text {Clear transcript} -command {send logcmd clearlog}",
 	"label .ctl.fl -text { Filter:}",
-	"entry .ctl.f -width 20 -bg white",
+	"entry .ctl.f -width 20",
 	"button .ctl.fc -text Clear -command {send logcmd clearfilter} -bd 1",
 	"pack .ctl.src -side left",
 	"pack .ctl.fl -side left",
@@ -729,7 +729,7 @@ con_cfg := array[] of
 	"bind .ctl.f <Key> +{send logcmd filter}",
 	"frame .ask",
 	"label .ask.l",
-	"entry .ask.e -width 40 -bg white",
+	"entry .ask.e -width 40",
 	"button .ask.c -text Cancel -command {send logcmd cancel} -bd 1",
 	"pack .ask.l -side left",
 	"pack .ask.e -side left -fill x -expand 1",
@@ -738,8 +738,8 @@ con_cfg := array[] of
 	"frame .tags",
 	"frame .cons",
 	"scrollbar .cons.scroll -command {.cons.t yview}",
-	"text .cons.t -width 60w -height 15w -bg white "+
-		"-fg black -font /fonts/misc/latin1.6x13.font "+
+	# no -bg/-fg: inherits the system theme palette and re-themes live
+	"text .cons.t -width 60w -height 15w -font /fonts/misc/latin1.6x13.font "+
 		"-yscrollcommand {.cons.scroll set}",
 	"pack .cons.scroll -side left -fill y",
 	"pack .cons.t -fill both -expand 1",
@@ -750,10 +750,13 @@ con_cfg := array[] of
 	"update"
 };
 
-# distinct foreground colours handed out to sources in arrival order
+# distinct foreground colours handed out to sources in arrival order.  These
+# are the per-source tag/button colours and sit over the themed (possibly dark)
+# console background, so they are mid-luminance hues that stay legible on both a
+# light and a dark palette rather than the darker originals.
 palette := array[] of {
-	"#1a4ba0", "#107010", "#a02020", "#806000",
-	"#7020a0", "#008080", "#a0307a", "#404040",
+	"#5a8de0", "#46b446", "#e06464", "#c8a020",
+	"#b48cf0", "#3cc0c0", "#e070b4", "#a8a8a8",
 };
 
 Src: adt {

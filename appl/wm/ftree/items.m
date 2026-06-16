@@ -26,5 +26,6 @@ Items: module {
 	};
 
 	init: 		fn();
+	setfg:		fn(col: string);
 	maketext:	fn(win: ref Tk->Toplevel, cvs: string, name: string, text: string): Item;
 };

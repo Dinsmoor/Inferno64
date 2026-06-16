@@ -46,10 +46,10 @@ Text: import parser;
 tkconfig := array [] of {
 	"frame .input",
 	"frame .view",
-	"text .view.t -state disabled -width 0 -height 0 -bg white -yscrollcommand {.view.yscroll set} -xscrollcommand {.view.xscroll set}",
+	"text .view.t -state disabled -width 0 -height 0 -yscrollcommand {.view.yscroll set} -xscrollcommand {.view.xscroll set}",
 	"scrollbar .view.yscroll -orient vertical -command {.view.t yview}",
 	"scrollbar .view.xscroll -orient horizontal -command {.view.t xview}",
-	"entry .input.e -bg white",
+	"entry .input.e",
 	"button .input.back -state disabled -bitmap small_color_left.bit -command {send nav b}",
 	"button .input.forward -state disabled -bitmap small_color_right.bit -command {send nav f}",
 
@@ -201,6 +201,8 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	s = <-window.wreq or
 	s = <-winctl =>
 		e := tkclient->wmctl(window, s);
+		if (len s >= 5 && s[0:5] == "theme")
+			mktags();
 		if (e == nil && s[0] == '!') {
 			topline := tkcmd(window, ".view.t yview");
 			(nil, toptoks) := sys->tokenize(topline, " ");
@@ -597,11 +599,18 @@ setline(line: list of (int, Text))
 
 mktags()
 {
-	tkcmd(window, ".view.t tag configure ROMAN -font " + ROMAN);
-	tkcmd(window, ".view.t tag configure BOLD -font " + BOLD);
-	tkcmd(window, ".view.t tag configure ITALIC -font " + ITALIC);
-	tkcmd(window, ".view.t tag configure H1 -font " + HEADING1);
-	tkcmd(window, ".view.t tag configure H2 -font " + HEADING2);
+	# the view is -state disabled, so a tag with no explicit -foreground would
+	# render in the env's *disabled* colour (light grey).  Pin every body tag to
+	# the theme foreground so the page is legible on any palette and re-themes
+	# live (re-running mktags on a theme push updates the tags in place).
+	fg := tkclient->themecolour(window, "fg");
+	if(fg == nil)
+		fg = "black";
+	tkcmd(window, ".view.t tag configure ROMAN -font " + ROMAN + " -foreground " + fg);
+	tkcmd(window, ".view.t tag configure BOLD -font " + BOLD + " -foreground " + fg);
+	tkcmd(window, ".view.t tag configure ITALIC -font " + ITALIC + " -foreground " + fg);
+	tkcmd(window, ".view.t tag configure H1 -font " + HEADING1 + " -foreground " + fg);
+	tkcmd(window, ".view.t tag configure H2 -font " + HEADING2 + " -foreground " + fg);
 }
 
 fonttag(font, heading: int): string
