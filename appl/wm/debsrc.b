@@ -53,6 +53,14 @@ sblpath :=	array[] of
 	("/dis/sh.",	"/appl/cmd/sh/sh."),
 };
 
+# Roots searched recursively (by basename) for a .b/.sbl when the direct
+# dis->src mappings above miss -- so e.g. /dis/charon.dis, whose source is
+# /appl/charon/charon.b (an extra subdirectory the prefix map can't guess),
+# still resolves without prompting the user.  Overridable at init from the
+# newline/colon-separated file /env/wmdebsrc.
+srcroots :=	array[] of { "/appl" };
+maxdepth:	con 12;		# guard against pathological trees / cycles
+
 plumbed := 0;
 but3: chan of string;
 
@@ -92,6 +100,33 @@ init(acontext: ref Draw->Context,
 		plumbed = 1;
 		workdir = load Workdir Workdir->PATH;
 	}
+
+	# optional override of the recursive source-search roots: a colon- or
+	# newline-separated list in /env/wmdebsrc (e.g. "/appl:/usr/me/src").
+	roots := readenv("/env/wmdebsrc");
+	if(roots != nil)
+		srcroots = roots;
+}
+
+# read a colon/newline/space-separated path list from a file (nil if absent)
+readenv(path: string): array of string
+{
+	fd := sys->open(path, sys->OREAD);
+	if(fd == nil)
+		return nil;
+	buf := array[1024] of byte;
+	n := sys->read(fd, buf, len buf);
+	if(n <= 0)
+		return nil;
+	(nc, flds) := sys->tokenize(string buf[0:n], ":\n \t");
+	if(nc == 0)
+		return nil;
+	a := array[nc] of string;
+	for(i := 0; i < nc; i++){
+		a[i] = hd flds;
+		flds = tl flds;
+	}
+	return a;
 }
 
 reinit(xscr: int, rcr: int)
@@ -311,6 +346,16 @@ attachsym(m: ref Mod)
 	}
 	(dir, file) := str->splitr(sbl, "/");
 
+	# before prompting, recursively search the source roots for the .sbl by
+	# basename (it normally sits beside the .b, but this also catches an
+	# installed/relocated symbol file).  Use the dis path to disambiguate.
+	found := srcsearch(m.dis, file);
+	if(found != ""){
+		(m.sym, err) = debug->sym(found);
+		if(m.sym != nil)
+			return;
+	}
+
 	pat := list of {
 		file+" (Symbol table file)",
 		"*.sbl (Symbol table file)"
@@ -478,6 +523,75 @@ findbm(dis: string): ref Mod
 	return nil;	
 }
 
+# Recursively collect every regular file named `base` under `root`.  The
+# directory fd is closed before recursing so a deep tree cannot exhaust file
+# descriptors; `depth` is bounded by maxdepth.  Returns all matches because a
+# basename is not unique across the tree (e.g. acme/gui.b vs charon/gui.b);
+# srcpick() then chooses using the dis path's directory.
+findunder(root, base: string, depth: int): list of string
+{
+	if(depth > maxdepth)
+		return nil;
+	fd := sys->open(root, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	subdirs: list of string;
+	hits: list of string;
+	for(;;){
+		(n, dirs) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(i := 0; i < n; i++){
+			d := dirs[i];
+			path := root + "/" + d.name;
+			if(d.mode & Sys->DMDIR)
+				subdirs = path :: subdirs;
+			else if(d.name == base)
+				hits = path :: hits;
+		}
+	}
+	fd = nil;	# release before descending
+	for(; subdirs != nil; subdirs = tl subdirs)
+		for(h := findunder(hd subdirs, base, depth+1); h != nil; h = tl h)
+			hits = hd h :: hits;
+	return hits;
+}
+
+# search all source roots for `base`, preferring a match whose parent directory
+# matches that of `ref` (the dis-derived path), to break basename collisions.
+srcsearch(hint, base: string): string
+{
+	hits: list of string;
+	for(i := 0; i < len srcroots; i++)
+		for(h := findunder(srcroots[i], base, 0); h != nil; h = tl h)
+			hits = hd h :: hits;
+	return srcpick(hint, hits);
+}
+
+# immediate parent directory name of a path ("" if none)
+parentdir(path: string): string
+{
+	(dir, nil) := str->splitr(path, "/");	# ".../foo/" -> dir keeps trailing /
+	if(dir == "" || dir == "/")
+		return "";
+	(nil, p) := str->splitr(dir[:len dir - 1], "/");
+	return p;
+}
+
+srcpick(hint: string, hits: list of string): string
+{
+	best := "";
+	want := parentdir(hint);
+	for(; hits != nil; hits = tl hits){
+		h := hd hits;
+		if(best == "")
+			best = h;
+		if(want != "" && parentdir(h) == want)
+			return h;	# strong match: same enclosing directory
+	}
+	return best;
+}
+
 findsrc(src: string): ref Mod
 {
 	m := loadsrc(src, 1);
@@ -506,6 +620,17 @@ findsrc(src: string): ref Mod
 			if(m != nil)
 				return m;
 		}
+	}
+
+	# last resort before prompting: recursively search the source roots for a
+	# file of this basename (disambiguated by the dis directory).  loadsrc(...,
+	# 1) records the directory so the module's siblings then resolve from
+	# searchpath without re-walking.
+	found := srcsearch(src, file);
+	if(found != ""){
+		m = loadsrc(found, 1);
+		if(m != nil)
+			return m;
 	}
 
 	(dir, file) = str->splitr(src, "/");

@@ -64,6 +64,7 @@ tkconfig := array[] of {
 	"menu .m.file.menu",
 	".m.file.menu add command -label Open... -command {send m open}",
 	".m.file.menu add command -label Thread... -command {send m pickup}",
+	".m.file.menu add command -label {Pick window...} -command {send m pickwin}",
 	".m.file.menu add command -label Options... -command {send m options}",
 	".m.file.menu add separator",
 
@@ -580,6 +581,13 @@ init(ctxt: ref Draw->Context, argv: list of string)
 					pickchan = chan of int;
 					spawn pickprog(pickchan);
 				}
+			"pickwin" =>
+				# arm the wm: the next window the user clicks resolves to its
+				# owning pid, delivered on pickchan (same path as the dialog).
+				if(pickchan == pickdummy){
+					pickchan = chan of int;
+					spawn pickwin(pickchan);
+				}
 			"options" =>
 				if(optchan == optdummy){
 					optchan = chan of ref Options;
@@ -928,6 +936,30 @@ addpickprogs(t: ref Tk->Toplevel): array of (int, int)
 				sys->sprint("%4d %4d %8s %s", p.id, grp, st, code));
 	}
 	return a;
+}
+
+# Arm the wm's pick-window (/chan/wmpick), wait for the user to click a window,
+# and deliver the owning pid on c (the same channel the Thread dialog uses).  A
+# click on the bare desktop, an error, or an old wm returns -1, which the main
+# loop treats as "cancel".
+pickwin(c: chan of int)
+{
+	fd := sys->open("/chan/wmpick", Sys->ORDWR);
+	if(fd == nil){
+		sys->fprint(sys->fildes(2), "deb: pick window needs a wm with /chan/wmpick: %r\n");
+		c <-= -1;
+		exit;
+	}
+	sys->fprint(fd, "pick");
+	buf := array[32] of byte;
+	n := sys->read(fd, buf, len buf);
+	pid := -1;
+	if(n > 0)
+		pid = int string buf[0:n];
+	c <-= pid;
+	if(pid >= 0)
+		c <-= -1;		# resolved: let the main loop reset pickchan
+	exit;
 }
 
 step(k: ref Kid, cmd: int)

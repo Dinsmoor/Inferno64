@@ -55,8 +55,8 @@ Debug: module
 	Module: adt
 	{
 		path:	string;		# from whence loaded
-		code:	int;		# address of code start
-		data:	int;		# address of data
+		code:	big;		# address of code start (host pointer; 64-bit on LP64)
+		data:	big;		# address of data (host pointer; 64-bit on LP64)
 		comp:	int;		# compiled to native assembler?
 		sym:	ref Sym;
 
@@ -92,7 +92,7 @@ Debug: module
 	Exp: adt
 	{
 		name:	string;
-		offset:	int;
+		offset:	big;		# host address of the value (64-bit on LP64)
 		pc:	int;
 		m:	ref Module;
 		p:	ref Prog;

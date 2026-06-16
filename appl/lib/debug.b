@@ -208,7 +208,13 @@ execer(ack: chan of int, dir: string, c: Command, ctxt: ref Draw->Context, args:
 # fp pc mp prog compiled path
 # fp, pc, mp, and prog are %.8lux
 # compile is  or 1
-# path is a string
+# Each /prog/N/stack line is, per emu/port/devprog.c:
+#	FP  PC(dis)  MP  CODE  COMPILED  PATH
+# with the address fields printed %lux -- so on an LP64 emu they are wider than
+# 8 hex digits.  Parse by whitespace-separated fields (NOT fixed byte offsets):
+# the old fixed-offset parser read the "compiled?" flag from a byte that, once
+# the 64-bit pointers overflowed 8 digits, fell inside the code-address field,
+# so every interpreted frame was misread as compiled and never symbolised.
 Prog.stack(p: self ref Prog): (array of ref Exp, string)
 {
 	buf := array[8192] of byte;
@@ -218,31 +224,60 @@ Prog.stack(p: self ref Prog): (array of ref Exp, string)
 		return (nil, sprint("can't read stack file: %r"));
 	buf[n] = byte 0;
 
-	t := 0;
+	frames: list of ref Exp;
 	nf := 0;
+	t := 0;
 	for(s := 0; s < n; s = t+1){
 		t = strchr(buf, s, '\n');
-		if(buf[t] != byte '\n' || t-s < 40)
-			continue;
-		nf++;
+		if(buf[t] != byte '\n')
+			break;
+		e := stackframe(p, buf, s, t);
+		if(e != nil){
+			frames = e :: frames;
+			nf++;
+		}
 	}
 
-	e := array[nf] of ref Exp;
-	nf = 0;
-	for(s = 0; s < n; s = t+1){
-		t = strchr(buf, s, '\n');
-		if(buf[t] != byte '\n' || t-s < 40)
-			continue;
-		e[nf] = ref Exp("unknown fn",
-				hex(buf[s+0:s+8]), 
-				hex(buf[s+9:s+17]),
-				mkmod(hex(buf[s+18:s+26]), hex(buf[s+27:s+35]), buf[36] != byte '0', string buf[s+38:t]),
-				p,
-				nil);
-		nf++;
+	# frames was built innermost-last; restore file (top-first) order.
+	a := array[nf] of ref Exp;
+	for(i := nf - 1; i >= 0; i--){
+		a[i] = hd frames;
+		frames = tl frames;
 	}
+	return (a, "");
+}
 
-	return (e, "");
+# parse one stack line buf[s:t] into an Exp, or nil if it has too few fields.
+stackframe(p: ref Prog, buf: array of byte, s, t: int): ref Exp
+{
+	NFIELD: con 6;
+	fs := array[NFIELD] of int;	# field start offsets
+	fe := array[NFIELD] of int;	# field end offsets
+	nfld := 0;
+	i := s;
+	while(i < t && nfld < NFIELD){
+		while(i < t && buf[i] == byte ' ')
+			i++;
+		if(i >= t)
+			break;
+		fs[nfld] = i;
+		while(i < t && buf[i] != byte ' ')
+			i++;
+		fe[nfld] = i;
+		nfld++;
+	}
+	if(nfld < NFIELD)
+		return nil;
+	# fields: 0=FP 1=PC(dis) 2=MP 3=CODE 4=COMPILED 5=PATH (to end of line)
+	return ref Exp("unknown fn",
+			hex(buf[fs[0]:fe[0]]),			# offset (frame pointer)
+			int hex(buf[fs[1]:fe[1]]),		# pc (dis instruction; fits in int)
+			mkmod(hex(buf[fs[2]:fe[2]]),		# MP (module data)
+				hex(buf[fs[3]:fe[3]]),		# code (module text)
+				buf[fs[4]] != byte '0',		# compiled flag
+				string buf[fs[5]:t]),		# path (rest of line)
+			p,
+			nil);
 }
 
 Prog.step(p: self ref Prog, how: int): string
@@ -527,17 +562,17 @@ Exp.expand(e: self ref Exp): array of ref Exp
 			if(tg < 0 || tg > len et.tags || err != "" )
 				return nil;
 			k := array[1 + len ids + len et.tags[tg].ids] of ref Exp;
-			k[0] = ref Exp(et.tags[tg].name, off+0, e.pc, e.m, e.p, ref Id(et.src, et.tags[tg].name, 0, 0, tint));
+			k[0] = ref Exp(et.tags[tg].name, off, e.pc, e.m, e.p, ref Id(et.src, et.tags[tg].name, 0, 0, tint));
 			x := 1;
 			for(i := 0; i < len ids; i++){
 				id := ids[i];
-				k[i+x] = ref Exp(id.name, off+id.offset, e.pc, e.m, e.p, id);
+				k[i+x] = ref Exp(id.name, off+big id.offset, e.pc, e.m, e.p, id);
 			}
 			x += len ids;
 			ids = et.tags[tg].ids;
 			for(i = 0; i < len ids; i++){
 				id := ids[i];
-				k[i+x] = ref Exp(id.name, off+id.offset, e.pc, e.m, e.p, id);
+				k[i+x] = ref Exp(id.name, off+big id.offset, e.pc, e.m, e.p, id);
 			}
 			return k;
 		}
@@ -559,7 +594,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 		n := int sn;
 		if(sa == "" || n <= 0)
 			return nil;
-		(off, nil) = str->toint(sa[1:], 16);
+		off = hex(array of byte sa[1:]);
 		et := t.Of;
 		if(et.kind == Tid)
 			et = e.m.sym.adts[int et.name];
@@ -568,7 +603,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 			k := array[n] of ref Exp;
 			for(i := 0; i < n; i++){
 				name := string i;
-				k[i] = ref Exp(name, off+i*esize, e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
+				k[i] = ref Exp(name, off+big(i*esize), e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
 			}
 			return k;
 		}
@@ -583,7 +618,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 				if (--r >= 0)
 					ub++;
 				name := string lb + ".." + string ub;
-				k[i] = ref Exp(name, off+lb*esize, e.pc, e.m, e.p, ref Id(nil, name, H, H, st));
+				k[i] = ref Exp(name, off+big(lb*esize), e.pc, e.m, e.p, ref Id(nil, name, H, H, st));
 				lb = ub+1;
 			}
 			return k;	
@@ -601,7 +636,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 			k := array[n] of ref Exp;
 			for(i := 0; i < n; i++){
 				name := string (i+lb);
-				k[i] = ref Exp(name, off+i*esize, e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
+				k[i] = ref Exp(name, off+big(i*esize), e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
 			}
 			return k;
 		}
@@ -616,7 +651,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 				if (--r >= 0)
 					ub++;
 				name := string lb + ".." + string ub;
-				k[i] = ref Exp(name, off+(lb-lb0)*esize, e.pc, e.m, e.p, ref Id(nil, name, H, H, st));
+				k[i] = ref Exp(name, off+big((lb-lb0)*esize), e.pc, e.m, e.p, ref Id(nil, name, H, H, st));
 				lb = ub+1;
 			}
 			return k;
@@ -629,7 +664,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 		n := int sn;
 		if(sa == "" || n <= 0)
 			return nil;
-		(off, nil) = str->toint(sa[1:], 16);
+		off = hex(array of byte sa[1:]);
 		(nil, sa) = str->splitl(sa[1:], ".");
 		(sn, sa) = str->splitl(sa[1:], ".");
 		f := int sn;
@@ -642,7 +677,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 		for(i := 0; i < sz; i++){
 			name := string i;
 			j := (f+i)%n;
-			k[i] = ref Exp(name, off+j*esize, e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
+			k[i] = ref Exp(name, off+big(j*esize), e.pc, e.m, e.p, ref Id(nil, name, H, H, et));
 		}
 		return k;
 	* =>
@@ -651,7 +686,7 @@ Exp.expand(e: self ref Exp): array of ref Exp
 	k := array[len ids] of ref Exp;
 	for(i := 0; i < len k; i++){
 		id := ids[i];
-		k[i] = ref Exp(id.name, off+id.offset, e.pc, e.m, e.p, id);
+		k[i] = ref Exp(id.name, off+big id.offset, e.pc, e.m, e.p, id);
 	}
 	return k;
 }
@@ -704,7 +739,7 @@ Exp.val(e: self ref Exp): (string, int)
 		w = 1;
 	Tslice =>
 		(lb, ub) := bounds(e.name);
-		s = sys->sprint("[:%d] @ %x", ub-lb+1, e.offset);
+		s = sys->sprint("[:%d] @ %bx", ub-lb+1, e.offset);
 		w = 1;
 	Tstring =>
 		n : int;
@@ -859,7 +894,7 @@ Module.stdsym(m: self ref Module)
 	(m.sym, nil) = sym(path);
 }
 
-mkmod(data, code, comp: int, dis: string): ref Module
+mkmod(data, code: big, comp: int, dis: string): ref Module
 {
 	h := 0;
 	for(i := 0; i < len dis; i++)
@@ -879,9 +914,9 @@ mkmod(data, code, comp: int, dis: string): ref Module
 	return m;
 }
 
-pdata(p: ref Prog, a: int, fmt: string): (string, string)
+pdata(p: ref Prog, a: big, fmt: string): (string, string)
 {
-	b := array of byte sprint("0x%ux.%s1", a, fmt);
+	b := array of byte sprint("0x%bux.%s1", a, fmt);
 	if(sys->write(p.heap, b, len b) != len b)
 		return ("", sprint("can't write heap: %r"));
 
@@ -893,9 +928,9 @@ pdata(p: ref Prog, a: int, fmt: string): (string, string)
 	return (string buf[:n-1], "");
 }
 
-pstring0(p: ref Prog, a: int, blen: int): (int, string, string)
+pstring0(p: ref Prog, a: big, blen: int): (int, string, string)
 {
-	b := array of byte sprint("0x%ux.C1", a);
+	b := array of byte sprint("0x%bux.C1", a);
 	if(sys->write(p.heap, b, len b) != len b)
 		return (-1, "", sprint("can't write heap: %r"));
 
@@ -911,7 +946,7 @@ pstring0(p: ref Prog, a: int, blen: int): (int, string, string)
 	return (int string buf[0:m], string buf[m:n], "");
 }
 
-pstring(p: ref Prog, a: int): (int, string, string)
+pstring(p: ref Prog, a: big): (int, string, string)
 {
 	m, n: int;
 	s, err: string;
@@ -1457,16 +1492,16 @@ strtoi(a: array of byte, start: int): (int, int)
 	return (n, p);
 }
 
-hex(a: array of byte): int
+hex(a: array of byte): big
 {
-	n := 0;
+	n := big 0;
 	for(i := 0; i < len a; i++){
 		c := int a[i];
 		if(c >= '0' && c <= '9')
 			c -= '0';
 		else
 			c -= 'a' - 10;
-		n = (n << 4) + (c & 15);
+		n = (n << 4) + big (c & 15);
 	}
 	return n;
 }

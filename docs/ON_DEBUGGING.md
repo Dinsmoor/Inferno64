@@ -265,6 +265,17 @@ reorders**, so a select-then-"Add Thread" can grab the wrong pid (an easy way to
 `Wmsrv` by accident). Use `wm/deb` on non-GUI / headless Limbo programs; pick targets
 by their own `grp`, never the wm group.
 
+**LP64 addresses.** The `Debug` lib (`appl/lib/debug.b`, `module/debug.m`) carries
+host addresses — `Module.code`/`Module.data`, `Exp.offset` (a value's heap
+address = frame pointer + field offset) — as `big`, so a 64-bit frame pointer or
+heap pointer survives end-to-end into the `addr.fmtN` query it writes to
+`/prog/PID/heap`. (`int` would truncate to 32 bits, which both corrupts the
+Data/variable window and hands `/prog` a wild address.) The `/prog/PID/stack`
+parser likewise tokenises whitespace-separated fields rather than fixed byte
+offsets, because the `%lux` address columns overflow 8 hex digits once pointers
+go 64-bit. The Dis `PC` stays `int` (a bytecode offset, not an address); `Id.offset`
+(a field offset within a frame/data segment) stays `int` too.
+
 ---
 
 ## Tracking services, and where output goes

@@ -35,6 +35,7 @@ Wmsrv: module{
 		title:	string;			# window title (for menus)
 		ws:		int;				# workspace this client lives on
 		vis:		int;				# 1 if on the currently shown workspace
+		pid:		int;				# owning proc pid (0 until the client reports it); used by the debugger's pick-window
 
 		window:	fn(c: self ref Client, tag: string): ref Window;
 		contains:	fn(c: self ref Client, p: Draw->Point): int;

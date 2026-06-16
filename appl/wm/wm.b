@@ -51,6 +51,12 @@ fakekbd: chan of string;
 fakekbdin: chan of string;
 buttons := 0;
 
+# Pick-window (debugger): when armed via /chan/wmpick, the next button-press
+# anywhere is consumed (not routed to the app) and resolved to the owning pid
+# of the window under the pointer, which is returned to the held read.
+pickarmed := 0;
+pickrc: chan of (array of byte, string);	# a read waiting for the picked pid
+
 # Cursor theming.  The wm owns /dev/cursor: it shows defcurpath on the desktop
 # and on plain windows, and a window's registered cursor while the pointer is
 # over it (enter/leave).  Decoded cursors and registrations are cached.
@@ -274,6 +280,12 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	if(wmthemeIO == nil)
 		fatal(sys->sprint("cannot make /chan/wmtheme: %r"));
 
+	# the debugger arms pick-window by writing "pick" here, then reads the pid
+	# of the window the user next clicks (a click on the bare desktop -> -1).
+	wmpickIO := sys->file2chan("/chan", "wmpick");
+	if(wmpickIO == nil)
+		fatal(sys->sprint("cannot make /chan/wmpick: %r"));
+
 	applycursorpath(defcurpath);		# show the default cursor at login
 	curtheme = readline(themefile());	# saved theme, pushed to clients on join
 
@@ -310,6 +322,15 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		over := wmsrv->find(p.xy);
 		if(over != ptrover)
 			updatecursor(over);
+		# pick-window: consume the next click and report the owning pid
+		if(pickarmed && p.buttons){
+			pid := -1;
+			if(over != nil)
+				pid = over.pid;
+			finishpick(pid);
+			buttons = 0;
+			break;
+		}
 		if(p.buttons && (ptrfocus == nil || buttons == 0)){
 			c := wmsrv->find(p.xy);
 			if(c == nil){
@@ -449,7 +470,37 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		rc <-= (d[off:], nil) =>;
 		* =>;
 		}
+	(nil, nil, nil, wc) := <-wmpickIO.write =>
+		# any write arms pick mode (the payload is ignored).
+		if(wc == nil)
+			break;
+		pickarmed = 1;
+		alt{
+		wc <-= (1, nil) =>;
+		* =>;
+		}
+	(nil, nil, nil, rc) := <-wmpickIO.read =>
+		# block this read until a click resolves it (finishpick replies).
+		if(rc == nil)
+			break;
+		if(pickrc != nil)		# only one outstanding pick
+			alt{ pickrc <-= (nil, "superseded") =>; * =>; }
+		pickrc = rc;
+		pickarmed = 1;
 	}
+}
+
+# resolve an armed pick: reply the picked pid to the waiting read and disarm.
+finishpick(pid: int)
+{
+	pickarmed = 0;
+	if(pickrc == nil)
+		return;
+	alt{
+	pickrc <-= (array of byte string pid, nil) =>;
+	* =>;
+	}
+	pickrc = nil;
 }
 
 handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, req: string): string
@@ -471,6 +522,12 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 			spawn bufferproc(fakekbdin, fakekbd);
 		}
 		fakekbdin <-= hd tl args;
+	"pid" =>
+		# pid N -- the client tells us which proc owns its window, so the
+		# debugger's pick-window can map a click to a debuggable pid.
+		if(n != 2)
+			return "bad arg count";
+		c.pid = int hd tl args;
 	"ptr" =>
 		# ptr x y
 		if(n != 3)

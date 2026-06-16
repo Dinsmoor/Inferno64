@@ -251,6 +251,10 @@ connect(ctxt: ref Context): ref Wmcontext
 	}
 	wm.connfd = fd;
 	wm.ctxt = ctxt;
+	# tell the wm which proc owns this window, so the debugger's pick-window
+	# can map a click to a pid.  Written directly (not via wmctl) so an older
+	# wm that rejects the request stays silent rather than logging a warning.
+	sys->fprint(fd, "pid %d", sys->pctl(0, nil));
 	return wm;
 }
 

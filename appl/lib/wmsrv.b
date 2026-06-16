@@ -10,15 +10,6 @@ include "wmsrv.m";
 zorder: ref Client;		# top of z-order list, linked by znext.
 
 ZR: con Rect((0, 0), (0, 0));
-
-# Liveness watchdog.  Each childminder buffers events from the wm to one client
-# and delivers them only when the client's event loop accepts them.  If the wm
-# has events queued for a client but the client has not accepted any for HANGMS,
-# its event loop is wedged -- the classic "app hung on close" symptom -- so we
-# report it to the proc log.  The wm server proc is independent of the stuck
-# client, so this report (unlike a VM-level hang) can safely go through /chan.
-HANGCHECKMS: con 2000;		# how often each childminder re-checks
-HANGMS: con 8000;		# undelivered-for-this-long => wedged
 Iqueue: adt {
 	h, t: list of int;
 	n: int;
@@ -123,7 +114,8 @@ wm(ctlio: ref Sys->FileIO,
 				newwmcontext(),
 				"",			# title
 				0,			# ws (wm sets on join)
-				1			# vis
+				1,			# vis
+				0			# pid (client reports it via the "pid" request)
 			);
 			clients = addclient(clients, c);
 		}
@@ -185,14 +177,6 @@ Reply:
 		ctlq.put(ctl);
 	}
 
-	# liveness bookkeeping: lastprogress = when the client last accepted a
-	# delivery (or had nothing pending); the ticker wakes us to check.
-	tickc := chan of int;
-	tickstop := chan[1] of int;
-	lastprogress := sys->millisec();
-	reported := 0;
-	spawn liveticker(tickc, tickstop);
-
 	for(;;){
 		outkbd := dummykbd;
 		key := -1;
@@ -230,19 +214,11 @@ Reply:
 		alt{
 		outkbd <-= key =>
 			kbdq.get();
-			lastprogress = sys->millisec();
-			reported = 0;
 		outptr <-= ptr =>
 			ptrq.get();
-			lastprogress = sys->millisec();
-			reported = 0;
 		outctl <-= ctl =>
 			ctlq.get();
-			lastprogress = sys->millisec();
-			reported = 0;
 		outimg <-= sendimg =>
-			lastprogress = sys->millisec();
-			reported = 0;
 			case imgstate{
 			Imgsend =>
 				imgstate = Imgnone;
@@ -298,56 +274,13 @@ Reply:
 					imgstate = Imgsendnil1;
 				reply <-= 0;
 			}
-		<-tickc =>
-			pending := kbdq.nonempty() || ptrq.nonempty() ||
-				ctlq.nonempty() || imgstate != Imgnone;
-			if(!pending)
-				lastprogress = sys->millisec();	# caught up; keep the clock fresh
-			else if(!reported && sys->millisec() - lastprogress > HANGMS){
-				reported = 1;
-				reporthang(c, sys->millisec() - lastprogress);
-			}
 		<-c.stop =>
 			# XXX do we need to unblock channels, kill, etc.?
 			# we should perhaps drain the ctl output channel here
 			# if possible, exiting if it times out.
-			alt{ tickstop <-= 0 => ; * => ; }
 			exit;
 		}
 	}
-}
-
-# periodic wakeup for one childminder's liveness check; self-terminates shortly
-# after the childminder signals tickstop (window closed / client gone).
-liveticker(tickc: chan of int, stop: chan of int)
-{
-	for(;;){
-		sys->sleep(HANGCHECKMS);
-		alt{
-		<-stop =>
-			return;
-		* =>
-			;
-		}
-		alt{
-		tickc <-= 1 =>
-			;
-		* =>				# childminder busy; catch it next tick
-			;
-		}
-	}
-}
-
-reporthang(c: ref Client, ms: int)
-{
-	name := "client " + string c.token;
-	if(c.wins != nil)
-		name = (hd c.wins).tag;
-	fd := sys->open("/chan/proc", Sys->OWRITE);
-	if(fd == nil)
-		return;
-	sys->fprint(fd, "*** hung: %s — event loop stalled %ds (close/kill via task manager)\n",
-		name, ms / 1000);
 }
 
 findfid(clients: array of ref Client, fid: int): ref Client
