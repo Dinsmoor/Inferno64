@@ -174,7 +174,13 @@ retheme()
 	fgcol := tkclient->themecolour(t, "fg");
 	if(fgcol == nil)
 		fgcol = "black";
+	# a canvas snapshots its palette at creation and `theme reapply` does not
+	# repaint it, so force the background + relabel colours explicitly, then update
+	bg := tkclient->themecolour(t, "bg");
+	if(bg != nil)
+		cmd(t, ".c configure -bg "+bg);
 	cmd(t, ".c itemconfigure txt -fill "+fgcol);
+	cmd(t, "update");
 }
 
 sizestr(n: int): string

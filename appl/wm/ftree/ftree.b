@@ -188,8 +188,14 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		tkclient->wmctl(win, s);
 		if (len s >= 5 && s[0:5] == "theme") {
 			fg := themefg();
+			bg := tkclient->themecolour(win, "bg");
 			items->setfg(fg);
+			# the canvas snapshots its palette at creation and `theme reapply`
+			# does not repaint it, so force bg + relabel colours explicitly
+			if (bg != nil)
+				cmd(win, ".c configure -bg " + bg);
 			cmd(win, ".c itemconfigure ftext -fill " + fg);
+			cmd(win, "update");
 		}
 	s := <-event =>
 		(target, ev) := eventtarget(s);

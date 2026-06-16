@@ -124,6 +124,17 @@ Then the per-app work is mechanical: drop `-bg white` where the palette default
 is wanted, and rebuild explicit tag tables from `themecolour()` in the hook.
 Tracked in `DEV_INPRO.md` §Active.
 
+> **Canvas caveat.** A Tk **`canvas`** snapshots its palette when it is created
+> and `theme reapply` does **not** repaint it — so a canvas built before the
+> desktop theme settles stays on the default palette even though the client
+> received the push (verified: ftree logged the `theme set …` push and applied
+> it, yet its canvas stayed light). An app with a canvas must, on the `"theme"`
+> ctl push, set the background explicitly and recolour its items, then update:
+> `.c configure -bg <bg>; .c itemconfigure <tag> -fill <fg>; update` (give the
+> themed canvas items a shared tag so one `itemconfigure` recolours them all).
+> `wm/memory` and `wm/ftree` do this; canvas item default fill is black, so an
+> unthemed item is invisible on a dark theme.
+
 ## The mouse cursor (mono, colour, and animated)
 
 The pointer image is set by writing the **cursor file** (`/dev/cursor`, the

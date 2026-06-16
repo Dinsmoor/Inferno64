@@ -29,14 +29,15 @@ pointer here.
       reach (`-state disabled` text, canvas items, per-tag tables) re-derive from
       the live theme on the `"theme"` ctl push. Fixed: `wm/toolbar` (Log),
       `wm/bible`, `wm/pleromussy`, `wm/sh`, `wm/man`, `wm/memory`, `wm/ftree`
-      (verified dark on the scenario harness; ftree has a boot-race — see below).
-      **Remaining:** (1) `wmclient`-only apps (`wm/clock`, `acme/gui`,
-      `wm/drawmux/dmwm`) still never get the push — needs the verb in `wmclient`
-      or a tkclient conversion; (2) **`wm/ftree` boot-race** — it builds its tree
-      and joins before the desktop theme settles, missing the on-join push, so a
-      cold boot-launch comes up light (a normal launch onto an already-themed
-      desktop is born dark); the real fix is wm-side (re-push curtheme once
-      resolved). `ON_THEMING.md` §"Planned: theming the app suite".
+      (verified dark on the scenario harness). **Remaining:** `wmclient`-only apps
+      (`wm/clock`, `acme/gui`, `wm/drawmux/dmwm`) still never get the push — needs
+      the verb in `wmclient` or a tkclient conversion. `ON_THEMING.md` §"Planned:
+      theming the app suite".
+      NB the suspected "ftree boot-race" was a misdiagnosis: the push *does* reach
+      ftree (logged). The real bug was that a Tk **canvas** snapshots its palette
+      at creation and `theme reapply` does not repaint it; fixed client-side by
+      forcing `.c configure -bg` + `itemconfigure` + `update` on the theme push
+      (`wm/ftree`, `wm/memory`). See `ON_THEMING.md` "Canvas caveat".
 - [ ] **Charon: pass the desktop theme to web pages** (idea, unstarted) — expose
       the live palette/dark-mode to CSS (`prefers-color-scheme`) with an override,
       so sites render in the user's theme. The big one; touches the CSS engine.
