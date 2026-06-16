@@ -34,6 +34,7 @@ OFILES=$OFILES\
 	menus.$O\
 	scale.$O\
 	scrol.$O\
+	thm.$O\
 	$TEXTWFILES\
 
 frame.$O:	frame.h

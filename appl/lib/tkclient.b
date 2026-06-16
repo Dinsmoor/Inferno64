@@ -142,6 +142,11 @@ wmctl(top: ref Tk->Toplevel, req: string): string
 	"untask" =>
 		cmd(top, ". map; update");
 		return wmreq(top, c, req, next);
+	"theme" =>
+		# wm pushes a system theme: "theme set <key> <val> ...".  Apply it
+		# (mutates the shared libtk palette) then repaint this toplevel.
+		cmd(top, req);
+		cmd(top, "theme reapply");
 	* =>
 		return wmreq(top, c, req, next);
 	}

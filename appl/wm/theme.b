@@ -37,6 +37,15 @@ include "acursor.m";
 DEFCUR:		con "/icons/cursors/uo/gauntlet-anim.ani";		# --cursor showcase
 DEFARROW:	con "/icons/cursors/templeos/arrow_dark-outline.cur";	# conservative default
 WMCURSOR:	con "/chan/wmcursor";					# wm default-cursor control
+WMTHEME:	con "/chan/wmtheme";					# wm theme control
+THEMEDIR:	con "/lib/themes";					# preset theme files
+
+# Recognised theme keys (mirror the libtk "theme set" command, thm.c).
+themekeys := array[] of {
+	"fg", "foreground", "bg", "background", "activebg", "activefg",
+	"select", "selectbg", "selectfg", "disablefg",
+	"font", "borderwidth", "relief",
+};
 
 Theme: module
 {
@@ -47,7 +56,11 @@ usage()
 {
 	sys->fprint(sys->fildes(2),
 		"usage: theme --cursor [off] [-d ms] [file...]\n"+
-		"       theme --cursor-default [file]\n");
+		"       theme --cursor-default [file]\n"+
+		"       theme --apply [name]        apply+persist a preset (default: default)\n"+
+		"       theme --theme key=val ...   live ad-hoc colour/font overrides\n"+
+		"       theme --font path           live default-font override\n"+
+		"       theme --list                list available presets\n");
 	raise "fail:usage";
 }
 
@@ -67,9 +80,225 @@ init(nil: ref Draw->Context, argv: list of string)
 		cursor(tl argv);
 	"--cursor-default" or "-cursor-default" or "cursor-default" =>
 		cursordefault(tl argv);
+	"--apply" or "-apply" or "apply" =>
+		applytheme(tl argv);
+	"--theme" or "-theme" or "theme" =>
+		adhoctheme(tl argv);
+	"--font" or "-font" or "font" =>
+		fonttheme(tl argv);
+	"--list" or "-list" or "list" =>
+		listthemes();
 	* =>
 		usage();
 	}
+}
+
+# Apply a preset theme file (/lib/themes/<name>, or an absolute path): push it
+# live to the running wm and persist the choice to $home/lib/theme so the wm
+# re-applies it at the next login.
+applytheme(argv: list of string)
+{
+	name := "default";
+	if(argv != nil)
+		name = hd argv;
+	args := resolvetheme(name);
+	if(args == nil)
+		fail(sys->sprint("cannot read theme %q", name));
+	pushtheme(args);
+	savetheme(args);
+}
+
+# Live ad-hoc overrides: theme --theme bg=#303030 fg=#d0d0d0 ...  (not persisted)
+adhoctheme(argv: list of string)
+{
+	if(argv == nil)
+		usage();
+	args := "set";
+	for(; argv != nil; argv = tl argv){
+		kv := hd argv;
+		eq := -1;
+		for(i := 0; i < len kv; i++)
+			if(kv[i] == '='){
+				eq = i;
+				break;
+			}
+		if(eq <= 0)
+			usage();
+		key := kv[0:eq];
+		if(!knownkey(key))
+			fail("unknown theme key " + key);
+		args += " " + key + " " + kv[eq+1:];
+	}
+	pushtheme(args);
+}
+
+# Live default-font override (not persisted).
+fonttheme(argv: list of string)
+{
+	if(argv == nil)
+		usage();
+	pushtheme("set font " + hd argv);
+}
+
+listthemes()
+{
+	fd := sys->open(THEMEDIR, Sys->OREAD);
+	if(fd == nil)
+		fail(sys->sprint("cannot open %s: %r", THEMEDIR));
+	for(;;){
+		(n, d) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(i := 0; i < n; i++)
+			sys->print("%s\n", d[i].name);
+	}
+}
+
+# Resolve a theme file (key value lines, '#' starts a comment line) into the
+# libtk "set <key> <val> ..." argument string.  Unknown keys are skipped.
+resolvetheme(name: string): string
+{
+	path := name;
+	if(len name == 0 || (name[0] != '/' && name[0] != '.'))
+		path = THEMEDIR + "/" + name;
+	data := readall(path);
+	if(data == nil)
+		return nil;
+	args := "set";
+	i := 0;
+	n := len data;
+	while(i < n){
+		j := i;
+		while(j < n && data[j] != '\n')
+			j++;
+		line := data[i:j];
+		i = j + 1;
+		p := 0;
+		while(p < len line && (line[p]==' ' || line[p]=='\t'))
+			p++;
+		if(p >= len line || line[p] == '#')		# blank or comment line
+			continue;
+		w := words(line);
+		if(w == nil || tl w == nil)
+			continue;
+		key := hd w;
+		if(!knownkey(key)){
+			sys->fprint(sys->fildes(2), "theme: %s: unknown key %q\n", path, key);
+			continue;
+		}
+		args += " " + key + " " + hd tl w;
+	}
+	if(args == "set")
+		return nil;
+	return args;
+}
+
+knownkey(k: string): int
+{
+	for(i := 0; i < len themekeys; i++)
+		if(themekeys[i] == k)
+			return 1;
+	return 0;
+}
+
+# Push resolved "set ..." args to the running wm (live re-theme of every
+# window).  Warn if no wm is serving the control file.
+pushtheme(args: string)
+{
+	fd := sys->open(WMTHEME, Sys->OWRITE);
+	if(fd == nil){
+		sys->fprint(sys->fildes(2), "theme: no running wm at %s: %r\n", WMTHEME);
+		return;
+	}
+	if(sys->fprint(fd, "%s", args) < 0)
+		fail(sys->sprint("write %s: %r", WMTHEME));
+}
+
+# Persist the resolved theme so the wm re-applies it at next login.
+savetheme(args: string)
+{
+	path := themefile();
+	fd := sys->create(path, Sys->OWRITE, 8r644);
+	if(fd == nil){
+		# the lib/ directory may not exist yet for a fresh user
+		dir := path;
+		for(i := len dir - 1; i >= 0; i--)
+			if(dir[i] == '/'){
+				dir = dir[0:i];
+				break;
+			}
+		df := sys->create(dir, Sys->OREAD, Sys->DMDIR | 8r755);
+		if(df != nil)
+			fd = sys->create(path, Sys->OWRITE, 8r644);
+	}
+	if(fd == nil){
+		sys->fprint(sys->fildes(2), "theme: cannot save %s: %r\n", path);
+		return;
+	}
+	sys->fprint(fd, "%s\n", args);
+}
+
+# Must match wm.b's resolution (home = /usr/<user>, from /dev/user) so a saved
+# theme lands exactly where the wm reads it at login.
+themefile(): string
+{
+	u := readuser();
+	if(u == nil)
+		u = "inferno";
+	return "/usr/" + u + "/lib/theme";
+}
+
+readuser(): string
+{
+	fd := sys->open("/dev/user", Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	buf := array[512] of byte;
+	m := sys->read(fd, buf, len buf);
+	if(m <= 0)
+		return nil;
+	s := string buf[0:m];
+	while(len s > 0 && (s[len s-1]=='\n' || s[len s-1]=='\0' || s[len s-1]==' '))
+		s = s[0:len s-1];
+	return s;
+}
+
+readall(path: string): string
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	s := "";
+	buf := array[4096] of byte;
+	for(;;){
+		m := sys->read(fd, buf, len buf);
+		if(m <= 0)
+			break;
+		s += string buf[0:m];
+	}
+	return s;
+}
+
+words(s: string): list of string
+{
+	rev: list of string;
+	i := 0;
+	n := len s;
+	while(i < n){
+		while(i < n && (s[i]==' ' || s[i]=='\t'))
+			i++;
+		if(i >= n)
+			break;
+		j := i;
+		while(j < n && s[j]!=' ' && s[j]!='\t')
+			j++;
+		rev = s[i:j] :: rev;
+		i = j;
+	}
+	res: list of string;
+	for(; rev != nil; rev = tl rev)
+		res = hd rev :: res;
+	return res;
 }
 
 # Set the desktop/login default cursor.  Prefer the running wm's control file

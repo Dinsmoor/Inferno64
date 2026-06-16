@@ -1,0 +1,11 @@
+# Dark — low-light grey desktop with pale text.
+bg		#303030
+fg		#d6d6d6
+activebg	#404040
+activefg	#ffffff
+select		#5e9ec0
+selectbg	#1f5d8c
+selectfg	#ffffff
+disablefg	#707070
+relief		raised
+borderwidth	1

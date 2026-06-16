@@ -1,0 +1,11 @@
+# Temple — high-contrast blue/white, after the TempleOS palette.
+bg		#1010a0
+fg		#ffffff
+activebg	#2020c0
+activefg	#ffff00
+select		#00ffff
+selectbg	#0000ff
+selectfg	#ffff00
+disablefg	#8080c0
+relief		raised
+borderwidth	1

@@ -578,6 +578,65 @@ Backends:
   qemu tablet) lets qemu draw its own host cursor and the software cursor —
   mono or rich — is suppressed.
 
+## System theming (colours and font)
+
+Inferno Tk has no option/resource database, so a single choke point themes the
+whole desktop: every toplevel gets its palette and default font from
+`tkdefaultenv()` (`libtk/utils.c`), which calls `tksetenvcolours()`
+(`libtk/colrs.c`) to fill `env->colors[]` from the global `TkTheme tktheme`.
+Widgets COW-share their toplevel's env (`tkdupenv`), and window chrome and the
+toolbar are themselves ordinary Tk widgets, so changing `tktheme` and rebuilding
+a toplevel's env recolours every default-styled widget at once. A widget keeps
+any colour or font it sets explicitly (the COW preserves it).
+
+The runtime control is the **`theme`** Tk command (`libtk/thm.c`), reachable from
+any program with `tk->cmd(top, "theme …")`:
+
+```
+theme set <key> <val> …   keys: fg bg activebg activefg select selectbg
+                          selectfg disablefg font borderwidth relief
+                          (colours are #RGB, #RRGGBB, #RRGGBBAA or X11 names)
+theme reset               restore the built-in light-grey palette + default font
+theme get                 report the current theme as "key val …"
+theme reapply             rebuild this toplevel's env and repaint its widget tree
+```
+
+`theme set` mutates the process-wide `tktheme`; `theme reapply` is what makes a
+change visible on an existing window (it re-runs `tksetenvcolours` on the top's
+env, reopens the font if it changed, and marks the tree dirty).
+
+### Driving it from the desktop
+
+`wm/wm` is the theme authority (it stays Tk-free and only relays). It serves
+`/chan/wmtheme`, holds the current resolved `set …` line, **pushes it to each
+client as the client joins** (so windows are born themed), and **broadcasts it
+on change** for a live re-theme. Clients apply it through `tkclient`'s `theme`
+ctl verb, which runs the `set` then `theme reapply` on the client toplevel.
+
+The login default is persisted to `$home/lib/theme` and read by the wm at
+startup. Home is resolved from `/dev/user` (`/usr/<user>/lib/theme`), not
+`/env/home`, because no login script has set `/env/home` yet when `wm/wm` runs.
+
+`wm/theme` is the front end:
+
+```
+theme --apply <name>        apply + persist a preset from /lib/themes/<name>
+theme --theme key=val …     live ad-hoc overrides (not persisted)
+theme --font <path>         live default-font override (not persisted)
+theme --list                list presets in /lib/themes
+```
+
+Presets live in `/lib/themes/` as `key value` text files (`#` starts a comment
+line): `default` (the built-in grey), `dark`, `temple`. `--apply` resolves the
+file to a `set …` line, writes it to `/chan/wmtheme`, and saves it for next
+login.
+
+Two boundaries are deliberate. The window **titlebar** (`appl/lib/titlebar.b`)
+hardcodes its colours, so it is not yet theme-driven. An app that styles its own
+text widgets (explicit `-foreground`/`-font`) picks up a theme **at launch**
+(new windows are born themed) but does not live-update on `--apply`, because its
+COW'd envs hold the colours it chose.
+
 ## Key Files
 
 | File | Purpose |

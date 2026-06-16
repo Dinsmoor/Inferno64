@@ -49,6 +49,7 @@ static struct Cmd cmdmain[] =
 	"see",	tkseecmd,
 	"send",		tksend,
 	"text",		tktext,
+	"theme",	tkthemecmd,
 	"update",	tkupdatecmd,
 	"variable",	tkvariable,
 	"winfo",	tkwinfo,

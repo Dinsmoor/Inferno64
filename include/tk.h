@@ -413,6 +413,27 @@ struct TkEnv
 	int		wzero;			/* Width of "0" in pixel */
 };
 
+/*
+ * System-wide theme: the base palette + default relief/borderwidth that every
+ * toplevel inherits via tksetenvcolours().  Mutated at runtime by the "theme"
+ * Tk command (libtk/thm.c).
+ */
+typedef struct TkTheme TkTheme;
+struct TkTheme
+{
+	ulong	fg;		/* foreground / text */
+	ulong	bg;		/* widget/window background base */
+	ulong	activebg;	/* mouse-over background base */
+	ulong	activefg;
+	ulong	select;		/* check/radio indicator */
+	ulong	selectbg;	/* selection background base */
+	ulong	selectfg;
+	ulong	disablefg;
+	int	borderwidth;	/* advisory default (consumed by Limbo chrome) */
+	char	relief[16];	/* advisory default relief name */
+};
+extern	TkTheme	tktheme;
+
 struct TkGeom
 {
 	int		x;
@@ -679,6 +700,10 @@ extern	void		tksetpanelimage(Tk *tk, Image*, Image*);
 
 /* General - colrs.c */
 extern	void		tksetenvcolours(TkEnv*);
+extern	void		tkthemereset(void);
+
+/* General - thm.c */
+extern	char*		tkthemecmd(TkTop*, char*, char**);
 
 /* General - ebind.c */
 extern	void		tkcmdbind(Tk*, int, char*, void*);

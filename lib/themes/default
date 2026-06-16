@@ -1,0 +1,13 @@
+# Inferno classic — the built-in light-grey palette.
+# Keys mirror the libtk "theme set" command; colours are #RGB, #RRGGBB or
+# #RRGGBBAA, or a named X11 colour.  Lines beginning with '#' are comments.
+bg		#dddddd
+fg		#000000
+activebg	#ededed
+activefg	#000000
+select		#b03060
+selectbg	#404040
+selectfg	#ffffff
+disablefg	#888888
+relief		raised
+borderwidth	1

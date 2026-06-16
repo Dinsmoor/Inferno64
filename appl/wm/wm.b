@@ -62,6 +62,14 @@ appliedcur: string;			# path of the cursor currently on the device
 cursorreg: list of (int, string);	# client id -> its window cursor file
 cursorcache: list of (string, ref Curfile->Cursor);
 
+# System theme (colours/font/relief for all Tk widgets, chrome and toolbar).
+# The wm is Tk-free, so it never applies the theme itself: it holds the current
+# resolved "set <key> <val> ..." args, pushes them to each client as it joins
+# (so windows are born themed), and broadcasts them on change for a live
+# re-theme (see tkclient.b's "theme" ctl verb).  wm/theme resolves theme files
+# and pushes via /chan/wmtheme; the choice is persisted to $home/lib/theme.
+curtheme: string;			# "set <key> <val> ..." (nil = built-in default)
+
 badmodule(p: string)
 {
 	sys->fprint(sys->fildes(2), "wm: cannot load %s: %r\n", p);
@@ -152,6 +160,48 @@ lookupcursor(id: int): string
 	return nil;
 }
 
+# --- system theme ------------------------------------------------------------
+
+# Read a small one-line file, trimming trailing whitespace/nul.
+readline(path: string): string
+{
+	fd := sys->open(path, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	buf := array[512] of byte;
+	n := sys->read(fd, buf, len buf);
+	if(n <= 0)
+		return nil;
+	s := string buf[0:n];
+	while(len s > 0 && (s[len s-1]=='\n' || s[len s-1]=='\0' || s[len s-1]==' ' || s[len s-1]=='\t'))
+		s = s[0:len s-1];
+	return s;
+}
+
+# Path of the persisted theme selection ($home/lib/theme).  wm runs before any
+# login script sets /env/home, so resolve home from /dev/user (set by the
+# kernel at startup) -- the same convention wmsetup uses (home=/usr/<user>).
+themefile(): string
+{
+	u := readline("/dev/user");
+	if(u == nil)
+		u = "inferno";
+	return "/usr/" + u + "/lib/theme";
+}
+
+# Record a new system theme (the resolved "set <key> <val> ..." args) and push
+# it to every client for a live re-theme.
+settheme(args: string)
+{
+	while(len args > 0 && (args[len args-1]=='\n' || args[len args-1]==' ' || args[len args-1]=='\t'))
+		args = args[0:len args-1];
+	if(args == nil)
+		return;
+	curtheme = args;
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		z.ctl <-= "theme " + curtheme;
+}
+
 init(ctxt: ref Draw->Context, argv: list of string)
 {
 	sys  = load Sys Sys->PATH;
@@ -219,7 +269,13 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	if(wmcursorIO == nil)
 		fatal(sys->sprint("cannot make /chan/wmcursor: %r"));
 
+	# wm/theme writes a resolved "set <key> <val> ..." line here to (re)theme.
+	wmthemeIO := sys->file2chan("/chan", "wmtheme");
+	if(wmthemeIO == nil)
+		fatal(sys->sprint("cannot make /chan/wmtheme: %r"));
+
 	applycursorpath(defcurpath);		# show the default cursor at login
+	curtheme = readline(themefile());	# saved theme, pushed to clients on join
 
 	sync := chan of string;
 	argv = tl argv;
@@ -292,6 +348,8 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		# new client; inform it of the available screen rectangle.
 		# XXX do we need to do this now we've got wmrect?
 		c.ctl <-= "rect " + r2s(screen.image.r);
+		if(curtheme != nil)			# born themed, before first paint
+			c.ctl <-= "theme " + curtheme;
 		c.vis = 1;
 		if(allowcontrol){
 			controller = c;
@@ -367,6 +425,24 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		if(rc == nil)
 			break;
 		d := array of byte defcurpath;
+		if(off > len d)
+			off = len d;
+		alt{
+		rc <-= (d[off:], nil) =>;
+		* =>;
+		}
+	(nil, data, nil, wc) := <-wmthemeIO.write =>
+		if(wc == nil)
+			break;
+		settheme(string data);
+		alt{
+		wc <-= (len data, nil) =>;
+		* =>;
+		}
+	(off, nil, nil, rc) := <-wmthemeIO.read =>
+		if(rc == nil)
+			break;
+		d := array of byte curtheme;
 		if(off > len d)
 			off = len d;
 		alt{
