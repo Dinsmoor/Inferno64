@@ -147,6 +147,7 @@ TARG=\
 	tkclient.dis\
 	tkwidgets.dis\
 	titlebar.dis\
+	titletex.dis\
 	translate.dis\
 	ubfa.dis\
 	url.dis\
