@@ -285,9 +285,47 @@ Window.wmctl(w: self ref Window, req: string): string
 		# put window back where it was before.
 		# XXX what do we we do if the window manager window has been reshape in the meantime...?
 		titlebar->sendctl(w.titlebar, "!reshape . -1 " + r2s((w.saved, w.saved.add(w.r.size()))));
+	"theme" =>
+		# wm pushed a system theme ("theme set <key> <val> ...").  Apply it to
+		# the shared libtk palette via our titlebar toplevel and recolour the
+		# chrome; the application redraws its own content (it can read the new
+		# colours back with w.themecolour()).
+		if(w.titlebar != nil){
+			tk->cmd(w.titlebar, req);
+			titlebar->retheme(w.titlebar);
+		}
 	* =>
 		return wmreq(w, req, next);
 	}
+	return nil;
+}
+
+# Read one palette value ("bg", "fg", "select", ...) from the live theme, or nil.
+Window.themecolour(w: self ref Window, key: string): string
+{
+	if(w.titlebar == nil)
+		return nil;
+	s := tk->cmd(w.titlebar, "theme get");
+	if(s == nil || s[0] == '!')
+		return nil;
+	return themeval(s, key);
+}
+
+# pull the value of `key` from a "key val key val ..." string (whole-word match
+# so "bg" does not match inside "titlebg").
+themeval(s, key: string): string
+{
+	target := key + " ";
+	n := len s;
+	tlen := len target;
+	for(i := 0; i + tlen <= n; i++)
+		if((i == 0 || s[i-1] == ' ') && s[i:i+tlen] == target){
+			j := i + tlen;
+			k := j;
+			while(k < n && s[k] != ' ')
+				k++;
+			return s[j:k];
+		}
 	return nil;
 }
 

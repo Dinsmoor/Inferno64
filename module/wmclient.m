@@ -44,6 +44,7 @@ Wmclient: module
 		screenr:	fn(w: self ref Window, sr: Draw->Rect): Draw->Rect;
 		imager:	fn(w: self ref Window, ir: Draw->Rect): Draw->Rect;
 		pointer:	fn(w: self ref Window, p: Draw->Pointer): int;
+		themecolour:	fn(w: self ref Window, key: string): string;
 	};
 
 };

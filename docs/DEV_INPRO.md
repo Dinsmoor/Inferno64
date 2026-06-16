@@ -29,9 +29,12 @@ pointer here.
       reach (`-state disabled` text, canvas items, per-tag tables) re-derive from
       the live theme on the `"theme"` ctl push. Fixed: `wm/toolbar` (Log),
       `wm/bible`, `wm/pleromussy`, `wm/sh`, `wm/man`, `wm/memory`, `wm/ftree`
-      (verified dark on the scenario harness). **Remaining:** `wmclient`-only apps
-      (`wm/clock`, `acme/gui`, `wm/drawmux/dmwm`) still never get the push — needs
-      the verb in `wmclient` or a tkclient conversion. `ON_THEMING.md` §"Planned:
+      (verified dark on the scenario harness). `wmclient` now has a `theme` ctl
+      verb + `Window.themecolour()` helper, so `wmclient`-only apps apply the
+      theme to their chrome and can redraw content from the palette: `wm/clock`
+      done (face follows the theme). **Remaining:** `acme/gui` and `wm/drawmux/dmwm`
+      get themed *chrome* for free now but their hand-drawn *content* still needs
+      per-app redraw wiring (acme is its own effort). `ON_THEMING.md` §"Planned:
       theming the app suite".
       NB the suspected "ftree boot-race" was a misdiagnosis: the push *does* reach
       ftree (logged). The real bug was that a Tk **canvas** snapshots its palette

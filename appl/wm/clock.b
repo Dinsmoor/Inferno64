@@ -45,12 +45,7 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	wmclient->init();
 
 	w := wmclient->window(ctxt, "clock", Wmclient->Appl);	# Plain?
-	display := w.display;
-	back = display.colormix(Draw->Palebluegreen, Draw->White);
-
-	hrhand = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Darkblue);
-	minhand = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Paleblue);
-	dots = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Blue);
+	setcolours(w);
 
 	w.reshape(Rect((0, 0), (100, 100)));
 	w.startinput("ptr" :: nil);
@@ -65,7 +60,10 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ctl := <-w.ctl or
 	ctl = <-w.ctxt.ctl =>
 		w.wmctl(ctl);
-		if(ctl != nil && ctl[0] == '!')
+		if(len ctl >= 5 && ctl[0:5] == "theme"){
+			setcolours(w);
+			drawclock(w.image, now);
+		}else if(ctl != nil && ctl[0] == '!')
 			drawclock(w.image, now);
 	p := <-w.ctxt.ptr =>
 		w.pointer(*p);
@@ -79,6 +77,62 @@ init(ctxt: ref Draw->Context, nil: list of string)
 }
 
 ZP := Point(0, 0);
+
+# Build the clock-face colours from the live theme (bg = face, fg = hour hand /
+# dots, select = minute hand), falling back to the classic blue-on-pale look
+# when no theme is set.  Re-run on a theme push.
+setcolours(w: ref Window)
+{
+	display := w.display;
+	bg := w.themecolour("bg");
+	fg := w.themecolour("fg");
+	ac := w.themecolour("select");
+	if(bg != nil)
+		back = display.color(parsecol(bg));
+	else
+		back = display.colormix(Draw->Palebluegreen, Draw->White);
+	if(fg != nil){
+		dots = display.color(parsecol(fg));
+		hrhand = display.color(parsecol(fg));
+	}else{
+		dots = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Blue);
+		hrhand = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Darkblue);
+	}
+	if(ac != nil)
+		minhand = display.color(parsecol(ac));
+	else
+		minhand = display.newimage(Rect((0,0),(1,1)), Draw->CMAP8, 1, Draw->Paleblue);
+}
+
+hexval(c: int): int
+{
+	if(c >= '0' && c <= '9')
+		return c - '0';
+	if(c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if(c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+# parse a theme colour string (#rgb #rrggbb #rrggbbaa) to a Draw RGBA int
+parsecol(s: string): int
+{
+	if(s == nil || s[0] != '#')
+		return Draw->White;
+	v := 0;
+	ndig := 0;
+	for(i := 1; i < len s; i++){
+		d := hexval(s[i]);
+		if(d < 0)
+			break;
+		v = (v << 4) | d;
+		ndig++;
+	}
+	if(ndig <= 6)
+		v = (v << 8) | 16rff;		# #rrggbb -> opaque
+	return v;
+}
 
 drawclock(screen: ref Image, t: int)
 {
