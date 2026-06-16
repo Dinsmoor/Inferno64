@@ -39,6 +39,26 @@
 #include <X11/keysym.h>
 #include <X11/extensions/XShm.h>
 
+/*
+ * Minimal RENDER-extension declarations for full-colour (ARGB) cursors.
+ * We declare just the handful of entry points we use, rather than including
+ * <X11/extensions/Xrender.h>, so the build needs only the runtime libXrender
+ * (libXrender.so.1, already pulled in by libX11) and not the libxrender-dev
+ * headers.  Names use the X-prefixed types in force in this region (see the
+ * #define block above).  PictStandardARGB32 is index 0 of the standard
+ * formats, stable Xrender ABI.
+ */
+typedef XID Picture;
+typedef struct _XRenderPictFormat XRenderPictFormat;
+typedef struct _XRenderPictureAttributes XRenderPictureAttributes;
+enum { PictStandardARGB32 = 0 };
+extern Bool XRenderQueryExtension(Display*, int*, int*);
+extern XRenderPictFormat *XRenderFindStandardFormat(Display*, int);
+extern Picture XRenderCreatePicture(Display*, Drawable, const XRenderPictFormat*,
+		unsigned long, const XRenderPictureAttributes*);
+extern Cursor XRenderCreateCursor(Display*, Picture, unsigned int, unsigned int);
+extern void XRenderFreePicture(Display*, Picture);
+
 #include "keysym2ucs.h"
 
 #undef Colormap
@@ -95,6 +115,7 @@ static void		xexpose(XEvent*);
 static void		xmouse(XEvent*);
 static void		xkeyboard(XEvent*);
 static void		xsetcursor(XEvent*);
+static void		xcursoranimproc(void*);
 static void		xkbdproc(void*);
 static void		xdestroy(XEvent*);
 static void		xselect(XEvent*, XDisplay*);
@@ -283,6 +304,7 @@ attachscreen(Rectangle *r, ulong *chan, int *d, int *width, int *softscreen)
 		triedscreen = 1;
 		kproc("xproc", xproc, xmcon, 0);
 		kproc("xkbdproc", xkbdproc, xkbdcon, KPX11);	/* silly stack size for bloated X11 */
+		kproc("xcursoranim", xcursoranimproc, nil, 0);	/* animated-cursor frame ticker */
 	}
 
 	return gscreendata;
@@ -610,8 +632,17 @@ struct ICursor {
 	int	h;
 	uchar	src[(CursorSize/8)*CursorSize];	/* image and mask bitmaps */
 	uchar	mask[(CursorSize/8)*CursorSize];
+	/* rich (full-colour, optionally animated) cursor */
+	int	rich;		/* 1: use the ARGB frames below, not src/mask */
+	int	richw;
+	int	richh;
+	int	nframe;
+	int	frame;		/* frame currently displayed */
+	int	delay[Crmaxframe];
+	uchar*	frames;		/* nframe*richw*richh*4, premultiplied BGRA */
 };
 static ICursor icursor;
+static int xrenderok = -1;	/* -1 unprobed, 0 no RENDER, 1 yes */
 
 static void
 xcurslock(void)
@@ -651,12 +682,11 @@ drawcursor(Drawcursor* c)
 
 	if(c->data == nil){
 		drawqlock();
-		if(icursor.h != 0){
-			xcurslock();
-			icursor.h = 0;
-			icursor.modify = 1;
-			xcursunlock();
-		}
+		xcurslock();
+		icursor.rich = 0;	/* drop any animated/colour cursor */
+		icursor.h = 0;
+		icursor.modify = 1;
+		xcursunlock();
 		xcursnotify();
 		drawqunlock();
 		return;
@@ -665,6 +695,7 @@ drawcursor(Drawcursor* c)
 	drawqlock();
 	xcurslock();
 	icursor.modify = 0;	/* xsetcursor will now ignore it */
+	icursor.rich = 0;	/* a mono cursor supersedes any rich one */
 	xcursunlock();
 
 	h = (c->maxy-c->miny)/2;	/* image, then mask */
@@ -696,6 +727,145 @@ drawcursor(Drawcursor* c)
 	drawqunlock();
 }
 
+/*
+ * Install a full-colour (optionally animated) cursor.  The wire pixels are
+ * straight-alpha A,R,G,B; we premultiply and store BGRA, the byte order an
+ * LSBFirst ARGB32 XImage wants.  A nil/empty request reverts to the default.
+ */
+void
+richcursor(Richcursor *r)
+{
+	uchar *src, *dst;
+	int i, npix, a;
+
+	if(r == nil || r->nframe <= 0 || r->w <= 0 || r->h <= 0){
+		drawqlock();
+		xcurslock();
+		icursor.rich = 0;
+		icursor.h = 0;
+		icursor.modify = 1;
+		xcursunlock();
+		xcursnotify();
+		drawqunlock();
+		return;
+	}
+	npix = r->nframe * r->w * r->h;
+	dst = malloc(npix * 4);
+	if(dst == nil)
+		return;			/* out of memory: keep the current cursor */
+	src = r->argb;
+	for(i = 0; i < npix; i++){
+		a = src[0];
+		dst[i*4+0] = src[3]*a/255;	/* B */
+		dst[i*4+1] = src[2]*a/255;	/* G */
+		dst[i*4+2] = src[1]*a/255;	/* R */
+		dst[i*4+3] = a;			/* A */
+		src += 4;
+	}
+
+	drawqlock();
+	xcurslock();
+	free(icursor.frames);
+	icursor.frames = dst;
+	icursor.richw = r->w;
+	icursor.richh = r->h;
+	icursor.nframe = r->nframe > Crmaxframe ? Crmaxframe : r->nframe;
+	for(i = 0; i < icursor.nframe; i++)
+		icursor.delay[i] = r->delay[i];
+	icursor.frame = 0;
+	icursor.hotx = r->hotx;
+	icursor.hoty = r->hoty;
+	icursor.rich = 1;
+	icursor.modify = 1;
+	xcursunlock();
+	xcursnotify();
+	drawqunlock();
+}
+
+/*
+ * Drive cursor animation: hold the current frame for its delay, then advance
+ * and re-post a cursor change.  One process serves whatever rich cursor is
+ * current; it idles cheaply when the cursor is static or mono.
+ */
+static void
+xcursoranimproc(void *a)
+{
+	int ms, advance;
+
+	USED(a);
+	for(;;){
+		xcurslock();
+		if(icursor.rich && icursor.nframe > 1){
+			ms = icursor.delay[icursor.frame];
+			if(ms < 10)
+				ms = 10;	/* floor: never busy-spin */
+		}else
+			ms = 0;
+		xcursunlock();
+		if(ms == 0){
+			osmillisleep(100);	/* nothing to animate */
+			continue;
+		}
+		osmillisleep(ms);
+		advance = 0;
+		xcurslock();
+		if(icursor.rich && icursor.nframe > 1){
+			if(++icursor.frame >= icursor.nframe)
+				icursor.frame = 0;
+			icursor.modify = 1;
+			advance = 1;
+		}
+		xcursunlock();
+		if(advance)
+			xcursnotify();
+	}
+}
+
+/*
+ * Build an X cursor from one premultiplied-BGRA frame via the RENDER
+ * extension.  Returns 0 if RENDER is unavailable (caller keeps the default).
+ */
+static XCursor
+xrendercursor(uchar *bgra, int w, int h, int hotx, int hoty)
+{
+	Pixmap pm;
+	XImage *xi;
+	XGC gc;
+	Picture pic;
+	XRenderPictFormat *fmt;
+	XCursor xc;
+	int ev, er;
+
+	if(xrenderok < 0)
+		xrenderok = XRenderQueryExtension(xkbdcon, &ev, &er) ? 1 : 0;
+	if(!xrenderok)
+		return 0;
+	fmt = XRenderFindStandardFormat(xkbdcon, PictStandardARGB32);
+	if(fmt == nil)
+		return 0;
+	if(hotx < 0) hotx = 0; else if(hotx >= w) hotx = w-1;
+	if(hoty < 0) hoty = 0; else if(hoty >= h) hoty = h-1;
+	pm = XCreatePixmap(xkbdcon, xdrawable, w, h, 32);
+	gc = XCreateGC(xkbdcon, pm, 0, 0);
+	xi = XCreateImage(xkbdcon, DefaultVisual(xkbdcon, DefaultScreen(xkbdcon)),
+		32, ZPixmap, 0, (char*)bgra, w, h, 32, w*4);
+	if(xi == nil){
+		XFreeGC(xkbdcon, gc);
+		XFreePixmap(xkbdcon, pm);
+		return 0;
+	}
+	xi->byte_order = LSBFirst;	/* our buffer is B,G,R,A in memory */
+	XPutImage(xkbdcon, pm, gc, xi, 0, 0, 0, 0, w, h);
+	xi->data = nil;			/* bgra is the caller's, not XImage's */
+	XDestroyImage(xi);
+	XFreeGC(xkbdcon, gc);
+	pic = XRenderCreatePicture(xkbdcon, pm, fmt, 0, 0);
+	xc = XRenderCreateCursor(xkbdcon, pic, hotx, hoty);
+	XRenderFreePicture(xkbdcon, pic);
+	XFreePixmap(xkbdcon, pm);
+	return xc;
+}
+
 static void
 xsetcursor(XEvent *e)
 {
@@ -704,6 +874,8 @@ xsetcursor(XEvent *e)
 	XColor fg, bg;
 	Pixmap xsrc, xmask;
 	static XCursor xcursor;
+	static uchar fbuf[Crmaxdim*Crmaxdim*4];
+	int w, h, hotx, hoty;
 
 	if(e->type != ClientMessage || !e->xclient.send_event || e->xclient.message_type != cursorchange)
 		return;
@@ -714,6 +886,24 @@ xsetcursor(XEvent *e)
 		return;
 	}
 	icursor.modify = 0;
+	if(icursor.rich){
+		/* snapshot the live frame, then build the cursor unlocked */
+		w = icursor.richw;
+		h = icursor.richh;
+		hotx = icursor.hotx;
+		hoty = icursor.hoty;
+		memmove(fbuf, icursor.frames + icursor.frame*w*h*4, w*h*4);
+		xcursunlock();
+		xc = xrendercursor(fbuf, w, h, hotx, hoty);
+		if(xc != 0){
+			XDefineCursor(xkbdcon, xdrawable, xc);
+			if(xcursor != 0)
+				XFreeCursor(xkbdcon, xcursor);
+			xcursor = xc;
+			XFlush(xkbdcon);
+		}
+		return;
+	}
 	if(icursor.h == 0){
 		xcursunlock();
 		/* set the default system cursor */

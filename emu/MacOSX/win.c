@@ -727,6 +727,13 @@ setpointer(int x, int y)
 	CGWarpMouseCursorPosition(pnt);
 }
 
+/* no colour-cursor support on this backend: leave the current cursor as is */
+void
+richcursor(Richcursor *r)
+{
+	USED(r);
+}
+
 void
 drawcursor(Drawcursor* c)
 {

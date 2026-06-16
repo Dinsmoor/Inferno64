@@ -37,6 +37,8 @@ TARG=\
 	devpointer.dis\
 	dhcpclient.dis\
 	dial.dis\
+	acursor.dis\
+	curfile.dis\
 	dialog.dis\
 	dict.dis\
 	dis.dis\
@@ -223,6 +225,8 @@ DISBIN=$ROOT/dis/lib
 plumbing.dis:N: plumbing.m
 plumber.dis:N: plumbing.m
 
+acursor.dis: $ROOT/module/acursor.m
+curfile.dis: $ROOT/module/curfile.m $ROOT/module/imageio.m
 imageload.dis: $ROOT/module/imageio.m $ROOT/module/imageload.m
 imageanim.dis: $ROOT/module/imageio.m $ROOT/module/imageanim.m
 ip.dis: $ROOT/module/ip.m

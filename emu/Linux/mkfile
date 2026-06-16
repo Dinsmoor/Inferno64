@@ -12,7 +12,7 @@ INSTALLDIR=$ROOT/$SYSTARG/$OBJTYPE/bin	#path of directory where kernel is instal
 
 #end configurable parameters
 
-X11LIBS= -lX11 -lXext	# can remove or override using env section in config files
+X11LIBS= -lX11 -lXext -l:libXrender.so.1	# can remove/override in config env section (Xrender: colour cursors; soname avoids needing libxrender-dev)
 
 <$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE	#set vars based on target system
 

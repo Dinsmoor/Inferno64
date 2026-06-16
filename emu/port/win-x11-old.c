@@ -185,6 +185,13 @@ setcursor(IPoint p)
 	XFlush(xdisplay);
 }
 
+/* no colour-cursor support on this backend: leave the current cursor as is */
+void
+richcursor(Richcursor *r)
+{
+	USED(r);
+}
+
 void
 drawcursor(Drawcursor* c)
 {

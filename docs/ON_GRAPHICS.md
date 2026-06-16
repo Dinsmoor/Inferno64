@@ -486,11 +486,93 @@ the scratch image and rasterize straight into the panel image, then `.p dirty` +
 `update`. `appl/wm/rayteapot.b` is that worked example; `appl/wm/polyhedra.b` is
 the older in-tree precedent for the panel/ticker loop.
 
+## The mouse cursor (mono, colour, and animated)
+
+The pointer image is set by writing the **cursor file** (`/dev/cursor`, the
+pointer device's `cursor` qid). Two wire formats share that file; the device
+tells them apart by a leading magic word.
+
+- **Legacy mono** — `hotx hoty dx dy` (big-endian, draw-protocol `BGLONG`
+  order) then a 1-bit clr/set bitmap pair. This is what `wmclient->cursorspec`
+  emits from a depth-1 image, and what the kernel falls back to. A zero-length
+  write reverts to the default arrow.
+- **Rich (colour, optionally animated)** — a magic-tagged blob (`"Acur"`)
+  carrying one or more **ARGB8888 frames** plus per-frame delays. Defined in
+  `include/cursor.h`; parsed by the cursor device into a `Richcursor` and
+  handed to `richcursor()`. The header is **plain big-endian** (not `BGLONG`).
+
+Build and install a rich cursor from Limbo with the **`Acursor`** library
+(`module/acursor.m`, `appl/lib/acursor.b`):
+
+```
+acur := load Acursor Acursor->PATH;
+acur->init();
+fd := sys->open("/dev/cursor", Sys->OWRITE);
+# frames: depth-32 Draw images (any channel; normalised to ABGR32), all same
+# size; hotspot measured from the top-left; per-frame delays in ms.
+err := acur->set(fd, hot, frames, delays);     # or setraw(...) for raw A,R,G,B bytes
+# acur->clear(fd) reverts to the default cursor.
+```
+
+The cursor is owned by the backend once written, so it keeps animating after
+the writer exits. `setraw`/`mkblobraw` need **no display** — useful for
+procedurally generated or file-decoded cursors from any shell. Limits:
+`Crmaxdim` 64×64, `Crmaxframe` 64.
+
+### Loading Windows cursor files (`.cur` / `.ani`)
+
+There is a huge body of free Windows cursor art out there, so the system reads
+those formats directly. The **`Curfile`** library (`module/curfile.m`,
+`appl/lib/curfile.b`) decodes a `.cur` (static) or `.ani` (animated, RIFF/ACON)
+into a `Curfile->Cursor` — `w`, `h`, hotspot, raw A,R,G,B `frames`, and per-frame
+`delays` (the `.ani` 1/60 s rate converted to ms, honouring `rate`/`seq ` chunks).
+It is pure byte-munging (DIB 1/4/8/24/32 bpp with the AND mask; PNG-embedded
+entries go to `$Imageio`) and needs **no display**, so it works on the native
+kernel over a serial shell too. Decoding is pixel-exact against ImageMagick on
+the 32 bpp art.
+
+### The `theme` command
+
+**`wm/theme`** installs the cursor (and is the seam for future desktop theming):
+
+```
+theme --cursor                 # the default animated gauntlet
+theme --cursor off             # revert to the system arrow
+theme --cursor file.ani        # any .cur/.ani (decoded by Curfile, no display)
+theme --cursor a.png b.png …   # image files as frames (needs a display)
+theme --cursor -d 120 …        # per-frame hold for formats that carry no delay
+```
+
+The default art lives in `icons/cursors/` (the public-domain Ultima Online set):
+`gauntlet-anim.ani` (the animated gauntlet default), `gauntlet.cur`, `grab.cur`,
+`quill.cur`, `busy.ani`. Because the cursor is owned by the backend after a
+write, an application can set it on window enter and `theme --cursor off` on
+leave — the basis for context-sensitive cursors (grab, quill).
+
+Backends:
+
+- **Hosted emu / X11** (`emu/port/win-x11a.c`): colour cursors use the RENDER
+  extension (`XRenderCreateCursor`); a dedicated `xcursoranim` kproc holds each
+  frame for its delay and re-posts the cursor change. Needs the runtime
+  `libXrender` (already pulled in by libX11; a minimal in-file declaration
+  avoids the `libxrender-dev` build dependency).
+- **Native kernel** (`os/drivers/screen.c`): the software cursor
+  alpha-composites the premultiplied ARGB frame onto the scanout in `blit()`;
+  a `cursoranim` kproc (`tsleep`) advances frames. Only active when the board
+  uses a **relative** pointer (`hostcursor == 0`); an absolute pointer (the
+  qemu tablet) lets qemu draw its own host cursor and the software cursor —
+  mono or rich — is suppressed.
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `module/draw.m` | Limbo Draw ADTs: Display, Image, Screen, Font, Point, Rect |
+| `module/acursor.m` | Colour/animated cursor builder (`appl/lib/acursor.b`) |
+| `module/curfile.m` | Windows `.cur`/`.ani` decoder (`appl/lib/curfile.b`) |
+| `appl/wm/theme.b` | `wm/theme --cursor` — install/revert the cursor |
+| `icons/cursors/` | Vendored public-domain UO cursor set (gauntlet/grab/quill) |
+| `include/cursor.h` | Cursor wire formats: `Drawcursor` (mono) + `Richcursor` |
 | `module/tk.m` | Tk module interface |
 | `module/tkclient.m` | High-level Tk window creation |
 | `module/wmclient.m` | Lower-level WM window creation |

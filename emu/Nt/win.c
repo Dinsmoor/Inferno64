@@ -630,6 +630,13 @@ setpointer(int x, int y)
 	SetCursorPos(pt.x, pt.y);
 }
 
+/* no colour-cursor support on this backend: leave the current cursor as is */
+void
+richcursor(Richcursor *r)
+{
+	USED(r);
+}
+
 void
 drawcursor(Drawcursor* c)
 {

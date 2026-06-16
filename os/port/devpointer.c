@@ -251,6 +251,70 @@ pointerread(Chan* c, void* a, long n, vlong)
 	return n;
 }
 
+/* plain big-endian 32-bit fetch (the rich cursor format; not draw's BGLONG) */
+static int
+becl(uchar *p)
+{
+	return (p[0]<<24) | (p[1]<<16) | (p[2]<<8) | p[3];
+}
+
+/*
+ * Parse a magic-tagged rich (colour/animated) cursor blob and install it.
+ * Format documented in include/cursor.h.  Validate fully before allocating,
+ * de-interleave the per-frame (delay,argb) records into the contiguous arrays
+ * richcursor() expects, install, then free: the backend copies synchronously.
+ */
+static void
+writerichcursor(uchar *p, long n)
+{
+	Richcursor rc;
+	int i, framebytes;
+	long need;
+	uchar *q;
+
+	if(n < 7*4)
+		error(Eshort);
+	if(becl(p+1*4) != Crversion)
+		error(Ebadarg);
+	rc.hotx = becl(p+2*4);
+	rc.hoty = becl(p+3*4);
+	rc.w = becl(p+4*4);
+	rc.h = becl(p+5*4);
+	rc.nframe = becl(p+6*4);
+	if(rc.w <= 0 || rc.w > Crmaxdim || rc.h <= 0 || rc.h > Crmaxdim)
+		error(Ebadarg);
+	if(rc.nframe <= 0 || rc.nframe > Crmaxframe)
+		error(Ebadarg);
+	framebytes = rc.w * rc.h * 4;
+	need = 7*4 + (vlong)rc.nframe * (4 + framebytes);
+	if(n != need)
+		error(Ebadarg);
+
+	rc.delay = malloc(rc.nframe * sizeof(int));
+	rc.argb = malloc(rc.nframe * framebytes);
+	if(rc.delay == nil || rc.argb == nil){
+		free(rc.delay);
+		free(rc.argb);
+		error(Enomem);
+	}
+	q = p + 7*4;
+	for(i = 0; i < rc.nframe; i++){
+		rc.delay[i] = becl(q);
+		q += 4;
+		memmove(rc.argb + i*framebytes, q, framebytes);
+		q += framebytes;
+	}
+	if(waserror()){
+		free(rc.delay);
+		free(rc.argb);
+		nexterror();
+	}
+	richcursor(&rc);
+	poperror();
+	free(rc.delay);
+	free(rc.argb);
+}
+
 static long
 pointerwrite(Chan* c, void* va, long n, vlong)
 {
@@ -284,6 +348,10 @@ pointerwrite(Chan* c, void* va, long n, vlong)
 		if(n == 0){
 			cur.data = nil;
 			drawcursor(&cur);
+			break;
+		}
+		if(n >= 4 && becl((uchar*)va) == Crmagic){
+			writerichcursor((uchar*)va, n);
 			break;
 		}
 		if(n < 4*4)

@@ -59,7 +59,16 @@ static struct {
 	int	w, h;		/* current cursor size */
 	uchar	clr[Curswid/8 * Curshgt];
 	uchar	set[Curswid/8 * Curshgt];
+	/* rich (full-colour, optionally animated) cursor */
+	int	rich;		/* 1: composite the argb frames, not clr/set */
+	int	nframe, frame;
+	int	delay[Crmaxframe];
+	u32int*	argb;		/* nframe*w*h pixels, premultiplied 0xAARRGGBB */
 } swc;
+
+static Rendez cursanimr;		/* the animation ticker sleeps here */
+static int cursanimup;			/* ticker kproc started */
+static void cursanimstart(void);
 
 /* default arrow, used until (and whenever) an app clears its cursor */
 static uchar arrowclr[Curswid/8 * Curshgt] = {
@@ -126,6 +135,37 @@ blit(Rectangle r)
 	cy1 = oy+swc.h > r.max.y ? r.max.y : oy+swc.h;
 	if(cx0 >= cx1 || cy0 >= cy1)
 		return;
+	if(swc.rich && swc.argb != nil){
+		/* alpha-composite the current ARGB frame (premultiplied) over dst */
+		u32int *fr, px, d;
+		int a, sr, sg, sb;
+
+		fr = swc.argb + swc.frame*swc.w*swc.h;
+		for(y = cy0; y < cy1; y++){
+			drow = dst + y*fbw;
+			by = y - oy;
+			for(x = cx0; x < cx1; x++){
+				bx = x - ox;
+				px = fr[by*swc.w + bx];
+				a = px >> 24;
+				if(a == 0)
+					continue;		/* transparent */
+				sr = (px>>16) & 0xff;		/* premultiplied */
+				sg = (px>>8) & 0xff;
+				sb = px & 0xff;
+				if(a == 0xff){
+					drow[x] = (sr<<16)|(sg<<8)|sb;
+					continue;
+				}
+				d = drow[x];
+				drow[x] =
+					((sr + (255-a)*((d>>16)&0xff)/255)<<16) |
+					((sg + (255-a)*((d>>8)&0xff)/255)<<8) |
+					 (sb + (255-a)*(d&0xff)/255);
+			}
+		}
+		return;
+	}
 	bpl = swc.w/8;
 	for(y = cy0; y < cy1; y++){
 		drow = dst + y*fbw;
@@ -298,11 +338,16 @@ void
 drawcursor(Drawcursor *c)
 {
 	uchar *clrsrc, *setsrc;
+	u32int *oldframes;
 	Rectangle old;
 	int i, h, fh, sbpl, dbpl;
 
 	lock(&screenlock);
 	old = cursorrect();
+	oldframes = swc.argb;		/* a mono cursor supersedes any rich one */
+	swc.argb = nil;
+	swc.rich = 0;
+	swc.nframe = 0;
 	if(c == nil || c->data == nil){
 		memmove(swc.clr, arrowclr, sizeof swc.clr);
 		memmove(swc.set, arrowset, sizeof swc.set);
@@ -330,6 +375,102 @@ drawcursor(Drawcursor *c)
 	blit(old);		/* erase the old shape */
 	blit(cursorrect());	/* draw the new one */
 	unlock(&screenlock);
+	free(oldframes);
+}
+
+/*
+ * Install a full-colour (optionally animated) cursor.  Frames arrive as
+ * straight-alpha A,R,G,B; we premultiply and store 0xAARRGGBB for cheap
+ * software compositing in blit().  A nil/empty request reverts to the arrow.
+ * The premultiply+malloc happens before taking screenlock so we never sleep
+ * (or hold the lock across a big copy) under it.
+ */
+void
+richcursor(Richcursor *r)
+{
+	uchar *src;
+	u32int *nf, *oldframes;
+	Rectangle old;
+	int i, npix, a, needstart;
+
+	if(r == nil || r->nframe <= 0 || r->w <= 0 || r->h <= 0){
+		Drawcursor d;
+		d.data = nil;
+		drawcursor(&d);		/* reverts to the default arrow, frees argb */
+		return;
+	}
+	npix = r->nframe * r->w * r->h;
+	nf = malloc(npix * sizeof(u32int));
+	if(nf == nil)
+		return;			/* out of memory: keep the current cursor */
+	src = r->argb;
+	for(i = 0; i < npix; i++){
+		a = src[0];
+		nf[i] = (a<<24) | ((src[1]*a/255)<<16) | ((src[2]*a/255)<<8) | (src[3]*a/255);
+		src += 4;
+	}
+
+	lock(&screenlock);
+	old = cursorrect();
+	oldframes = swc.argb;
+	swc.argb = nf;
+	swc.w = r->w;
+	swc.h = r->h;
+	swc.hotx = r->hotx;
+	swc.hoty = r->hoty;
+	swc.nframe = r->nframe > Crmaxframe ? Crmaxframe : r->nframe;
+	for(i = 0; i < swc.nframe; i++)
+		swc.delay[i] = r->delay[i];
+	swc.frame = 0;
+	swc.rich = 1;
+	needstart = !cursanimup;
+	cursanimup = 1;
+	blit(old);
+	blit(cursorrect());
+	unlock(&screenlock);
+	free(oldframes);
+	if(needstart)
+		cursanimstart();
+}
+
+/*
+ * Animation ticker: hold the current frame for its delay, then advance and
+ * redraw.  One kproc serves whatever rich cursor is current; it idles when
+ * the cursor is static or mono.
+ */
+static void
+cursananimproc(void*)
+{
+	int ms;
+
+	for(;;){
+		lock(&screenlock);
+		if(swc.rich && swc.nframe > 1){
+			ms = swc.delay[swc.frame];
+			if(ms < 10)
+				ms = 10;	/* floor: never busy-spin */
+		}else
+			ms = 0;
+		unlock(&screenlock);
+		if(ms == 0){
+			tsleep(&cursanimr, return0, nil, 100);
+			continue;
+		}
+		tsleep(&cursanimr, return0, nil, ms);
+		lock(&screenlock);
+		if(swc.rich && swc.nframe > 1){
+			if(++swc.frame >= swc.nframe)
+				swc.frame = 0;
+			blit(cursorrect());	/* redraw at the new frame */
+		}
+		unlock(&screenlock);
+	}
+}
+
+static void
+cursanimstart(void)
+{
+	kproc("cursoranim", cursananimproc, nil, 0);
 }
 
 /*
