@@ -610,6 +610,61 @@ calldepth(REG *reg)
 	return n;
 }
 
+/*
+ * progheap reads Dis memory at an address the debugger (wm/deb, /prog/N/heap)
+ * supplies as text -- i.e. an address ultimately under userspace control.  In
+ * the hosted emu there is no MMU between a Limbo app and the C kernel, so a
+ * wild, truncated (64->32) or small-integer address would be dereferenced
+ * directly and fault (or silently corrupt) the kernel.  That violates the rule
+ * that a userspace logic error must break nothing beyond its own app.  disok()
+ * is the runtime trust-boundary check: the address (and the whole span about to
+ * be read) must lie inside one of the Dis pools; anything else is rejected with
+ * Ebadctl instead of touched.  This is the integer-carried analogue of the
+ * __dis pointer tag (include/disptr.h, docs/ON_SPARSE.md).
+ */
+extern Pool *mainmem, *heapmem, *imagmem;
+extern int ptrinpool(Pool*, void*);
+
+static int
+disok(void *a, int len)
+{
+	uchar *p, *q;
+
+	if(len <= 0 || a == nil)
+		return 0;
+	p = a;
+	q = p + len - 1;
+	return (ptrinpool(heapmem, p) && ptrinpool(heapmem, q))
+	    || (ptrinpool(mainmem, p) && ptrinpool(mainmem, q))
+	    || (ptrinpool(imagmem, p) && ptrinpool(imagmem, q));
+}
+
+/* bytes progheap dereferences at `addr` for a given format; 0 == no direct
+ * read of a userspace address (the module-relative 'I' case is validated by
+ * its module lookup instead). */
+static int
+disreadlen(int fmt)
+{
+	switch(fmt) {
+	case 'B':
+		return 1;
+	case 'W':
+		return sizeof(WORD);
+	case 'V':
+	case 'R':
+		return 2*sizeof(WORD);
+	case 'P':
+	case 'L':
+	case 'A':
+	case 'C':
+	case 'M':
+	case 'c':
+		return sizeof(void*);
+	default:
+		return 0;
+	}
+}
+
 static int
 progheap(Heapqry *hq, char *va, int count, ulong offset)
 {
@@ -624,7 +679,7 @@ progheap(Heapqry *hq, char *va, int count, ulong offset)
 	ulong addr;
 	String *ss;
 	union { REAL r; LONG l; WORD w[2]; } rock;
-	int i, s, n, len, signed_off;
+	int i, s, n, len, signed_off, rlen;
 	Type *t;
 
 	n = 0;
@@ -632,6 +687,9 @@ progheap(Heapqry *hq, char *va, int count, ulong offset)
 	signed_off = offset;
 	addr = hq->addr;
 	for(i = 0; i < hq->count; i++) {
+		rlen = disreadlen(hq->fmt);
+		if(rlen && !disok((void*)addr, rlen))
+			error(Ebadctl);
 		switch(hq->fmt) {
 		case 'W':
 			if(addr & 3)

@@ -10,7 +10,7 @@ typedef struct Instr Instr;
 struct Instr
 {
 	uint32_t w;		/* instruction word value */
-	uint32_t addr;		/* address of start of instruction */
+	uintptr addr;		/* address of start of instruction (host pointer; 64-bit on LP64) */
 	uchar op;		/* super opcode / instruction class */
 	uchar cond;		/* condition bits 29-30 */
 	uchar sz;		/* size bit (31 for dword) */
@@ -120,7 +120,7 @@ aarch64class(uint32_t w)
 }
 
 static int
-decode(uint32_t addr, Instr *i)
+decode(uintptr addr, Instr *i)
 {
 	uint32_t w;
 
@@ -853,7 +853,7 @@ das(ulong *x, int n)
 
 	addr = (uint32_t *)x;
 	while (n > 0) {
-		if (decode((uint32_t)(uintptr)addr, &i) < 0) {
+		if (decode((uintptr)addr, &i) < 0) {
 			print("%.8lux %.8lux\t???\n", (ulong)(uintptr)addr, i.w);
 			addr++;
 			n--;

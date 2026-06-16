@@ -135,7 +135,7 @@ endif
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all test_jitperf check debug release bleedingedge run help warn-running-emu headless router
+.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all sparse sparse-all sparse-update sparse-raw test_jitperf check debug release bleedingedge run help warn-running-emu headless router
 
 # Bare `make` builds the system.  Without this, GNU make's default goal would be
 # the first target in the file ($(MK), the mk-bootstrap path target), so `make`
@@ -350,6 +350,29 @@ lint-all:
 
 lint-update:
 	@$(LINT_RUN) --update
+
+# sparse semantic check (LP64 pointer-width + Dis-address-space bug class).
+# Replays the real per-file flags through Linus' `sparse`; catches the *cast*
+# forms of pointer<->WORD truncation that -Wshorten-64-to-32 misses, plus
+# __dis address-space violations (see include/disptr.h).  Auto-builds sparse
+# into tests/sparse/.sparse/ on first run (no system install / root needed).
+#   make sparse          report NEW width/address-space warnings vs baseline
+#   make sparse-all      list every high-signal warning
+#   make sparse-update   regenerate the baseline (after triaging)
+#   make sparse-raw      dump ALL sparse output (debug)
+SPARSE_RUN := $(MKARGS) MK=$(MK) sh $(ROOT)/tests/sparse/run.sh
+
+sparse:
+	@$(SPARSE_RUN)
+
+sparse-all:
+	@$(SPARSE_RUN) --all
+
+sparse-update:
+	@$(SPARSE_RUN) --update
+
+sparse-raw:
+	@$(SPARSE_RUN) --raw
 
 # JIT-vs-interpreter throughput benchmark: a pure-Limbo STFT spectrogram run
 # under emu -c0 (interp), -c1 (JIT), and -c1 -B (JIT, no bounds checks), for

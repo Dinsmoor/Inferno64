@@ -90,6 +90,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | write C in the codebase at all (Plan 9 dialect, types, error model) | [`ON_C_IN_INFERNO.md`](ON_C_IN_INFERNO.md) |
 | write C that touches the Dis VM (the integer model + the one hazard) | [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md) |
 | debug or prevent heap corruption | [`ON_C_IN_DIS.md`](ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails) |
+| statically catch LP64 pointer truncation / userspace-address misuse (`make sparse`, `__dis`) | [`ON_SPARSE.md`](ON_SPARSE.md) |
 | vendor a new external C library | [`ON_C_IN_INFERNO.md`](ON_C_IN_INFERNO.md) → [`ON_STB.md`](ON_STB.md) (worked example) |
 | understand why you *can't* load native C modules at runtime | [`ON_DLM.md`](ON_DLM.md) |
 | use someone else's C library at runtime (out-of-process, crash-isolated) | [`ON_C_AT_RUNTIME.md`](ON_C_AT_RUNTIME.md) (sqlite worked example) |
