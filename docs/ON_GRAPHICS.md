@@ -536,18 +536,33 @@ the 32 bpp art.
 **`wm/theme`** installs the cursor (and is the seam for future desktop theming):
 
 ```
-theme --cursor                 # the default animated gauntlet
+theme --cursor                 # one-shot: the showcase animated gauntlet
 theme --cursor off             # revert to the system arrow
 theme --cursor file.ani        # any .cur/.ani (decoded by Curfile, no display)
 theme --cursor a.png b.png …   # image files as frames (needs a display)
 theme --cursor -d 120 …        # per-frame hold for formats that carry no delay
+theme --cursor-default [file]  # set the desktop/login default (TempleOS arrow)
 ```
 
-The default art lives in `icons/cursors/` (the public-domain Ultima Online set):
-`gauntlet-anim.ani` (the animated gauntlet default), `gauntlet.cur`, `grab.cur`,
-`quill.cur`, `busy.ani`. Because the cursor is owned by the backend after a
-write, an application can set it on window enter and `theme --cursor off` on
-leave — the basis for context-sensitive cursors (grab, quill).
+`--cursor` is a one-shot write.  `--cursor-default` sets the cursor the desktop
+falls back to; it writes the path to the wm's `/chan/wmcursor` control file (or
+the device directly when no wm is running), with no file meaning the
+conservative TempleOS arrow.
+
+Art lives in `icons/cursors/`, one directory per set (each with a `LICENSE.txt`):
+`uo/` is the public-domain Ultima Online set (`gauntlet-anim.ani` showcase,
+`gauntlet.cur`, `grab.cur`, `quill.cur`, `busy.ani`); `templeos/` is the
+public-domain TempleOS arrows (`arrow_dark-outline.cur` is the login default).
+
+### Per-window cursors in wm (enter/leave)
+
+`wm/wm` owns `/dev/cursor` and switches it as the pointer crosses window borders:
+the desktop and plain windows show the default (`Defcursor`, settable live via
+`/chan/wmcursor`), applied at login; a client shows its own cursor while the
+pointer is over it.  A client registers one with the `cursorfile <path>` wmctl
+verb (`cursorfile` with no path clears it).  The wm decodes via `Curfile`,
+caches by path, and restores the default on the way out — the basis for
+context-sensitive cursors (grab on draggables, quill in text fields).
 
 Backends:
 

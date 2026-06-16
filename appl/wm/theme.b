@@ -4,9 +4,16 @@ implement Theme;
 # theme - desktop theming for wm.  Today it manages the mouse cursor; it is
 # meant to grow other theme controls (colours, fonts) over time.
 #
-#	theme --cursor                 install the default animated gauntlet
-#	theme --cursor off             revert to the system default arrow
-#	theme --cursor [-d ms] file... install file(s) as the cursor
+#	theme --cursor                  install the showcase animated gauntlet
+#	theme --cursor off              revert to the system default arrow
+#	theme --cursor [-d ms] file...  install file(s) as the cursor (one-shot)
+#	theme --cursor-default [file]   set the desktop/login default cursor
+#
+# --cursor is a one-shot: it writes the cursor now.  --cursor-default sets the
+# cursor the wm shows on the desktop and restores when the pointer leaves a
+# window (it talks to the running wm via /chan/wmcursor, falling back to a
+# direct device write when no wm is present); with no file it picks the
+# conservative TempleOS arrow.
 #
 # A single .cur or .ani -- or several, concatenated into one animation -- is
 # decoded natively (Curfile) with no display needed.  Plain image files
@@ -27,7 +34,9 @@ include "curfile.m";
 include "acursor.m";
 	acursor: Acursor;
 
-DEFCUR:	con "/icons/cursors/gauntlet-anim.ani";
+DEFCUR:		con "/icons/cursors/uo/gauntlet-anim.ani";		# --cursor showcase
+DEFARROW:	con "/icons/cursors/templeos/arrow_dark-outline.cur";	# conservative default
+WMCURSOR:	con "/chan/wmcursor";					# wm default-cursor control
 
 Theme: module
 {
@@ -36,7 +45,9 @@ Theme: module
 
 usage()
 {
-	sys->fprint(sys->fildes(2), "usage: theme --cursor [off] [-d ms] [file...]\n");
+	sys->fprint(sys->fildes(2),
+		"usage: theme --cursor [off] [-d ms] [file...]\n"+
+		"       theme --cursor-default [file]\n");
 	raise "fail:usage";
 }
 
@@ -54,9 +65,29 @@ init(nil: ref Draw->Context, argv: list of string)
 	case hd argv {
 	"--cursor" or "-cursor" or "cursor" =>
 		cursor(tl argv);
+	"--cursor-default" or "-cursor-default" or "cursor-default" =>
+		cursordefault(tl argv);
 	* =>
 		usage();
 	}
+}
+
+# Set the desktop/login default cursor.  Prefer the running wm's control file
+# (so the change is live and the wm restores this cursor on window-leave); when
+# no wm is serving it, write the device directly.  With no file, use the
+# conservative TempleOS arrow.
+cursordefault(argv: list of string)
+{
+	path := DEFARROW;
+	if(argv != nil)
+		path = hd argv;
+	wfd := sys->open(WMCURSOR, Sys->OWRITE);
+	if(wfd != nil && sys->fprint(wfd, "%s", path) >= 0)
+		return;
+	cfd := sys->open("/dev/cursor", Sys->OWRITE);
+	if(cfd == nil)
+		fail(sys->sprint("cannot open /dev/cursor: %r"));
+	installnative(cfd, path :: nil, Acursor->DEFMS);
 }
 
 cursor(argv: list of string)

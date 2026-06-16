@@ -123,3 +123,4 @@ pleromussy.dis: $MODDIR/masto.m $MODDIR/json.m $MODDIR/imageio.m
 gifview.dis: $MODDIR/imageanim.m $MODDIR/imageio.m
 tkwdemo.dis: $MODDIR/tkwidgets.m $MODDIR/tkclient.m
 theme.dis: $MODDIR/acursor.m $MODDIR/curfile.m
+wm.dis: $MODDIR/acursor.m $MODDIR/curfile.m

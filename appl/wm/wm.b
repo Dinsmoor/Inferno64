@@ -15,6 +15,10 @@ include "string.m";
 include "sh.m";
 include "winplace.m";
 	winplace: Winplace;
+include "acursor.m";
+	acursor: Acursor;
+include "curfile.m";
+	curfile: Curfile;
 
 Wm: module {
 	init:	fn(ctxt: ref Draw->Context, argv: list of string);
@@ -47,10 +51,105 @@ fakekbd: chan of string;
 fakekbdin: chan of string;
 buttons := 0;
 
+# Cursor theming.  The wm owns /dev/cursor: it shows defcurpath on the desktop
+# and on plain windows, and a window's registered cursor while the pointer is
+# over it (enter/leave).  Decoded cursors and registrations are cached.
+Defcursor: con "/icons/cursors/templeos/arrow_dark-outline.cur";
+cursorfd: ref Sys->FD;
+defcurpath := Defcursor;		# desktop/login default (settable via /chan/wmcursor)
+ptrover: ref Client;			# client the pointer is currently within (nil = desktop)
+appliedcur: string;			# path of the cursor currently on the device
+cursorreg: list of (int, string);	# client id -> its window cursor file
+cursorcache: list of (string, ref Curfile->Cursor);
+
 badmodule(p: string)
 {
 	sys->fprint(sys->fildes(2), "wm: cannot load %s: %r\n", p);
 	raise "fail:bad module";
+}
+
+# --- cursor theming ----------------------------------------------------------
+
+# Apply the cursor appropriate to the window under the pointer: its registered
+# cursor if it has one, else the desktop default.
+updatecursor(over: ref Client)
+{
+	ptrover = over;
+	path := defcurpath;
+	if(over != nil){
+		p := lookupcursor(over.id);
+		if(p != nil)
+			path = p;
+	}
+	applycursorpath(path);
+}
+
+# Write the cursor at the given file path to the device (decode cached).  A
+# no-op if cursor theming is disabled or the cursor is already shown.
+applycursorpath(path: string)
+{
+	if(cursorfd == nil || path == nil || path == appliedcur)
+		return;
+	cur := getcursor(path);
+	if(cur == nil)
+		return;
+	acursor->setraw(cursorfd, (cur.hotx, cur.hoty), cur.w, cur.h, cur.frames, cur.delays);
+	appliedcur = path;
+}
+
+# Decode a cursor file, caching by path (failures cached as nil so a bad path
+# is not re-read on every pointer motion).
+getcursor(path: string): ref Curfile->Cursor
+{
+	for(l := cursorcache; l != nil; l = tl l){
+		(p, c) := hd l;
+		if(p == path)
+			return c;
+	}
+	(cur, err) := curfile->readfile(path);
+	if(err != nil)
+		cur = nil;
+	cursorcache = (path, cur) :: cursorcache;
+	return cur;
+}
+
+setdefaultcursor(s: string)
+{
+	# accept a bare path, trimming any trailing newline/spaces
+	while(len s > 0 && (s[len s-1] == '\n' || s[len s-1] == ' ' || s[len s-1] == '\t'))
+		s = s[0:len s-1];
+	if(s == nil)
+		return;
+	defcurpath = s;
+	appliedcur = nil;		# force the next apply even if the path repeats
+	updatecursor(ptrover);
+}
+
+regcursor(id: int, path: string)
+{
+	unregcursor(id);
+	cursorreg = (id, path) :: cursorreg;
+}
+
+unregcursor(id: int)
+{
+	nl: list of (int, string);
+	for(l := cursorreg; l != nil; l = tl l){
+		(i, nil) := hd l;
+		if(i != id)
+			nl = hd l :: nl;
+	}
+	cursorreg = nl;
+}
+
+lookupcursor(id: int): string
+{
+	for(l := cursorreg; l != nil; l = tl l){
+		(i, p) := hd l;
+		if(i == id)
+			return p;
+	}
+	return nil;
 }
 
 init(ctxt: ref Draw->Context, argv: list of string)
@@ -78,6 +177,16 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		badmodule(Winplace->PATH);
 	winplace->init();
 
+	# Cursor theming is best-effort: if the libs or the device are missing the
+	# wm simply leaves the built-in cursor alone.
+	acursor = load Acursor Acursor->PATH;
+	curfile = load Curfile Curfile->PATH;
+	if(acursor != nil && curfile != nil){
+		acursor->init();
+		curfile->init();
+		cursorfd = sys->open("/dev/cursor", Sys->OWRITE);
+	}
+
 	sys->pctl(Sys->NEWPGRP|Sys->FORKNS, nil);
 	if (ctxt == nil)
 		ctxt = wmclient->makedrawcontext();
@@ -104,6 +213,13 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	wmrectIO := sys->file2chan("/chan", "wmrect");
 	if(wmrectIO == nil)
 		fatal(sys->sprint("cannot make /chan/wmrect: %r"));
+
+	# theme --cursor-default writes a cursor file path here to set the default.
+	wmcursorIO := sys->file2chan("/chan", "wmcursor");
+	if(wmcursorIO == nil)
+		fatal(sys->sprint("cannot make /chan/wmcursor: %r"));
+
+	applycursorpath(defcurpath);		# show the default cursor at login
 
 	sync := chan of string;
 	argv = tl argv;
@@ -134,6 +250,10 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	p := <-wmctxt.ptr =>
 		if(wmclient->win.pointer(*p))
 			break;
+		# enter/leave: show the window-under-pointer's cursor (or the default)
+		over := wmsrv->find(p.xy);
+		if(over != ptrover)
+			updatecursor(over);
 		if(p.buttons && (ptrfocus == nil || buttons == 0)){
 			c := wmsrv->find(p.xy);
 			if(c == nil){
@@ -199,6 +319,9 @@ init(ctxt: ref Draw->Context, argv: list of string)
 				kbdfocus = nil;
 			if(c == controller)
 				controller = nil;
+			unregcursor(c.id);
+			if(c == ptrover)
+				updatecursor(nil);
 			controlevent("delclient " + string c.id);
 			for(z := wmsrv->top(); z != nil; z = z.znext)
 				if(z.vis && (z.flags & Kbdstarted))
@@ -226,6 +349,24 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		if(rc == nil)
 			break;
 		d := array of byte r2s(screen.image.r);
+		if(off > len d)
+			off = len d;
+		alt{
+		rc <-= (d[off:], nil) =>;
+		* =>;
+		}
+	(nil, data, nil, wc) := <-wmcursorIO.write =>
+		if(wc == nil)
+			break;
+		setdefaultcursor(string data);
+		alt{
+		wc <-= (len data, nil) =>;
+		* =>;
+		}
+	(off, nil, nil, rc) := <-wmcursorIO.read =>
+		if(rc == nil)
+			break;
+		d := array of byte defcurpath;
 		if(off > len d)
 			off = len d;
 		alt{
@@ -272,6 +413,19 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 		c.cursor = req;
 		if(ptrfocus == c || kbdfocus == c)
 			return wmclient->win.wmctl(c.cursor);
+	"cursorfile" =>
+		# cursorfile path  -- the rich (.cur/.ani) cursor shown while the
+		# pointer is over this client's window; "" clears it (use the default).
+		if(n == 1)
+			unregcursor(c.id);
+		else if(n == 2)
+			regcursor(c.id, hd tl args);
+		else
+			return "bad arg count";
+		if(ptrover == c){
+			appliedcur = nil;	# force a re-apply
+			updatecursor(c);
+		}
 	"start" =>
 		if(n != 2)
 			return "bad arg count";
@@ -963,15 +1117,12 @@ r2s(r: Rect): string
 # unless there is currently no keyboard focus...
 # but what about launching a new app from the taskbar:
 # surely we should allow that to grab the focus?
-setfocus(win: ref Wmclient->Window, new: ref Client)
+setfocus(nil: ref Wmclient->Window, new: ref Client)
 {
 	old := kbdfocus;
 	if(old == new)
 		return;
-	if(new == nil)
-		wmclient->win.wmctl("cursor");
-	else if(old == nil || old.cursor != new.cursor)
-		wmclient->win.wmctl(new.cursor);
+	# (the cursor is driven by pointer enter/leave, not keyboard focus)
 	if(new != nil && (new.flags & Kbdstarted) == 0)
 		return;
 	if(old != nil)

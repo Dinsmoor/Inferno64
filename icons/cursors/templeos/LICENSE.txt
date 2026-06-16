@@ -1,0 +1,18 @@
+﻿=== Actual TempleOS Pointers Cursor Set ===
+
+By: anon129
+
+Download: http://www.rw-designer.com/cursor-set/templeos
+
+Author's description:
+
+Recreations of the cursor found within TempleOS. Some entries are modified for better visibility and style.
+For accuracy, use the one simply named 'arrow.cur' as it is a perfect replica of the original pointer, including the inverting color.
+
+==========
+
+License: Released to Public Domain
+
+You are free:
+
+* To use this work for any legal purpose.
