@@ -64,6 +64,7 @@ it, start at [`ON_BUILDING.md`](ON_BUILDING.md).
 | task | read |
 |---|---|
 | use Draw / Tk / prefab, or wm windows | [`ON_GRAPHICS.md`](ON_GRAPHICS.md) |
+| theme the desktop (cursors, colours, fonts, chrome) | [`ON_THEMING.md`](ON_THEMING.md) |
 | do software 3D (raylib-in-Limbo, `$Raster3`) | [`ON_3D.md`](ON_3D.md) |
 | decode images (PNG/JPEG → Draw) | [`ON_IMAGEIO.md`](ON_IMAGEIO.md) |
 | hack on Charon (the web browser) | [`ON_CHARON.md`](ON_CHARON.md) |
