@@ -1,0 +1,179 @@
+.TH WELCOME 1
+.SH NAME
+welcome \- a primer on Inferno: where things are, and how the place works
+.SH DESCRIPTION
+Welcome to Inferno. If you have just landed at a shell prompt or a
+.IR wm (1)
+desktop and you are wondering where everything is and how any of it fits
+together, read on. This page is a short tour of the ideas the system is
+built from. It is not a reference \- it points at the references \- but
+after reading it the rest of the manual should make sense.
+.SS Your programs are in /dis
+There is no
+.B PATH
+environment variable. Every command is a file, and the commands live under
+.BR /dis .
+When you type
+.B ls
+the shell loads
+.BR /dis/ls.dis ;
+when you type
+.B wm/vt
+it loads
+.BR /dis/wm/vt.dis .
+A command name is simply a path, relative to the directories on the shell
+variable
+.BR $path ,
+which defaults to
+.RB ( /dis
+.BR . ).
+The trailing
+.B .dis
+is added for you.
+.PP
+So to see what you can run, just look:
+.IP
+.EX
+ls /dis        # the everyday commands
+ls /dis/wm     # the windowed applications
+.EE
+.PP
+The
+.B /dis
+tree mirrors the source tree: the program written in
+.B /appl/wm/vt.b
+is compiled to
+.BR /dis/wm/vt.dis .
+Nothing is hidden in a magic bin directory; what you see in the file
+system is what there is.
+See
+.IR sh (1)
+for how the shell resolves and runs commands.
+.SS Everything is a file, and the file system is yours to arrange
+The deepest idea in Inferno is that
+.I every
+resource \- a device, a network connection, a running service, the
+graphics display, even the set of environment variables \- is presented as
+a small tree of files you read and write. There is no second mechanism. If
+you can read and write files, you can drive the whole system.
+.PP
+Because resources are files, the interesting verb is not ``install'' but
+.BR bind " and " mount .
+You assemble the file tree your program sees \- its
+.I name space
+\- out of pieces. You can
+.B bind
+one directory over another, or
+.B mount
+a service (local or across the network) at a point in your tree, and from
+then on reads and writes at that point are answered by whatever you
+attached there. See
+.IR bind (1),
+.IR namespace (4),
+and the primer in
+.BR /docs/ON_NAMESPACE.md .
+.PP
+Crucially the name space is
+.IR "per process" .
+Each process inherits its parent's view but may change its own without
+disturbing anyone else (see
+.IR sys-pctl (2)).
+A program can build a private, minimal world to run in. This is how
+sandboxing, virtual hosting, and ``log in to that machine and use its
+devices as if they were mine'' all fall out of one mechanism rather than
+many.
+.SS Styx: the file protocol is the network
+The protocol that a process speaks to a file tree is called
+.IR Styx " (also known as 9P; see " intro (5)).
+The same protocol serves a local device and a remote service, so a file
+tree on another machine can be mounted into yours and used exactly as if it
+were local. Distribution is not a separate subsystem bolted on; it is the
+file system working the way it already works. See
+.IR mount (1)
+and
+.BR /docs/ON_9P.md .
+.SS Limbo and Dis: write once, run on anything
+Programs are written in
+.IR Limbo " (" limbo (1)),
+a small concurrent language, and compiled not to native code but to
+.IR Dis ,
+a machine-independent virtual machine. The same
+.B .dis
+file runs unchanged on every processor Inferno supports, and the virtual
+machine executes it safely even on hardware without memory protection.
+A just-in-time compiler turns hot code into native instructions where it
+helps. The language and VM are introduced in
+.BR /docs/ON_LIMBO.md " and " /docs/ON_DIS.md .
+.SS Concurrency is cheap and built in
+Limbo has processes and typed
+.I channels
+as language primitives, not library afterthoughts. You start a process with
+.B spawn
+and let processes talk by sending values over channels with
+.BR <- .
+The style throughout the system is many small communicating processes
+rather than threads sharing memory. See
+.IR sys-pctl (2)
+and
+.BR /docs/ON_CONCURRENCY.md .
+.SS The shell is a programming language with a file system in it
+.IR sh (1)
+looks familiar but is not a Bourne clone. A value is a list; the shell
+loads builtin
+.I modules
+on demand to extend itself \- arithmetic, regular expressions, even a
+module that lets a script drive a
+.IR Tk (9)
+window or publish a file into the name space that the script itself
+implements. See
+.IR sh (1),
+.IR sh-tk (1),
+.IR sh-file2chan (1),
+and
+.BR /docs/ON_SHELL.md .
+.SS The desktop
+.IR wm (1)
+manages application windows;
+.IR acme (1)
+rolls an editor, shell, and window system into one. Graphics are drawn with
+.IR draw (2)
+and laid out with
+.IR tk (2);
+see
+.BR /docs/ON_GRAPHICS.md .
+.SH GOING DEEPER
+For developers, the
+.B /docs
+tree holds the durable references, each a ``so you want to X'' topic guide.
+A few starting points:
+.IP
+.EX
+/docs/README.md          the front door
+/docs/ON_NAMESPACE.md    name spaces, bind, mount
+/docs/ON_SHELL.md        the shell in depth
+/docs/ON_LIMBO.md        the language
+/docs/ON_DIS.md          the virtual machine
+/docs/ON_CONCURRENCY.md  processes and channels
+/docs/ON_NETWORK.md      dialling, Styx, services
+/docs/ON_GRAPHICS.md     Draw, Tk, and Prefab
+/docs/ON_BUILDING.md     building and hacking on the system
+/docs/ON_DEBUGGING.md    when a program misbehaves
+.EE
+.PP
+There are more than thirty
+.B ON_*.md
+topic guides; list
+.B /docs
+to see them all.
+.SH SEE ALSO
+.IR intro (1),
+.IR sh (1),
+.IR bind (1),
+.IR mount (1),
+.IR wm (1),
+.IR acme (1),
+.IR limbo (1),
+.IR namespace (4),
+.IR intro (5)
+.PP
+``Installation of the Inferno Software'' and the papers in Volume 2.

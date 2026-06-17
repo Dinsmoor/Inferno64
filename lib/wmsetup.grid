@@ -38,7 +38,7 @@ plumber >/chan/wmstdout >[2=1]
 menu Shell			{wmrun wm/sh}
 menu Acme			{wmrun acme}
 menu Charon			{wmrun charon}
-menu Manual			{wmrun wm/man}
+menu Manual			{wmrun wm/man -f /man/1/0welcome}
 menu Files			{if {ftest -d $home} {wmrun wm/ftree $home} {wmrun wm/ftree /}}
 menu ''	''
 menu Grid			'Node monitor' {wmrun nodemonitor}
