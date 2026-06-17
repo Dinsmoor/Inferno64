@@ -372,6 +372,29 @@ Edismisspopup → popupctl.donepopup()
 
 Navigation is always done by `spawn go(g)`, which creates a new process group (`gopgrp`). Stopping navigation calls `CU->abortgo(gopgrp)` which kills the group.
 
+### Exit and helper-process teardown
+
+Charon spans several process groups, not one: the main group (`pgrp`), one
+per-navigation fetch-worker group (`gopgrp`, created by each `go()`), and the
+cookie server group (`cookiesrv.b server()` does `pctl(NEWPGRP|FORKNS)`). All of
+these **share charon's fd group** — `NEWPGRP` makes a new process group but does
+not fork the fd group — so each surviving helper keeps a live reference to the fd
+group that holds the `/chan/wmctl` connection. The wm only reaps a client's
+window when that connection fd drops to zero references, so on exit charon must
+kill **every** helper group, not just the current one, or the window stays
+painted after `exit`.
+
+`finish()` therefore, before killing its own `pgrp`:
+- reaps **all** tracked worker groups (`gopgrps`, the full list — not only the
+  latest `gopgrp`, which would leak race- or subframe-spawned groups), and
+- calls `CU->reapcookies()`, which kills the cookie server **only if this charon
+  started it** (`ownck`). A child charon launched via `startcharon()` shares the
+  parent's cookie server (`Client` passed in) and must not kill it.
+
+The cookie server reports its pid (== its process group) back through
+`Cookiesrv->start()`, stored on `Client.pid`, so it can be reaped. Killing a
+dead group or one's own group is a harmless no-op, so reaping order is safe.
+
 ### Mouse handling detail
 
 `mainwinmouse` calls `top.find(p, nil)` which returns a `Loc` — a path from the top frame down to the innermost element at pixel `p`. The `Locelem` kind determines action:

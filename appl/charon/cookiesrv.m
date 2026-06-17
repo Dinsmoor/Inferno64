@@ -3,6 +3,7 @@ Cookiesrv: module {
 
 	Client: adt {
 		fd: ref Sys->FD;
+		pid: int;	# pid (== process group) of the server proc, for reaping on exit
 		set: fn(c: self ref Client,host, path, cookie: string);
 		getcookies: fn(c: self ref Client, host, path: string, secure, fromjs: int): string;
 	};

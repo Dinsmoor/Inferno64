@@ -87,11 +87,13 @@ start(path: string, saveinterval: int): ref Client
 		expire();
 	}
 	fdc := chan of ref Sys->FD;
-	spawn server(fdc, saveinterval);
+	pidc := chan of int;
+	spawn server(fdc, pidc, saveinterval);
+	srvpid := <- pidc;
 	fd := <- fdc;
 	if (fd == nil)
 		return nil;
-	return ref Client(fd);
+	return ref Client(fd, srvpid);
 }
 
 addcookie(ck: ref Cookie, domlist: ref Cookielist)
@@ -243,9 +245,10 @@ getdoms(dl: list of ref Domain, lhs, rhs: string): list of ref Domain
 	return nil;
 }
 
-server(fdc: chan of ref Sys->FD, saveinterval: int)
+server(fdc: chan of ref Sys->FD, pidc: chan of int, saveinterval: int)
 {
 	sys->pctl(Sys->NEWPGRP|Sys->FORKNS, nil);
+	pidc <-= sys->pctl(0, nil);	# report pid/group so charon can reap us on exit
 	sys->bind("#s", "/chan", Sys->MBEFORE);
 	fio := sys->file2chan("/chan", "ctl");
 	if (fio == nil) {

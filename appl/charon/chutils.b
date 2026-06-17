@@ -52,6 +52,7 @@ schemes := array [] of {
 };
 
 ngchan : chan of (int, list of ref ByteSource, ref Netconn, chan of ref ByteSource);
+ownck := 0;	# 1 if THIS charon started the cookie server (so finish() may reap it)
 
 # must track HTTP methods in chutils.m
 # (upper-case, since that's required in HTTP requests)
@@ -304,8 +305,10 @@ init(ch: Charon, c: CharonUtils, argl: list of string, evc: chan of ref E->Event
 			CK = load Cookiesrv path;
 			if (CK == nil)
 				sys->print("cookies: cannot load server %s: %r\n", path);
-			else
+			else {
 				ckclient = CK->start(config.userdir + "/cookies", 0);
+				ownck = 1;
+			}
 		}
 	}
 
@@ -377,6 +380,16 @@ freebs(bs: ref ByteSource)
 	anschan := chan of ref ByteSource;
 	ngchan <-= (NGfreebs, bs::nil, nil, anschan);
 	<-anschan;
+}
+
+# Reap the cookie server, but only if THIS charon started it (a child charon
+# launched via startcharon() shares the parent's server and must not kill it).
+# The cookie server shares charon's fd group, so leaving it alive keeps the wm
+# connection fd referenced and the window painted after exit.
+reapcookies()
+{
+	if(ownck && ckclient != nil && ckclient.pid != 0)
+		kill(ckclient.pid, 1);
 }
 
 abortgo(gopgrp: int)

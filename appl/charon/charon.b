@@ -109,6 +109,7 @@ SP2 : con 4;			# half of SP
 SP3 : con 2;
 pgrp := 0;
 gopgrp := 0;
+gopgrps: list of int;	# every live go() worker group, so finish() reaps them all
 dbg := 0;
 warn := 0;
 dbgres := 0;
@@ -712,6 +713,7 @@ fileexist(file: string) :int
 go(g: ref GoSpec)
 {
 	gopgrp = sys->pctl(sys->NEWPGRP, nil);
+	gopgrps = gopgrp :: gopgrps;
 	spawn goproc(g);
 
 	# got to make netget the thread with the gopgrp thread,
@@ -2151,9 +2153,13 @@ startcharon(url: string, c: chan of string)
 finish()
 {
 	if (CU != nil) {
+		# Reap every helper group that shares our fd group BEFORE killing our
+		# own group, so the wm-connection fd really drops to zero references
+		# and wm reaps the window. (Killing a dead/own group is a harmless no-op.)
+		for(l := gopgrps; l != nil; l = tl l)
+			CU->kill(hd l, 1);
+		CU->reapcookies();
 		CU->kill(pgrp, 1);
-		if(gopgrp != 0)
-			CU->kill(gopgrp, 1);
 	}
 	if(plumb != nil)
 		plumb->shutdown();
@@ -2203,6 +2209,12 @@ stop()
 	G->progress <-= (-1, G->Paborted, 0, stopped);
 	G->setstatus(stopped);
 	CU->abortgo(gopgrp);
+	# abortgo killed this group; drop it from the live set
+	ng: list of int;
+	for(l := gopgrps; l != nil; l = tl l)
+		if(hd l != gopgrp)
+			ng = hd l :: ng;
+	gopgrps = ng;
 }
 
 gettop(): ref Layout->Frame

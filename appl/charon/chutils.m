@@ -355,6 +355,7 @@ CharonUtils: module
 	waitreq: fn(bsl : list of ref ByteSource) : ref ByteSource;
 	freebs: fn(bs: ref ByteSource);
 	abortgo: fn(gopgrp: int);
+	reapcookies: fn();
 	netget: fn();
 
 	# Miscellaneous utility functions
