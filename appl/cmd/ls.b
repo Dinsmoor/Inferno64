@@ -46,6 +46,7 @@ sortby:	int;
 
 out: ref Bufio->Iobuf;
 stderr: ref FD;
+colorize := 0;
 
 delaydir: array of ref Dir;
 delayindex: int;
@@ -71,6 +72,12 @@ init(nil: ref Context, argv: list of string)
 
 	stderr = sys->fildes(2);
 	out = bufio->fopen(sys->fildes(1), Bufio->OWRITE);
+	# colourise by file type only when writing to a real ANSI terminal:
+	# stdout is a console (so pipes/files stay plain, the --color=auto rule)
+	# AND $noreadline is unset.  Dumb consoles that cannot render escapes
+	# (notably the wm/sh Tk window) set $noreadline, the same flag the shell's
+	# line editor honours.
+	colorize = isconsole(sys->fildes(1)) && !envset("noreadline");
 	rev := 0;
 	sortby = Readdir->NAME;
 	compact := 0;
@@ -277,6 +284,7 @@ lslineprint(dirname, name: string, dir: ref Dir, w: ref Widths)
 	if(Fopt)
 		file += fileflag(dir);
 
+	file = colourname(dir.mode, file);
 
 	if(lopt) {
 		time := dir.mtime;
@@ -294,6 +302,37 @@ lslineprint(dirname, name: string, dir: ref Dir, w: ref Widths)
 				daytime->filet(now, time), file));
 	} else
 		out.puts(file+"\n");
+}
+
+# SGR colours: directories cyan, executables green; everything else plain.
+DIRCOLOUR:	con "[36m";
+EXECCOLOUR:	con "[1;32m";
+COLOURRESET:	con "[0m";
+
+colourname(mode: int, s: string): string
+{
+	if(!colorize)
+		return s;
+	if(mode & Sys->DMDIR)
+		return DIRCOLOUR + s + COLOURRESET;
+	if(mode & 8r111)
+		return EXECCOLOUR + s + COLOURRESET;
+	return s;
+}
+
+isconsole(fd: ref FD): int
+{
+	(ok1, d1) := sys->fstat(fd);
+	(ok2, d2) := sys->stat("/dev/cons");
+	if(ok1 < 0 || ok2 < 0)
+		return 0;
+	return d1.dtype == d2.dtype && d1.qid.path == d2.qid.path;
+}
+
+envset(name: string): int
+{
+	fd := sys->open("/env/" + name, Sys->OREAD);
+	return fd != nil;
 }
 
 fileflag(dir: ref Dir): string

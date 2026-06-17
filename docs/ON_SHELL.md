@@ -172,11 +172,28 @@ stdin is a real console (`setupreadline`).
   `/tmp/lib/sh_history`), bounded to `histmax` 200 entries; `loadhist` on start,
   `addhist`/`savehist` as you go.
 - **Prompt**: the shell sets `lex.prompt1` from `$prompt` and lets the editor draw it;
-  it only echoes the prompt itself when reading a cooked (non-editor) console.
+  it only echoes the prompt itself when reading a cooked (non-editor) console. The
+  primary prompt is expanded each command (`expandprompt`): **`\w`** is replaced with
+  the current working directory and **`\u`** with the user name, so `prompt=('\w% ' '')`
+  tracks the directory you `cd` into. Prompts with no escape are passed through
+  unchanged. The desktop sets this by default (`lib/wmsetup`). When the line editor is
+  attached (a real ANSI terminal), the `\w` path is shown in cyan and `\u` in green;
+  on a cooked console (e.g. `wm/sh`) the substitutions are plain, so no escape codes
+  leak to a terminal that can't render them.
 - **Opting out**: set `$noreadline` to disable the editor. The Tk shell window
   (`wm/sh`) does its own editing and sets this so `sh` doesn't spray escape sequences
   at it. The editor also declines gracefully (returns nil from `open`, falling back to
   cooked reads) on pipes, scripts, and consoles it can't drive in raw mode.
+- **Colourised `ls`** (`appl/cmd/ls.b`): directories show in cyan and executables in
+  green, but only when stdout is a console **and** `$noreadline` is unset — the same
+  "real ANSI terminal" gate the prompt colours use. Pipes, files, and dumb consoles
+  (`wm/sh`) get plain output, the `ls --color=auto` convention.
+- **The Tk shell window** (`wm/sh`) re-implements history (Up/Down, `C-p`/`C-n`) and
+  Tab completion in Limbo against the Text widget. Tab completes the current word to
+  the longest common prefix; when the prefix is already complete but ambiguous, a
+  **second Tab lists the candidates** on their own line and re-draws the prompt and
+  in-progress input below them (`showcompletions`). The expanded `$prompt` (so the
+  `\w` directory) shows here too, since the inner `sh` is the same binary.
 
 ---
 

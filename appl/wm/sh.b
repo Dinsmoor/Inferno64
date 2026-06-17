@@ -118,6 +118,7 @@ history: array of string;
 nhistory := 0;
 histpos := 0;		# == nhistory means "the live, not-yet-recalled line"
 histsave := "";		# live line stashed while browsing history
+tabcount := 0;		# consecutive Tab presses (a second one lists matches)
 
 events: list of string;
 evrdreq: list of Rdreq;
@@ -309,6 +310,9 @@ main(ctxt: ref Draw->Context, argv: list of string)
 				break;
 			}
 		}
+		# any key but Tab clears the double-Tab "list matches" state
+		oldtab := tabcount;
+		tabcount = 0;
 		case char {
 		* =>
 			cmd(t, ".ft.t insert insert "+c);
@@ -329,7 +333,8 @@ main(ctxt: ref Draw->Context, argv: list of string)
 		HISTNEXT =>
 			histmove(t, "down");
 		COMPLETE =>
-			completeline(t);
+			tabcount = oldtab + 1;
+			completeline(t, tabcount);
 		ESC =>
 			setholding(t, !holding);
 		}
@@ -991,20 +996,45 @@ histmove(t: ref Tk->Toplevel, dir: string)
 	setinputline(t, txt);
 }
 
-completeline(t: ref Tk->Toplevel)
+completeline(t: ref Tk->Toplevel, tabs: int)
 {
 	if(rawon)
 		return;
 	line := tk->cmd(t, ".ft.t get outpoint insert");
-	(nl, ok) := completetail(line);
-	if(!ok)
-		return;
-	cmd(t, ".ft.t delete outpoint insert");
-	cmd(t, ".ft.t insert insert '" + nl);
+	(nl, status, matches) := completetail(line);
+	case status {
+	1 =>		# replaced (unique match or extended common prefix)
+		cmd(t, ".ft.t delete outpoint insert");
+		cmd(t, ".ft.t insert insert '" + nl);
+		cmd(t, ".ft.t see insert; update");
+	2 =>		# ambiguous: a second Tab lists the candidates
+		if(tabs >= 2)
+			showcompletions(t, matches);
+	}
+}
+
+# List the candidate completions on their own line and re-draw the prompt and
+# the in-progress input below them, mimicking a shell's double-Tab behaviour.
+showcompletions(t: ref Tk->Toplevel, m: array of string)
+{
+	cur := tk->cmd(t, ".ft.t get outpoint insert");
+	prompt := tk->cmd(t, ".ft.t get {outpoint linestart} outpoint");
+	lst := "";
+	for(i := 0; i < len m; i++){
+		if(i > 0)
+			lst += "  ";
+		lst += m[i];
+	}
+	cmd(t, ".ft.t mark set insert end");
+	cmd(t, ".ft.t insert insert '" + "\n" + lst + "\n" + prompt);
+	cmd(t, ".ft.t mark set outpoint insert");
+	cmd(t, ".ft.t insert insert '" + cur);
 	cmd(t, ".ft.t see insert; update");
 }
 
-completetail(line: string): (string, int)
+# Returns (replacement-line, status, matches).  status: 0 = no match,
+# 1 = replaced (matches nil), 2 = ambiguous (matches holds the candidates).
+completetail(line: string): (string, int, array of string)
 {
 	i := len line;
 	while(i > 0 && !iswhite(line[i-1]))
@@ -1023,7 +1053,7 @@ completetail(line: string): (string, int)
 	if(cmdpos && nopathq(tok))
 		m = concatarr(m, listdir("/dis/", base));
 	if(len m == 0)
-		return (line, 0);
+		return (line, 0, nil);
 
 	repl: string;
 	if(len m == 1){
@@ -1035,10 +1065,10 @@ completetail(line: string): (string, int)
 		if(len common > len base)
 			repl = common;
 		else
-			return (line, 0);
+			return (line, 2, m);	# nothing more to add in common: list them
 	}
 	pre := tok[0:len tok - len base];
-	return (line[0:i] + pre + repl, 1);
+	return (line[0:i] + pre + repl, 1, nil);
 }
 
 nopathq(s: string): int

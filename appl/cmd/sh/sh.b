@@ -322,11 +322,15 @@ runfile(ctxt: ref Context, fd: ref Sys->FD, path: string, args: list of ref List
 				if (tl prompt == nil) {
 					prompt = hd prompt :: "" :: nil;
 				}
-				lex.prompt1 = hd prompt;
+				# colour the prompt's \w/\u only on a real ANSI
+				# terminal (the line editor is attached); a plain
+				# cooked console gets the codes stripped.
+				p1 := expandprompt(hd prompt, lex.rl != nil);
+				lex.prompt1 = p1;
 				# the editor draws its own prompt; only echo it
 				# ourselves when reading a cooked (non-editor) console.
 				if (lex.rl == nil)
-					sys->fprint(stderr(), "%s", hd prompt);
+					sys->fprint(stderr(), "%s", p1);
 			}
 			(n, err) := doparse(lex, hd tl prompt, !interactive);
 			if (err != nil) {
@@ -357,6 +361,57 @@ runfile(ctxt: ref Context, fd: ref Sys->FD, path: string, args: list of ref List
 		ctxt.pop();
 		raise;
 	}
+}
+
+# Expand prompt escapes.  Recognised: \w -> current working directory,
+# \u -> user name.  Other text is returned unchanged, so prompts without an
+# escape are untouched.  When `ansi` is set (a real terminal with the line
+# editor) the expansions are wrapped in SGR colour; otherwise they are plain.
+expandprompt(s: string, ansi: int): string
+{
+	for (i := 0; i < len s - 1; i++)
+		if (s[i] == '\\')
+			case s[i+1] {
+			'w' =>
+				return s[0:i] + promptcolour(promptcwd(), CWDCOLOUR, ansi) + expandprompt(s[i+2:], ansi);
+			'u' =>
+				return s[0:i] + promptcolour(promptuser(), USERCOLOUR, ansi) + expandprompt(s[i+2:], ansi);
+			}
+	return s;
+}
+
+CWDCOLOUR:	con "[36m";	# cyan path
+USERCOLOUR:	con "[32m";	# green user
+COLOURRESET:	con "[0m";
+
+promptcolour(s, colour: string, ansi: int): string
+{
+	if (!ansi || s == nil)
+		return s;
+	return colour + s + COLOURRESET;
+}
+
+promptcwd(): string
+{
+	fd := sys->open(".", Sys->OREAD);
+	if (fd == nil)
+		return "?";
+	d := sys->fd2path(fd);
+	if (d == nil)
+		return "?";
+	return d;
+}
+
+promptuser(): string
+{
+	fd := sys->open("/dev/user", Sys->OREAD);
+	if (fd == nil)
+		return "?";
+	buf := array[128] of byte;
+	n := sys->read(fd, buf, len buf);
+	if (n <= 0)
+		return "?";
+	return string buf[0:n];
 }
 
 nonexistent(e: string): int

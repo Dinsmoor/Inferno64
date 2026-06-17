@@ -1,7 +1,7 @@
 # /dis/sh script
 # wm defines "menu" and "delmenu" builtins
 load std
-prompt='% ' ''
+prompt='\w% ' ''
 fn % {$*}
 autoload=std
 home=/usr/^"{cat /dev/user}
