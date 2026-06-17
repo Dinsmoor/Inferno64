@@ -41,9 +41,23 @@ pointer here.
       at creation and `theme reapply` does not repaint it; fixed client-side by
       forcing `.c configure -bg` + `itemconfigure` + `update` on the theme push
       (`wm/ftree`, `wm/memory`). See `ON_THEMING.md` "Canvas caveat".
-- [ ] **Charon: pass the desktop theme to web pages** (idea, unstarted) — expose
-      the live palette/dark-mode to CSS (`prefers-color-scheme`) with an override,
-      so sites render in the user's theme. The big one; touches the CSS engine.
+- [ ] **Charon: pass the desktop theme to web pages** (in progress, uncommitted) —
+      expose the live palette/dark-mode to CSS (`prefers-color-scheme`) with an
+      override, so sites render in the user's theme. Built in the working tree:
+      (1) media *queries* (not just types) in the W3C parser (`appl/lib/w3c/css.b`);
+      (2) `prefers-color-scheme` evaluation in `csseng.b` (`setdarkmode` +
+      `querymatch`/`featurematch`); (3) the live flag from the wm theme push
+      (luminance of theme `bg`) + a `colorscheme` config override (auto/light/dark)
+      with a `Theme` toolbar button; (4) theme `bg`/`fg` as the UA *default* page
+      colours (`build.b` `Docinfo.reset`), with the `<body>`-handler **coupling
+      fix** so a page that sets only one of {background, text} reverts the other to
+      its light default (no light-text-on-white). Verified by forced-dark render
+      (white-bg page → black-on-white; unstyled page → light-on-dark). Remaining:
+      commit the cluster; live-DOM repaint on toggle without a reload. `ON_CHARON.md`.
+- [ ] **Power / session menu** (user flagged, queued) — restart wm / exit /
+      shutdown, reachable from both the toolbar and the desktop right-click menu,
+      so reloading the desktop is not a reach for `pkill -x emu`. Lives in
+      `appl/wm/toolbar.b` (toolbar menu) + `appl/wm/wm.b` (desktop menu wiring).
 - [ ] **wm/ftree → proper file manager** (idea) — ftree's canvas treeview is
       ad-hoc; replace with the `Tkwidgets` Tree megawidget (`tk-extensions`) and
       build a real file manager. Larger task, separate from the theming fix above.
@@ -57,22 +71,6 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
 
 ## Parked / deferred
 
-- [x] **Native-kernel scheduler lockloop** — RESOLVED (Job 1, 2026-06-15). The
-      lockloop has one precondition: a synchronous CPU fault (a wild kernel
-      pointer) taken while a spinlock is held — `splhi` does not mask synchronous
-      aborts, so the fault reaches `disfault()`, whose `error()/longjmp` abandons
-      the lock, and the next `lock()` spins. Two things close it: (1) the root
-      cause — Dis-heap corruption from the array-of-channels alt LP64 offset bug —
-      is fixed in `libinterp/alt.c` (`altvaloff`, commit d4b74d3e; see memory
-      `array-alt-lp64-misalign`); (2) the PARANOID `nlocks` guard
-      (`os/aarch64/trap.c:171`, commit c984b1de) makes the precondition a
-      **deterministic panic at the fault site** — a fault with locks held can no
-      longer become a silent lockloop, so a surviving bug announces itself on the
-      first occurrence rather than needing a timing window. ~20 PARANOID
-      full-suite runs (this audit + prior) show zero `nlocks` panics and zero
-      lockloops. Residual `kernel/virt64` flakes are network-layer timing only
-      (the dns/tls crypto-fetch windows, widened in `ktests.py` for the slow
-      TCG+PARANOID path), not kernel faults.
 - [ ] **Remove the `nlocks` fail-fast guard from PARANOID builds** (followup;
       added 2026-06-15) — `os/aarch64/faultarm64` panics on a fault taken with
       spinlocks held (`up->nlocks`), gated behind `#if POOLPARANOID` so
@@ -102,13 +100,6 @@ kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
       `%.8lux (ulong)` — 64-bit addresses truncated in the listing; the wm/deb
       stack parser already tolerates this (tokenised), but widen when the
       `/prog` text format is revisited.
-- [x] **amd64 (x86-64) JIT** — `libinterp/comp-amd64.c` is a working LP64 x86-64
-      JIT (`emu -c1`; `-c0` unaffected), mirroring `comp-aarch64.c`'s width split
-      and punt set. Native SSE2 FP + the integer mul/div/mod group + long/logical
-      shifts are compiled (the fixed-point/`IEXP`/`IADDC` ops still interpret).
-      Bit-identity is gated by the `crossjit` make-check cell (qemu-x86_64 cross).
-      `das-amd64.c` is a real disassembler now (`emu -c5`). Internals + recipe:
-      `ON_JIT.md` §"amd64 (x86-64) JIT Implementation". Nothing outstanding.
 - [ ] **AArch64 JIT** — `libinterp/comp-aarch64.c` is a working but off-by-default
       LP64 JIT (`emu -c1`); remaining ops punted. `ON_JIT.md`,
       `ON_C_IN_DIS.md` §"Stubbed / disabled".
