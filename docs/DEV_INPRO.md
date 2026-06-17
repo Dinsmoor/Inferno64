@@ -41,19 +41,19 @@ pointer here.
       at creation and `theme reapply` does not repaint it; fixed client-side by
       forcing `.c configure -bg` + `itemconfigure` + `update` on the theme push
       (`wm/ftree`, `wm/memory`). See `ON_THEMING.md` "Canvas caveat".
-- [ ] **Charon: pass the desktop theme to web pages** (in progress, uncommitted) —
-      expose the live palette/dark-mode to CSS (`prefers-color-scheme`) with an
-      override, so sites render in the user's theme. Built in the working tree:
-      (1) media *queries* (not just types) in the W3C parser (`appl/lib/w3c/css.b`);
-      (2) `prefers-color-scheme` evaluation in `csseng.b` (`setdarkmode` +
-      `querymatch`/`featurematch`); (3) the live flag from the wm theme push
-      (luminance of theme `bg`) + a `colorscheme` config override (auto/light/dark)
-      with a `Theme` toolbar button; (4) theme `bg`/`fg` as the UA *default* page
-      colours (`build.b` `Docinfo.reset`), with the `<body>`-handler **coupling
-      fix** so a page that sets only one of {background, text} reverts the other to
-      its light default (no light-text-on-white). Verified by forced-dark render
-      (white-bg page → black-on-white; unstyled page → light-on-dark). Remaining:
-      commit the cluster; live-DOM repaint on toggle without a reload. `ON_CHARON.md`.
+- [ ] **Charon: pass the desktop theme to web pages** — mostly DONE (commit
+      `77bf139d`). `prefers-color-scheme` follows the live wm desktop theme with a
+      per-browser override: media *queries* in the W3C parser (`appl/lib/w3c/css.b`);
+      `prefers-color-scheme` evaluation in `csseng.b` (`setdarkmode` +
+      `querymatch`/`featurematch`); the live flag from the wm theme push (luminance
+      of theme `bg`) + a `colorscheme` config override (auto/light/dark) with a
+      `Theme` toolbar button; theme `bg`/`fg` as the UA *default* page colours
+      (`build.b` `Docinfo.reset`), with the `<body>`-handler coupling fix so a page
+      that sets only one of {background, text} reverts the other to its light
+      default (no light-text-on-white). Suite `tests/web/suites/08_media.b`.
+      **Remaining:** repaint on the `Theme` toggle without a reload (live-DOM
+      restyle), and themed form controls (see the Charon form-controls item).
+      `ON_CHARON.md`.
 - [ ] **Power / session menu** (user flagged, queued) — restart wm / exit /
       shutdown, reachable from both the toolbar and the desktop right-click menu,
       so reloading the desktop is not a reach for `pkill -x emu`. Lives in
