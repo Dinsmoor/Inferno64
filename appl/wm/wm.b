@@ -540,12 +540,26 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 			c.ptr <-= ref Pointer(buttons, (int hd tl args, int hd tl tl args), sys->millisec());
 		}
 	"cursor" =>
-		# cursor hotx hoty dx dy data
+		# cursor hotx hoty dx dy data  -- legacy mono cursor from a client.
+		# A bare "cursor" (n==1) means "clear / show my default".
 		if(n != 6 && n != 1)
 			return "bad arg count";
 		c.cursor = req;
-		if(ptrfocus == c || kbdfocus == c)
-			return wmclient->win.wmctl(c.cursor);
+		if(ptrfocus == c || kbdfocus == c || ptrover == c){
+			if(n == 1){
+				# Don't blank the device (that leaves the bare host
+				# cursor showing, e.g. acme whose arrow cursor is nil).
+				# Fall back to the themed default via the theme path.
+				appliedcur = nil;
+				updatecursor(ptrover);
+			}else{
+				# Real mono cursor: forward to the device, but record
+				# that it no longer matches the theme bookkeeping so the
+				# next enter/leave (or clear) restores the default.
+				appliedcur = nil;
+				return wmclient->win.wmctl(c.cursor);
+			}
+		}
 	"cursorfile" =>
 		# cursorfile path  -- the rich (.cur/.ani) cursor shown while the
 		# pointer is over this client's window; "" clears it (use the default).
