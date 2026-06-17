@@ -235,19 +235,82 @@ checkrule(p: ref Cparse): ref Statement.Ruleset
 	return rule;
 }
 
+# Parse a CSS3 media-query list.  Each comma-separated query is returned as one
+# normalised string in the result list, e.g.
+#	@media screen and (prefers-color-scheme: dark), print
+# yields  {"screen and (prefers-color-scheme:dark)", "print"}.
+# A bare media type ("screen") still comes back as a single word, so the legacy
+# media-type consumers keep working; feature expressions are kept as
+# "(feature:value)" atoms for the query evaluator (csseng.b mediascreen).
 medialist(p: ref Cparse): list of string
 {
 	media: list of string;
-	do{
+	atoms: list of string;	# atoms of the current query, reversed
+	for(;;){
 		c := p.get();
-		if(c != IDENT){
-			p.unget(c);
-			p.synerr("missing medium identifier");
-			break;
+		case c {
+		',' =>
+			media = joinwords(rev(atoms)) :: media;
+			atoms = nil;
+		'(' =>
+			# a feature group: accumulate up to the matching ')'
+			grp := "(";
+			for(;;){
+				d := p.get();
+				if(d == ')' || d < 0)
+					break;
+				if(d == '{' || d == ';'){
+					p.unget(d);
+					break;
+				}
+				grp += mqatom(p, d);
+			}
+			grp += ")";
+			atoms = grp :: atoms;
+		IDENT =>
+			atoms = lowercase(p.value) :: atoms;
+		* =>
+			# '{' (@media), ';' (@import) or EOF terminate the list;
+			# anything else stray is ignored tolerantly.
+			if(c == '{' || c == ';' || c < 0){
+				p.unget(c);
+				media = joinwords(rev(atoms)) :: media;
+				return rev(media);
+			}
 		}
-		media = p.value :: media;
-	}while(itisa(p, ','));
-	return rev(media);
+	}
+}
+
+# textual form of one token inside a media feature group
+mqatom(p: ref Cparse, c: int): string
+{
+	case c {
+	IDENT =>
+		return lowercase(p.value);
+	NUMBER =>
+		return p.value;
+	UNIT =>
+		return p.value + p.suffix;
+	PERCENTAGE =>
+		return p.value + p.suffix;
+	STRING =>
+		return p.value;
+	':' or PSEUDO =>
+		return ":";	# ':' lexes as PSEUDO when no space follows
+	* =>
+		return "";
+	}
+}
+
+joinwords(words: list of string): string
+{
+	s := "";
+	for(; words != nil; words = tl words){
+		if(s != "")
+			s += " ";
+		s += hd words;
+	}
+	return s;
 }
 
 itisa(p: ref Cparse, expect: int): int

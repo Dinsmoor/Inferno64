@@ -26,10 +26,11 @@ WINDOW, CTLS, PROG, STATUS, BORDER, EXIT: con 1 << iota;
 REQD: con ~0;
 
 cfg := array[] of {
-	(REQD,	"entry .ctlf.url -bg white -font /fonts/lucidasans/unicode.7.font -height 16"),
+	(REQD,	"entry .ctlf.url -font /fonts/lucidasans/unicode.7.font -height 16"),
 	(REQD,	"button .ctlf.back -bd 1 -command {send gctl back} -state disabled -bitmap @/icons/charon/redleft.bit"),
 	(REQD,	"button .ctlf.stop -bd 1 -command {send gctl stop} -state disabled -bitmap @/icons/charon/stop.bit"),
 	(REQD,	"button .ctlf.fwd -bd 1 -command {send gctl fwd} -state disabled -bitmap @/icons/charon/redright.bit"),
+	(REQD,	"button .ctlf.scheme -bd 1 -command {send gctl scheme} -font /fonts/charon/plain.small.font -text Theme"),
 	(REQD,	"label .status.status -bd 1 -font /fonts/lucidasans/unicode.6.font -height 14 -anchor w"),
 	(REQD,	"button .ctlf.exit -bd 1 -bitmap exit.bit -command {send wm_title exit}"),
 	(REQD,	"frame .f -bd 0"),
@@ -46,6 +47,7 @@ cfg := array[] of {
 #	(PROG,	"canvas .prog -bd 0 -height 20"),
 #	(PROG,	"bind .prog <ButtonPress-1> {send gctl b1p %X %Y}"),
 	(CTLS,	"pack .ctlf.back .ctlf.stop .ctlf.fwd -side left -anchor w -fill y"),
+	(CTLS,	"pack .ctlf.scheme -side left -anchor w -fill y -padx 2"),
 	(CTLS,	"pack .ctlf.url -side left -padx 2 -fill x -expand 1"),
 	(EXIT,	"pack .ctlf.exit -side right -anchor e"),
 	(CTLS|EXIT,	"pack .ctlf -side top -fill x"),
@@ -119,6 +121,7 @@ init(ctxt: ref Draw->Context, cu: CharonUtils): ref Draw->Context
 	tk->cmd(tktop, "pack propagate . 0");
 	filtertkcmds(tktop, winopts, cfg);
 	tkcmds(tktop, framebinds);
+	schemebutton();		# label the scheme toggle with the current override
 	w := (CU->config).defaultwidth;
 	h := (CU->config).defaultheight;
 	tk->cmd(tktop, ". configure -width " + string w + " -height " + string h);
@@ -313,6 +316,19 @@ evhandle(t: ref Tk->Toplevel, wmctl: chan of string, evchan: chan of ref Event)
 			"snarfstatus" =>
 				url := tk->cmd(tktop, ".status.status cget -text");
 				tkclient->snarfput(url);
+			"scheme" =>
+				# cycle the colour-scheme override and reload so the page
+				# follows: auto (desktop) -> dark -> light -> auto
+				case (CU->config).colorscheme {
+				"auto" =>	CU->setcolorscheme("dark");
+				"dark" =>	CU->setcolorscheme("light");
+				* =>		CU->setcolorscheme("auto");
+				}
+				lasteffdark = CU->effectivedark();
+				schemebutton();
+				CU->saveconfig();
+				if(realwin != nil)
+					ev = ref Event.Ego("", nil, 0, E->EGreload);
 			}
 		s := <-t.ctxt.ctl or
 		s = <-t.wreq or
@@ -341,6 +357,12 @@ evhandle(t: ref Tk->Toplevel, wmctl: chan of string, evchan: chan of ref Event)
 						ev = ref Event.Ereshape(mainwin.r);
 					}
 					offset = tk->rect(tktop, ".f", 0).min;
+				}else if(len s >= 5 && s[0:5] == "theme"){
+					# the wm pushed a desktop theme: record it and, if the
+					# effective scheme changed under "auto", reload the page
+					# so the content follows the desktop.
+					if(themepush(s))
+						ev = ref Event.Ego("", nil, 0, E->EGreload);
 				}
 			}
 		s := <-t.ctxt.kbd =>
@@ -386,6 +408,100 @@ s2mtype(s: string): int
 		}
 	}
 	return mtype;
+}
+
+# --- colour-scheme / desktop-theme plumbing ------------------------------
+
+# last effective dark/light state we acted on, so a theme push only reloads
+# the page when the resolved scheme actually flips.  -1 = not yet known.
+lasteffdark := -1;
+
+# parse a "theme set bg #rrggbb fg #rrggbb ..." wm push, record the desktop
+# colours + dark flag in config, and return 1 if the effective scheme changed
+# (under the "auto" override) and a page is up to be reloaded.
+themepush(s: string): int
+{
+	(nil, toks) := sys->tokenize(s, " ");
+	bgs := themeval(toks, "bg");
+	fgs := themeval(toks, "fg");
+	bg := (CU->config).themebg;
+	fg := (CU->config).themefg;
+	dark := (CU->config).desktopdark;
+	if(bgs != ""){
+		bg = rgbof(bgs);
+		dark = islumdark(bg);
+	}
+	if(fgs != "")
+		fg = rgbof(fgs);
+	CU->setdesktoptheme(bg, fg, dark);
+	schemebutton();
+	eff := CU->effectivedark();
+	if(eff == lasteffdark)
+		return 0;
+	lasteffdark = eff;
+	return realwin != nil;
+}
+
+# next whole-word token after `key` in a token list ("" if absent)
+themeval(toks: list of string, key: string): string
+{
+	for(; toks != nil; toks = tl toks)
+		if(hd toks == key && tl toks != nil)
+			return hd tl toks;
+	return "";
+}
+
+# #rrggbb / #rrggbbaa -> 24-bit RGB int (alpha dropped)
+rgbof(s: string): int
+{
+	if(s == "" || s[0] != '#')
+		return CU->White;
+	v := 0;
+	n := 0;
+	for(i := 1; i < len s; i++){
+		d := hexv(s[i]);
+		if(d < 0)
+			break;
+		v = (v << 4) | d;
+		n++;
+	}
+	if(n >= 8)
+		v >>= 8;			# drop the alpha byte
+	return v & 16rFFFFFF;
+}
+
+hexv(c: int): int
+{
+	if(c >= '0' && c <= '9')
+		return c - '0';
+	if(c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if(c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+# perceived-luminance test (Rec. 601 weights), threshold at mid-grey
+islumdark(rgb: int): int
+{
+	r := (rgb >> 16) & 16rFF;
+	g := (rgb >> 8) & 16rFF;
+	b := rgb & 16rFF;
+	return (r*30 + g*59 + b*11) / 100 < 128;
+}
+
+# reflect the current override on the toolbar button label
+schemebutton()
+{
+	if(tktop == nil)
+		return;
+	lbl := "Theme";
+	case (CU->config).colorscheme {
+	"auto" =>	lbl = "Auto";
+	"light" =>	lbl = "Light";
+	"dark" =>	lbl = "Dark";
+	}
+	tk->cmd(tktop, ".ctlf.scheme configure -text " + lbl + ";update");
 }
 
 makewins()

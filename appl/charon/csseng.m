@@ -99,4 +99,9 @@ Csseng: module
 
 	init:	fn();
 	new:	fn(): ref Engine;
+	# Set the effective colour scheme used to evaluate `prefers-color-scheme`
+	# media queries.  dark != 0 means dark mode is in effect (so
+	# `@media (prefers-color-scheme: dark)` blocks apply and `light` ones do
+	# not).  Charon drives this from the live desktop theme + its override.
+	setdarkmode:	fn(dark: int);
 };

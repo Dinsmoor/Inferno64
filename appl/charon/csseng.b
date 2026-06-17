@@ -112,17 +112,101 @@ addstmt(e: ref Engine, st: ref CSS->Statement, origin: int)
 	}
 }
 
-# include a @media block only if it applies to screen rendering
+# effective colour scheme for prefers-color-scheme media queries; set by Charon
+# (build.b) from the live desktop theme + the user's override.  0 = light.
+darkmode := 0;
+
+setdarkmode(dark: int)
+{
+	darkmode = dark;
+}
+
+# include a @media block only if at least one of its comma-separated queries
+# applies to screen rendering in the current colour scheme.  Each query string
+# is the normalised form produced by css.b medialist, e.g.
+# "screen and (prefers-color-scheme:dark)" or "(prefers-color-scheme:dark)".
 mediascreen(media: list of string): int
 {
 	if(media == nil)
 		return 1;
-	for(; media != nil; media = tl media){
-		m := tolower(hd media);
-		if(m == "screen" || m == "all")
+	for(; media != nil; media = tl media)
+		if(querymatch(tolower(hd media)))
 			return 1;
-	}
 	return 0;
+}
+
+# evaluate one normalised media query against screen + the colour scheme.
+querymatch(q: string): int
+{
+	words := splitws(q);
+	if(words == nil)
+		return 1;		# empty media -> applies to all
+	neg := 0;
+	typeok := 1;		# no explicit type -> matches (implicit "all")
+	featok := 1;		# all feature terms must hold
+	for(; words != nil; words = tl words){
+		w := hd words;
+		case w {
+		"not" =>
+			neg = 1;
+		"only" or "and" =>
+			;		# connectors / legacy hide keyword: no-op
+		* =>
+			if(w != nil && w[0] == '('){
+				if(!featurematch(w))
+					featok = 0;
+			}else if(w != "screen" && w != "all")
+				typeok = 0;	# print/handheld/tv/... : not screen
+		}
+	}
+	res := typeok && featok;
+	if(neg)
+		res = !res;
+	return res;
+}
+
+# evaluate one "(feature:value)" media-feature atom.  Only the colour-scheme
+# features are understood; dimensional features (min-width, ...) are future
+# work and, like any unknown feature, do not match (so their blocks are
+# dropped -- the same outcome as before media queries were parsed at all).
+featurematch(f: string): int
+{
+	# strip the surrounding parentheses
+	if(len f >= 1 && f[0] == '(')
+		f = f[1:];
+	if(len f >= 1 && f[len f - 1] == ')')
+		f = f[0:len f - 1];
+	(name, val) := splitcolon(f);
+	case name {
+	"prefers-color-scheme" =>
+		if(val == "dark")
+			return darkmode;
+		if(val == "light" || val == "no-preference")
+			return !darkmode;
+		return 0;
+	* =>
+		return 0;
+	}
+}
+
+# split "name:value" at the first colon; returns lower-cased, trimmed halves.
+splitcolon(s: string): (string, string)
+{
+	for(i := 0; i < len s; i++)
+		if(s[i] == ':')
+			return (tolower(trimws(s[0:i])), tolower(trimws(s[i+1:])));
+	return (tolower(trimws(s)), "");
+}
+
+trimws(s: string): string
+{
+	i := 0;
+	while(i < len s && (s[i] == ' ' || s[i] == '\t'))
+		i++;
+	j := len s;
+	while(j > i && (s[j-1] == ' ' || s[j-1] == '\t'))
+		j--;
+	return s[i:j];
 }
 
 addrules(e: ref Engine, sels: list of CSS->Selector, decls: list of ref CSS->Decl, origin: int)

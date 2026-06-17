@@ -231,6 +231,10 @@ ItemSource.new(bs: ref ByteSource, f: ref Layout->Frame, mtype: int) : ref ItemS
 	cssctx = ref Cssctx(nil, nil, 0, on, di.text, nil);
 	if(on)
 		cssctx.eng = cssengine->new();
+	# feed the effective colour scheme to the cascade so prefers-color-scheme
+	# media queries evaluate against the user's desktop theme / override
+	if(cssengine != nil)
+		cssengine->setdarkmode(CU->effectivedark());
 # sys->print("chset = %s\n", di.chset);
 	chset := CU->getconv(di.chset);
 	if (chset == nil)
@@ -795,8 +799,10 @@ tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token,
 		# <!ELEMENT BODY O O %body.content>
 		LX->Tbody =>
 			pd.ps.skipping = 0;
-			bg := Background(nil, color(aval(tok, LX->Abgcolor), di.background.color));
+			bgstr := aval(tok, LX->Abgcolor);
 			bgurl := aurlval(tok, LX->Abackground, nil, di.base);
+			bg := Background(nil, color(bgstr, di.background.color));
+			bgset := bgstr != "" || bgurl != nil;	# page asserts its own bg
 			if(bgurl != nil) {
 				pick ni := Item.newimage(di, bgurl, nil,"", Anone, 0, 0, 0, 0, 0, 0, 1, nil, nil, nil){
 				Iimage =>
@@ -806,7 +812,9 @@ tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token,
 			}
 			di.background = pd.ps.curbg = bg;
 			pd.ps.curbg.image = nil;
-			di.text = color(aval(tok, LX->Atext), di.text);
+			txtstr := aval(tok, LX->Atext);
+			textset := txtstr != "";		# page asserts its own text colour
+			di.text = color(txtstr, di.text);
 			di.link = color(aval(tok, LX->Alink), di.link);
 			di.vlink = color(aval(tok, LX->Avlink), di.vlink);
 			di.alink = color(aval(tok, LX->Aalink), di.alink);
@@ -814,10 +822,26 @@ tagdispatch(is: ref ItemSource, di: ref Docinfo, pd: ref Pdrive, tok: ref Token,
 			# (cssenter pushed this <body>'s frame just before this handler)
 			if(cssctx.on && cssctx.stk != nil) {
 				bfr := hd cssctx.stk;
-				if(bfr.ovbg >= 0)
+				if(bfr.ovbg >= 0) {
 					di.background = pd.ps.curbg = Background(nil, bfr.ovbg);
-				if(bfr.ovfg >= 0)
+					bgset = 1;
+				}
+				if(bfr.ovfg >= 0) {
 					di.text = bfr.ovfg;
+					textset = 1;
+				}
+			}
+			# A page that colours its own <body> has opted out of the UA dark
+			# default.  If it set only one of {background, text}, the other is
+			# still the dark default and would clash (e.g. light text on a page
+			# that declares a white background).  Revert the unset member to the
+			# light UA default so the page stays coherent and readable.  Pages
+			# that set both, or neither (full dark default), are left untouched.
+			if(CU->effectivedark() && (bgset ^ textset)) {
+				if(bgset && !textset)
+					di.text = CU->Black;
+				else
+					di.background = pd.ps.curbg = Background(nil, CU->White);
 			}
 			if(doscripts) {
 				ga := getgenattr(tok);
@@ -3876,8 +3900,23 @@ Docinfo.reset(d: self ref Docinfo)
 	d.referrer = nil;
 	d.doctitle = "";
 	d.backgrounditem = nil;
-	d.background = (nil, CU->White);
-	d.text = CU->Black;
+	# Default page colours.  In dark mode (the desktop theme, or the user's
+	# `colorscheme` override) seed the page background/text from the desktop
+	# theme so even sites that set no colours of their own render themed; a
+	# site that *does* declare its own body background/color overrides this in
+	# the <body> handler (the "this page needs light" opt-out).
+	if(CU->effectivedark()) {
+		if((CU->config).desktopdark) {
+			d.background = (nil, (CU->config).themebg);
+			d.text = (CU->config).themefg;
+		} else {
+			d.background = (nil, CU->Darkbg);
+			d.text = CU->Darkfg;
+		}
+	} else {
+		d.background = (nil, CU->White);
+		d.text = CU->Black;
+	}
 	d.link = CU->Blue;
 	d.vlink = CU->Blue;
 	d.alink = CU->Blue;

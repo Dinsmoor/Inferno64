@@ -59,6 +59,10 @@ CharonUtils: module
 	Red: con 16rFF0000;
 	Green: con 16r00FF00;
 	DarkRed: con 16r9d0000;
+	# fallback page colours for forced dark mode when the desktop theme itself
+	# is light (colorscheme=dark with a light desktop)
+	Darkbg: con 16r1E1E1E;
+	Darkfg: con 16rD6D6D6;
 
 	# Header major status values (code/100)
 	HSNone, HSInformation, HSOk, HSRedirect, HSError, HSServererr : con iota;
@@ -165,6 +169,10 @@ CharonUtils: module
 		charset: string;			# default character set
 		plumbport: string;		# from/to plumbing port name (default = "web")
 		wintitle: string;
+		colorscheme: string;		# "auto" (follow desktop) | "light" | "dark"
+		desktopdark: int;		# 1 if the live desktop theme is dark
+		themebg: int;			# desktop theme background (24-bit RGB)
+		themefg: int;			# desktop theme foreground (24-bit RGB)
 		dbgfile:		string;	# file to write debug messages to
 		dbg:		array of byte;	# ascii letters for different debugging kinds
 	};
@@ -354,6 +362,14 @@ CharonUtils: module
 	getline: fn(fd: ref Sys->FD, buf: array of byte, bstart, bend: int) :
 		(array of byte, int, int, int);
 	saveconfig: fn() : int;
+	# resolved dark/light decision: the `colorscheme` override if set to
+	# light/dark, otherwise the live desktop theme (`desktopdark`).
+	effectivedark: fn(): int;
+	# set the user override ("auto"|"light"|"dark")
+	setcolorscheme: fn(s: string);
+	# record the live desktop theme (24-bit RGB bg/fg + dark flag) from the
+	# wm theme push
+	setdesktoptheme: fn(bg, fg, dark: int);
 	strlookup: fn(a: array of string, s: string) : int;
 	realloc: fn(a: array of byte, incr: int) : array of byte;
 	hcphrase: fn(code: int) : string;

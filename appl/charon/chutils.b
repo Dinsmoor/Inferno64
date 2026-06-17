@@ -1650,6 +1650,10 @@ setconfig(argl: list of string)
 	config.charset = "utf-8";	# HTML5 default for documents with no charset declaration
 	config.plumbport = "web";
 	config.wintitle = "Charon";	# tkclient->titlebar() title, used by GUI
+	config.colorscheme = "auto";	# follow the desktop theme unless overridden
+	config.desktopdark = 0;
+	config.themebg = White;
+	config.themefg = Black;
 	config.dbgfile = "";
 	config.dbg = array[128] of { * => byte 0 };
 	
@@ -1838,6 +1842,13 @@ setopt(key: string, val: string) : int
 		config.plumbport = val;
 	"wintitle" =>
 		config.wintitle = val;
+	"colorscheme" =>
+		case val {
+		"auto" or "light" or "dark" =>
+			config.colorscheme = val;
+		* =>
+			ok = 0;
+		}
 	"dbgfile" =>
 		config.dbgfile = val;
 	"dbg" =>
@@ -1913,6 +1924,7 @@ saveconfig(): int
 	nbyte = savealine(fd, buf, "agentname=" + string config.agentname + "\n", nbyte);
 	nbyte = savealine(fd, buf, "nthreads=" + string config.nthreads + "\n", nbyte);
 	nbyte = savealine(fd, buf, "charset=" + config.charset + "\n", nbyte);
+	nbyte = savealine(fd, buf, "colorscheme=" + config.colorscheme + "\n", nbyte);
 	#for(i := 0; i < len config.dbg; i++)
 		#nbyte = savealine(fd, buf, "dbg=" + string config.dbg[i] + "\n", nbyte);
 
@@ -1920,6 +1932,30 @@ saveconfig(): int
 		sys->write(fd, buf, nbyte);
 
 	return 0; 
+}
+
+effectivedark(): int
+{
+	case config.colorscheme {
+	"light" =>
+		return 0;
+	"dark" =>
+		return 1;
+	* =>
+		return config.desktopdark;	# "auto": follow the desktop theme
+	}
+}
+
+setcolorscheme(s: string)
+{
+	config.colorscheme = s;
+}
+
+setdesktoptheme(bg, fg, dark: int)
+{
+	config.themebg = bg;
+	config.themefg = fg;
+	config.desktopdark = dark;
 }
 
 savealine(fd: ref Sys->FD, buf: array of byte, s: string, n: int): int
