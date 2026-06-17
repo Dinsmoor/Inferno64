@@ -109,6 +109,21 @@ triggers a one-shot dump.
 > a *broken* proc you can reach; these hooks are for faults/hangs that kill or
 > freeze the system before you can `cat /prog/*/status`.
 
+### `EMUNILTRACE=1` — locate every nil-deref (the `~0`/tiny-address class)
+
+A nil dereference (`si_addr == ~0` or `< 512`) is normally turned straight into
+the `exNilref` Limbo exception, which a program can catch and continue —
+silently. That is correct for an app's own `nil` bug, but it also swallows the
+*all-ones / tiny-address* deref class (a `-1` sentinel, a freed-memory pattern,
+or an LP64-truncated pointer whose surviving bits land under 512), which is a
+corruption signature, not an app bug. `EMUNILTRACE=1` prints
+`NILREF: addr=<x>` plus an async-signal-safe Dis backtrace (top frame = the Dis
+op that derefed nil) **before** raising the exception, so the class announces its
+exact Dis module/pc/op instead of vanishing. It is the nil-deref counterpart to
+`EMUCRASH` (which handles genuine wild addresses); off by default, zero cost
+unless set. The exception is still raised afterwards, so program behaviour is
+unchanged — this only adds the trace.
+
 ### `LIMBRULFENCEMEMSIZE=<blocksize>` — electric-fence one pool size class (catch the *writer*)
 
 The killer tool for heap corruption where **victim ≠ culprit** — a stray/wild/

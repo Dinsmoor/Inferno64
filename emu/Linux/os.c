@@ -86,6 +86,7 @@ static struct 	termios tinit;
 
 int	faultcrash;		/* EMUCRASH: wild-address fault -> dump + core */
 int	faultmonsec;		/* EMUWATCHDOG: hang threshold (s), 0 disables */
+int	niltrace;		/* EMUNILTRACE: dump Dis backtrace on every nil-deref */
 
 static int faultnullfd = -1;	/* writable /dev/null, for faultprobe() */
 static int hanglogfd = -1;	/* EMUHANGLOG: durable host-side copy of dumps */
@@ -468,6 +469,10 @@ faultmoninit(void)
 	if(e != nil)
 		faultmonsec = atoi(e);
 
+	e = getenv("EMUNILTRACE");	/* dump faulting Dis module/pc/op on every nil-deref */
+	if(e != nil)
+		niltrace = atoi(e);
+
 	e = getenv("EMUPOOLCHECK");	/* free-tree audit cadence (GCs); 0 disables */
 	if(e != nil)
 		poolcheckfreq = atoi(e);
@@ -542,8 +547,15 @@ static void
 trapmemref(int signo, siginfo_t *si, void *a)
 {
 	USED(a);	/* ucontext_t*, could fetch pc in machine-dependent way */
-	if(isnilref(si))
+	if(isnilref(si)){
+		if(niltrace){
+			aws("\nNILREF: addr=");
+			awx((uvlong)(uintptr_t)(si ? si->si_addr : nil));
+			aws("\n");
+			disbacktrace(&R);	/* top frame = the Dis op that derefed nil */
+		}
 		disfault(nil, exNilref);	/* ordinary Limbo nil deref: stays an exception */
+	}
 	else if(signo == SIGBUS){
 		if(faultcrash)
 			syscrash(signo, "bad address addr=", si->si_addr);
