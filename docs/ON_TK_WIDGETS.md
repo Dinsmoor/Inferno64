@@ -234,3 +234,4 @@ dependency line on `module/tkwidgets.m`.
 | `docs/DEV_TK_EXTENSIONS.md` | running log of remaining Tk gaps |
 | `docs/ON_GRAPHICS.md` | Draw/Tk/Prefab overview and the tkclient app skeleton |
 | `libtk/grids.c` | the `grid` geometry manager these widgets rely on |
+| `docs/ON_TERM.md` | the `Term` VT100/ANSI terminal widget — same contract, its own module (`module/term.m`) since it is a full subsystem, not a Tk composite |

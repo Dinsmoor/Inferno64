@@ -130,6 +130,7 @@ TARG=\
 	styxservers.dis\
 	tables.dis\
 	tabs.dis\
+	term.dis\
 	tftp.dis\
 	timers.dis\
 	tcl_utils.dis\
@@ -258,3 +259,4 @@ dial.dis:	$ROOT/module/dial.m
 styxflush.dis:	$ROOT/module/styxflush.m
 msgio.dis:	$ROOT/module/msgio.m
 tkwidgets.dis:	$ROOT/module/tkwidgets.m $ROOT/module/tk.m
+term.dis:	$ROOT/module/term.m $ROOT/module/tk.m
