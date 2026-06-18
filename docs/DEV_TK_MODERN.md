@@ -640,28 +640,49 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   `-troughcolor`/`-background` fills branched on `tks->ttk`). Adds
   `state`/`instate`/`style` via the same engine helpers. Variable binding
   (`-variable`) is deferred to a later pass.
-- **Not yet: `ttk::notebook`, `ttk::treeview`, `ttk::combobox`,
-  `ttk::panedwindow`, `ttk::spinbox`** and the megawidget shims (§4). These are
-  the bulk of the remaining work.
+- `ttk::notebook` (in `ttknb.c`, a fresh file — class `TNotebook`): a tabbed
+  container, the first ttk **container** widget. Panes are ordinary widgets
+  created as children of the notebook and handed over with `<nb> add <pane>`;
+  only the selected pane is shown. Crucially the panes are **not** pack/place
+  managed — the notebook owns their geometry via the embedded-window /
+  **parent-link** model used by `canvas`/`text` (`pane->parent = nb`, with the
+  per-instance `geom`/`destroyed` callbacks and the `relpos`/`inwindow`/
+  `dirtychild` TkMethod hooks routing geometry, events and repaint). This avoids
+  the packer and the notebook fighting over pane geometry. Subcommands:
+  `add`/`forget`/`select`/`index`/`tabs`/`tab`(`-text`/`-state` get/set)/
+  `instate`/`state`/`style`/`identify`/`cget`/`configure`; a `Button1P` binding
+  hit-tests the tab row and selects (skipping disabled tabs). `ttkdrawnb` paints
+  the tab row + content border box through the engine and draws the selected
+  pane via `tkdrawslaves`. One additive engine change was required:
+  `tkimageof` (windw.c) gained a `TKttknotebook` case so a pane resolves to the
+  enclosing window image (it `continue`s up the master chain rather than
+  `abort`ing). Verified rendering + live tab-switching under `wm/wm`.
+- **Not yet: `ttk::treeview`, `ttk::combobox`, `ttk::panedwindow`,
+  `ttk::spinbox`** and the megawidget shims (§4). `ttk::panedwindow` will reuse
+  the same parent-link container pattern just proven by the notebook.
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
 
 **Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
-gallery app proving the set (now including a `ttk::entry`) renders end-to-end
-under `wm/wm`. The ~20-app migration in §11 is the remaining effort and is gated
-on `ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on
-trees, tabs and comboboxes. Migration order and the golden baselines are in §11;
-a pixel change in a *classic* widget remains a regression by definition.
+gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
+progressbar, a `ttk::sizegrip`, and a three-page `ttk::notebook`) renders
+end-to-end under `wm/wm`. The ~20-app migration in §11 is the remaining effort
+and is now gated only on `ttk::treeview`/`ttk::combobox` (the notebook is done),
+since those apps lean on trees and comboboxes. Migration order and the golden
+baselines are in §11; a pixel change in a *classic* widget remains a regression
+by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (62/62) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (76/76) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
 `readonly`/`disabled` state gating), `ttk::scrollbar` (class, `set`/`get`
-through the shared core, `-style`, `disabled` state), and `ttk::scale`
-(class, `-value`/`set`/`get`, `-style`, `disabled` state).
+through the shared core, `-style`, `disabled` state), `ttk::scale`
+(class, `-value`/`set`/`get`, `-style`, `disabled` state), `ttk::sizegrip`, and
+`ttk::notebook` (class, `tabs`/`index`/`select` by path and index, auto-select,
+`tab -text` get/set, disabled-tab skipping, `forget`, `-style`, `state`).
 
-**Next session, in order:** `ttk::notebook` → `ttk::combobox` → `ttk::treeview`
-→ `ttk::panedwindow`/`ttk::spinbox` → megawidget shims → migrate apps from §11
+**Next session, in order:** `ttk::combobox` → `ttk::treeview` →
+`ttk::panedwindow`/`ttk::spinbox` → megawidget shims → migrate apps from §11
 top-down, diffing classic regions each time.

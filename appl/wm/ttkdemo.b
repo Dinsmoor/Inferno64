@@ -69,7 +69,24 @@ cfg := array[] of {
 	"ttk::button .lf.halt -text {Stop} -command {.lf.p2 stop}",
 	"pack .lf.p1 .lf.sc .lf.p2 .lf.go .lf.halt -padx 6 -pady 3 -fill x",
 
-	"pack .classic .modern .lf -side left -padx 8 -pady 8 -anchor n",
+	# a notebook with three pages, each an embedded ttk::frame
+	"ttk::notebook .nb",
+	"ttk::frame .nb.f1",
+	"ttk::label .nb.f1.l -text {First page content}",
+	"ttk::checkbutton .nb.f1.c -text {a check on page one}",
+	"pack .nb.f1.l .nb.f1.c -anchor w -padx 6 -pady 4",
+	"ttk::frame .nb.f2",
+	"ttk::label .nb.f2.l -text {Second page}",
+	"ttk::button .nb.f2.b -text {page-two button}",
+	"pack .nb.f2.l .nb.f2.b -anchor w -padx 6 -pady 4",
+	"ttk::frame .nb.f3",
+	"ttk::label .nb.f3.l -text {Third page}",
+	"pack .nb.f3.l -anchor w -padx 6 -pady 4",
+	".nb add .nb.f1 -text One",
+	".nb add .nb.f2 -text Two",
+	".nb add .nb.f3 -text Three",
+
+	"pack .classic .modern .lf .nb -side left -padx 8 -pady 8 -anchor n",
 
 	# a sizegrip in the bottom-right corner
 	"ttk::sizegrip .sg",

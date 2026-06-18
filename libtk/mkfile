@@ -16,6 +16,7 @@ OFILES=\
 	ttk.$O\
 	ttkwidg.$O\
 	ttkprog.$O\
+	ttknb.$O\
 	utils.$O\
 	varbl.$O\
 	windw.$O\

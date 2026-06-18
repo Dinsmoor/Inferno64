@@ -224,6 +224,46 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("sizegrip -style honoured", cmd(".f.sg style") == "Custom.TSizegrip");
 	ok("sizegrip instate !disabled", cmd(".f.sg instate disabled") == "0");
 
+	# 16. ttk::notebook - a tabbed container (embedded-window panes)
+	cmd("ttk::notebook .nb");
+	cmd("ttk::frame .nb.p1");
+	cmd("ttk::label .nb.p1.l -text {page one}");
+	cmd("pack .nb.p1.l");
+	cmd("ttk::frame .nb.p2");
+	cmd("ttk::label .nb.p2.l -text {page two}");
+	cmd("pack .nb.p2.l");
+	cmd("ttk::frame .nb.p3");
+	cmd("pack .nb");
+	cmd("update");
+	ok("notebook class TNotebook", cmd("winfo class .nb") == "TNotebook");
+	ok("notebook style default TNotebook", cmd(".nb style") == "TNotebook");
+	cmd(".nb add .nb.p1 -text One");
+	cmd(".nb add .nb.p2 -text Two");
+	cmd(".nb add .nb.p3 -text Three");
+	cmd("update");
+	ok("notebook lists three tabs", cmd(".nb tabs") == ".nb.p1 .nb.p2 .nb.p3");
+	ok("notebook first add auto-selects", cmd(".nb select") == ".nb.p1");
+	ok("notebook index by path", cmd(".nb index .nb.p2") == "1");
+	ok("notebook index end counts tabs", cmd(".nb index end") == "3");
+	ok("notebook tab -text get", cmd(".nb tab .nb.p2 -text") == "Two");
+	cmd(".nb select .nb.p3");
+	ok("notebook select by path", cmd(".nb select") == ".nb.p3");
+	cmd(".nb select 1");
+	ok("notebook select by index", cmd(".nb select") == ".nb.p2");
+	cmd(".nb tab .nb.p1 -text Uno");
+	ok("notebook tab -text set", cmd(".nb tab .nb.p1 -text") == "Uno");
+	cmd(".nb tab .nb.p3 -state disabled");
+	cmd(".nb select .nb.p3");
+	ok("notebook skips disabled tab on select", cmd(".nb select") == ".nb.p2");
+	cmd(".nb forget .nb.p2");
+	cmd("update");
+	ok("notebook forget drops a tab", cmd(".nb tabs") == ".nb.p1 .nb.p3");
+	cmd(".nb configure -style Custom.TNotebook");
+	ok("notebook style honoured", cmd(".nb style") == "Custom.TNotebook");
+	cmd(".nb state disabled");
+	ok("notebook instate disabled", cmd(".nb instate disabled") == "1");
+	cmd(".nb state {!disabled}");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);
