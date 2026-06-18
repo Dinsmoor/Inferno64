@@ -507,6 +507,40 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	cmd(".cv tkSpinStep 1");
 	ok("classic spinbox values step", cmd(".cv get") == "gamma");
 
+	# ---- 24. text widget -undo / edit (Phase 4 classic completeness) ----
+	cmd("text .tx -undo 1");
+	cmd("pack .tx");
+	cmd(".tx insert 1.0 hello");
+	ok("text inserted", cmd(".tx get 1.0 1.5") == "hello");
+	ok("text canundo true", cmd(".tx edit canundo") == "1");
+	cmd(".tx edit separator");
+	cmd(".tx insert 1.5 { world}");
+	ok("text second insert", cmd(".tx get 1.0 {1.0 lineend}") == "hello world");
+	cmd(".tx edit undo");
+	ok("text undo last group", cmd(".tx get 1.0 {1.0 lineend}") == "hello");
+	cmd(".tx edit undo");
+	ok("text undo first group", cmd(".tx get 1.0 {1.0 lineend}") == "");
+	ok("text canundo false now", cmd(".tx edit canundo") == "0");
+	ok("text canredo true", cmd(".tx edit canredo") == "1");
+	cmd(".tx edit redo");
+	ok("text redo first", cmd(".tx get 1.0 {1.0 lineend}") == "hello");
+	cmd(".tx edit redo");
+	ok("text redo second", cmd(".tx get 1.0 {1.0 lineend}") == "hello world");
+	# delete is undoable too
+	cmd(".tx edit separator");
+	cmd(".tx delete 1.0 1.5");
+	ok("text delete", cmd(".tx get 1.0 {1.0 lineend}") == " world");
+	cmd(".tx edit undo");
+	ok("text undo delete", cmd(".tx get 1.0 {1.0 lineend}") == "hello world");
+	# modified flag
+	cmd(".tx edit modified 0");
+	ok("text modified cleared", cmd(".tx edit modified") == "0");
+	cmd(".tx insert 1.0 X");
+	ok("text modified after edit", cmd(".tx edit modified") == "1");
+	# -undo off discards history
+	cmd(".tx configure -undo 0");
+	ok("text undo off: canundo false", cmd(".tx edit canundo") == "0");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

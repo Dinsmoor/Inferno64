@@ -3,7 +3,7 @@
 > **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
 > ttk widgets, now including `ttk::menubutton`), Phase 3 (complex widgets:
 > notebook, panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration
-> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 162/162 and
+> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 176/176 and
 > `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
 > polish (megawidget shims, Phase 4 classic completeness).
 > See §12 for the live state. This document is the cold-start briefing; it
@@ -750,8 +750,22 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   options, `set`/`get`/`tkSpinStep`, click-to-step and keyboard Up/Down — with
   none of the ttk state/style subcommands. No existing widget's code path
   changes (the mode switch only adds a new branch).
-- **Not yet:** entry text undo + embedded images, listbox
-  `extended`/`activestyle`.
+- **text widget `-undo` / `edit` (done, in `textw.c`/`textu.c`).** Classic Tk
+  undo: `-undo`, `-maxundo`, `-autoseparators` options + the `edit` subcommand
+  (`undo`/`redo`/`separator`/`reset`/`modified`/`canundo`/`canredo`). Edits are
+  recorded as atomic `{insert|delete, "line.col", text}` ops grouped into
+  compounds (delimited by separators, and by op-type changes when
+  `-autoseparators` is on); `edit undo` replays a compound's inverse ops in
+  reverse, `edit redo` forward. **Recording is hooked in three places** — the
+  `insert`/`delete` *commands* (via thin `tktextinsert`/`tktextdelete` wrappers
+  over renamed `*worker` bodies, which keeps backspace/paste recorded since they
+  call those) and the key-typing path `tktextinserti` (which inserts at the
+  `insert` mark directly). Replay sets `tkt->undoing` so it is never re-recorded;
+  re-inserts go through `tktundoins` (item-level, no Tk-word re-quoting, so text
+  with braces round-trips). Strictly additive: inert unless `-undo` is on, and
+  the record gate is checked before any work. Independent of acme/edit's own
+  app-level undo (they drive the widget through their own buffers).
+- **Not yet:** text embedded images, listbox `extended`/`activestyle`.
 
 **Phase 5 — app migration + render verification: DONE.** `wm/ttkdemo` is the
 gallery app proving the whole set (a `ttk::entry`, a `ttk::scale`-driven
@@ -789,7 +803,7 @@ rendering or rely on classic-only idioms:
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
 
-Combined ttk test: `tests/dis/tkttk.b` (162/162) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (176/176) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -811,9 +825,13 @@ increment, clamp at `-from`/`-to`, `-wrap` round both ends, disabled blocks
 step, `-values` cycle forward/back), and `ttk::menubutton` (class, `-style`,
 `-text`/`-menu` cget, reconfigure, `state`/`instate` disabled, disabled-press
 no-op; the live post is verified visually under `wm/wm`, like the combobox
-dropdown), and classic **entry `-validate`** (key accept/reject on insert and
+dropdown), classic **entry `-validate`** (key accept/reject on insert and
 delete, `%P`/`%S` substitution, `-invalidcommand` firing, `-validate none`
-bypass, non-boolean result disabling validation).
+bypass, non-boolean result disabling validation), classic **`spinbox`** (class,
+`-from` cget, `set`/`get`, `tkSpinStep` by increment, clamp at `-to`, `-values`
+cycle), and the **text widget `-undo`/`edit`** (insert+delete recorded,
+`edit undo`/`redo` by group, `separator` grouping, `canundo`/`canredo`,
+`modified` flag, `-undo` off discarding history).
 
 **Megawidget shims.** `Tkwidgets`'s `Progressbar` is now a thin shim over the
 native `ttk::progressbar` (themed fill, same API/path). The other megawidgets

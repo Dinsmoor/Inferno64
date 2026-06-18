@@ -153,6 +153,7 @@ tkfreetext(Tk *tk)
 	else
 		tk->binds = nil;
 	tktfreemarks(tkt->marks);
+	tktundoclear(tkt);
 	if(tkt->xscroll != nil)
 		free(tkt->xscroll);
 	if(tkt->yscroll != nil)

@@ -1,4 +1,6 @@
 typedef struct TkText TkText;
+typedef struct TkTedit TkTedit;
+typedef struct TkTcomp TkTcomp;
 typedef struct TkTitem TkTitem;
 typedef struct TkTline TkTline;
 typedef struct TkTindex TkTindex;
@@ -45,6 +47,9 @@ enum
 	TkTjustfoc	= (1<<4),	/* got focus on last B1 press */
 	TkTnodrag		= (1<<5),	/* ignore B1 drag until B1 up */
 	TkTunset 	= (1<<31),	/* marks int tag options "unspecified" */
+
+	TkUins		= 0,		/* undo op kinds */
+	TkUdel,
 
 	TkTborderwidth	= 0,
 	TkTjustify,
@@ -107,6 +112,32 @@ struct TkText
 	Image*		image;
 	uchar		cur_flag;	/* text cursor to be shown up? */
 	Rectangle	cur_rec;	/* last text cursor rectangle */
+
+	/* -undo / `edit' machinery (Phase 4); inert unless -undo is on */
+	int		undoon;		/* -undo */
+	int		maxundo;	/* -maxundo, <=0 = unlimited */
+	int		autosep;	/* -autoseparators */
+	int		modified;	/* `edit modified' flag */
+	int		undoing;	/* guard: replaying undo/redo, don't record */
+	int		lastop;		/* last recorded op kind (for autoseparators) */
+	TkTcomp*	undostk;	/* undo stack, head = newest group */
+	TkTcomp*	redostk;	/* redo stack */
+	TkTcomp*	curcomp;	/* open group being accumulated, nil if none */
+};
+
+struct TkTedit			/* one atomic edit op recorded for undo */
+{
+	int		op;		/* TkUins / TkUdel */
+	char*		idx;		/* "line.col" at edit time */
+	char*		str;		/* inserted (Uins) or deleted (Udel) text */
+	TkTedit*	next;		/* chronological order within a group */
+};
+
+struct TkTcomp			/* a group of ops undone/redone as one unit */
+{
+	TkTedit*	ops;		/* head = oldest */
+	TkTedit*	tail;
+	TkTcomp*	next;		/* stack link, head = newest */
 };
 
 struct TkTwind
@@ -171,6 +202,7 @@ extern	TkCmdtab	tktmarkcmd[];
 extern	TkCmdtab	tktwincmd[];
 
 extern	void		tkfreetext(Tk*);
+extern	void		tktundoclear(TkText*);
 extern	char*		tktaddmarkinfo(TkText*, char*, TkTmarkinfo**);
 extern	char*		tktaddtaginfo(Tk*, char*, TkTtaginfo**);
 extern	int		tktadjustind(TkText*, int, TkTindex*);

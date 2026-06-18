@@ -79,6 +79,9 @@ TkOption textopts[] =
 	"tagshare",		OPTwinp, O(TkText, tagshare),		nil,
 	"propagate",		OPTstab, O(TkText, propagate),	tkbool,
 	"selectborderwidth",	OPTnndist, O(TkText, sborderwidth), nil,
+	"undo",			OPTstab, O(TkText, undoon),	tkbool,
+	"autoseparators",	OPTstab, O(TkText, autosep),	tkbool,
+	"maxundo",		OPTnndist, O(TkText, maxundo),	nil,
 	nil
 };
 
@@ -143,6 +146,14 @@ static Point	tktrelpos(Tk*);
 static void	autoselect(Tk*, void*, int);
 static void	blinkreset(Tk*);
 
+/* -undo / `edit' machinery (Phase 4) */
+static char*	tktextinsert(Tk*, char*, char**);
+static char*	tktextdelete(Tk*, char*, char**);
+static char*	tktinsertworker(Tk*, char*, char**);
+static char*	tktdeleteworker(Tk*, char*, char**);
+static char*	tktextget(Tk*, char*, char**);
+static void	tktundorecord(Tk*, int, char*, char*);
+
 /* debugging */
 extern int tktdbg;
 extern void tktprinttext(TkText*);
@@ -184,6 +195,17 @@ tktext(TkTop *t, char* arg, char **ret)
 	tkt->opts[TkTrelief] = TKflat;
 	tkt->opts[TkTjustify] = Tkleft;
 	tkt->propagate = BoolX;
+
+	/* -undo defaults (tknewobj does not zero) */
+	tkt->undoon = 0;
+	tkt->maxundo = 0;
+	tkt->autosep = BoolT;
+	tkt->modified = 0;
+	tkt->undoing = 0;
+	tkt->lastop = -1;
+	tkt->undostk = nil;
+	tkt->redostk = nil;
+	tkt->curcomp = nil;
 
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
@@ -2425,6 +2447,8 @@ tktextconfigure(Tk *tk, char *arg, char **val)
 
 	e = tkparse(tk->env->top, arg, tko, nil);
 	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
+	if(tkt->undoon != BoolT)		/* -undo off discards the history */
+		tktundoclear(tkt);
 	if (tkt->propagate != BoolT) {
 		if ((tk->flag & Tksetwidth) == 0)
 			tk->req.width = tk->env->wzero*Textwidth;
@@ -2457,8 +2481,366 @@ tktextdebug(Tk *tk, char *arg, char **val)
 	}
 }
 
+/*
+ * ---- -undo / `edit' machinery (Phase 4) ----
+ *
+ * Edits are recorded as atomic ops {insert|delete, "line.col", text} grouped
+ * into compounds (delimited by separators / op-type changes when
+ * -autoseparators is on).  `edit undo' replays a compound's inverse ops in
+ * reverse; `edit redo' replays them forward.  All inert unless -undo is on;
+ * the recursive replay sets tkt->undoing so it is never itself recorded.
+ */
+
+/* end index after `str' is typed at "line.col" index `idx' */
+static char*
+tktundoadvance(char *idx, char *str)
+{
+	int line, col, n;
+	char *dot;
+	Rune r;
+
+	line = atoi(idx);
+	dot = strchr(idx, '.');
+	col = dot != nil ? atoi(dot+1) : 0;
+	while(*str != '\0'){
+		n = chartorune(&r, str);
+		str += n;
+		if(r == '\n'){
+			line++;
+			col = 0;
+		}else
+			col++;
+	}
+	return smprint("%d.%d", line, col);
+}
+
+/* concatenate the `chars' words of an insert arg (index already consumed) */
+static char*
+tktinserttext(TkTop *top, char *arg)
+{
+	Fmt f;
+	char *w;
+	int n, even;
+
+	n = strlen(arg) + 1;
+	if(n < Tkmaxitem)
+		n = Tkmaxitem;
+	w = mallocz(n, 0);
+	if(w == nil)
+		return nil;
+	if(fmtstrinit(&f) < 0){
+		free(w);
+		return nil;
+	}
+	even = 1;
+	while(*arg != '\0'){
+		arg = tkword(top, arg, w, w+n, nil);
+		if(even)
+			fmtprint(&f, "%s", w);
+		even = !even;
+	}
+	free(w);
+	return fmtstrflush(&f);
+}
+
+static void
+tktfreeedits(TkTedit *e)
+{
+	TkTedit *next;
+
+	for(; e != nil; e = next){
+		next = e->next;
+		free(e->idx);
+		free(e->str);
+		free(e);
+	}
+}
+
+static void
+tktfreecomps(TkTcomp *c)
+{
+	TkTcomp *next;
+
+	for(; c != nil; c = next){
+		next = c->next;
+		tktfreeedits(c->ops);
+		free(c);
+	}
+}
+
+void
+tktundoclear(TkText *tkt)
+{
+	tktfreecomps(tkt->undostk);
+	tktfreecomps(tkt->redostk);
+	tktfreecomps(tkt->curcomp);
+	tkt->undostk = tkt->redostk = tkt->curcomp = nil;
+	tkt->lastop = -1;
+}
+
+/* close the open compound, pushing it onto the undo stack */
+static void
+tktundocommit(TkText *tkt)
+{
+	if(tkt->curcomp != nil){
+		tkt->curcomp->next = tkt->undostk;
+		tkt->undostk = tkt->curcomp;
+		tkt->curcomp = nil;
+	}
+	tkt->lastop = -1;
+}
+
+/* drop the oldest compound when over -maxundo (counts the open group too) */
+static void
+tktundotrim(TkText *tkt)
+{
+	int n;
+	TkTcomp *c, *prev;
+
+	if(tkt->maxundo <= 0)
+		return;
+	n = tkt->curcomp != nil;
+	for(c = tkt->undostk; c != nil; c = c->next)
+		n++;
+	while(n > tkt->maxundo){
+		prev = nil;
+		for(c = tkt->undostk; c != nil && c->next != nil; c = c->next)
+			prev = c;
+		if(c == nil)
+			break;
+		if(prev != nil)
+			prev->next = nil;
+		else
+			tkt->undostk = nil;
+		c->next = nil;
+		tktfreecomps(c);
+		n--;
+	}
+}
+
+static void
+tktundorecord(Tk *tk, int op, char *idx, char *str)
+{
+	TkText *tkt = TKobj(TkText, tk);
+	TkTedit *e;
+
+	if(tkt->undoon != BoolT || tkt->undoing)
+		return;
+
+	/* any fresh edit invalidates the redo stack */
+	tktfreecomps(tkt->redostk);
+	tkt->redostk = nil;
+
+	/* a type change starts a new compound when -autoseparators is on */
+	if(tkt->curcomp != nil && tkt->autosep == BoolT && tkt->lastop != op)
+		tktundocommit(tkt);
+
+	if(tkt->curcomp == nil){
+		tkt->curcomp = malloc(sizeof(TkTcomp));
+		if(tkt->curcomp == nil)
+			return;
+		tkt->curcomp->ops = tkt->curcomp->tail = nil;
+		tkt->curcomp->next = nil;
+	}
+
+	e = malloc(sizeof(TkTedit));
+	if(e == nil)
+		return;
+	e->op = op;
+	e->idx = strdup(idx);
+	e->str = strdup(str);
+	e->next = nil;
+	if(tkt->curcomp->tail != nil)
+		tkt->curcomp->tail->next = e;
+	else
+		tkt->curcomp->ops = e;
+	tkt->curcomp->tail = e;
+
+	tkt->lastop = op;
+	tkt->modified = 1;
+	tktundotrim(tkt);
+}
+
+/* insert `str' literally at "line.col" idx (no Tk-word quoting) */
+static char*
+tktundoins(Tk *tk, char *idx, char *str)
+{
+	TkText *tkt = TKobj(TkText, tk);
+	TkTindex ins, pins;
+	TkTline *lmin;
+	char *e, *p;
+
+	p = idx;
+	e = tktindparse(tk, &p, &ins);
+	if(e != nil)
+		return e;
+	if(ins.item->kind == TkTmark){
+		if(ins.item->imark->gravity == Tkleft){
+			while(ins.item->kind == TkTmark && ins.item->imark->gravity == Tkleft)
+				if(!tktadjustind(tkt, TkTbyitem, &ins))
+					break;
+		}else{
+			for(;;){
+				pins = ins;
+				if(!tktadjustind(tkt, TkTbyitemback, &pins))
+					break;
+				if(pins.item->kind == TkTmark && pins.item->imark->gravity == Tkright)
+					ins = pins;
+				else
+					break;
+			}
+		}
+	}
+	lmin = tktprevwrapline(tk, ins.line);
+	e = tktinsert(tk, &ins, str, nil);
+	tktfixgeom(tk, lmin, ins.line, 0);
+	tktextsize(tk, 1);
+	return e;
+}
+
+/* apply one op: forward replays it, !forward applies its inverse */
+static void
+tktundoapply(Tk *tk, TkTedit *e, int forward)
+{
+	int doins;
+	char *end, *spec;
+
+	doins = (e->op == TkUins) == (forward != 0);	/* insert iff Uins&&fwd or Udel&&inv */
+	if(doins)
+		tktundoins(tk, e->idx, e->str);
+	else{
+		end = tktundoadvance(e->idx, e->str);
+		spec = smprint("%s %s", e->idx, end);
+		tktextdelete(tk, spec, nil);
+		free(spec);
+		free(end);
+	}
+}
+
+static char*
+tktextedit(Tk *tk, char *arg, char **val)
+{
+	TkText *tkt = TKobj(TkText, tk);
+	TkTedit *e, **a;
+	TkTcomp *c;
+	char *buf;
+	int i, n;
+
+	buf = mallocz(Tkmaxitem, 0);
+	if(buf == nil)
+		return TkNomem;
+	arg = tkword(tk->env->top, arg, buf, buf+Tkmaxitem, nil);
+
+	if(strcmp(buf, "undo") == 0){
+		tktundocommit(tkt);
+		c = tkt->undostk;
+		if(c == nil){
+			free(buf);
+			return "nothing to undo";
+		}
+		tkt->undostk = c->next;
+		c->next = nil;
+		/* replay inverse ops in reverse (newest first) */
+		for(n = 0, e = c->ops; e != nil; e = e->next)
+			n++;
+		a = malloc(n * sizeof(TkTedit*));
+		if(a != nil){
+			for(i = 0, e = c->ops; e != nil; e = e->next)
+				a[i++] = e;
+			tkt->undoing = 1;
+			for(i = n-1; i >= 0; i--)
+				tktundoapply(tk, a[i], 0);
+			tkt->undoing = 0;
+			free(a);
+		}
+		c->next = tkt->redostk;
+		tkt->redostk = c;
+		tkt->modified = 1;
+		tktdirty(tk);
+	}else if(strcmp(buf, "redo") == 0){
+		c = tkt->redostk;
+		if(c == nil){
+			free(buf);
+			return "nothing to redo";
+		}
+		tkt->redostk = c->next;
+		c->next = nil;
+		tkt->undoing = 1;
+		for(e = c->ops; e != nil; e = e->next)	/* forward order */
+			tktundoapply(tk, e, 1);
+		tkt->undoing = 0;
+		c->next = tkt->undostk;
+		tkt->undostk = c;
+		tkt->modified = 1;
+		tktdirty(tk);
+	}else if(strcmp(buf, "separator") == 0){
+		tktundocommit(tkt);
+	}else if(strcmp(buf, "reset") == 0){
+		tktundoclear(tkt);
+		tkt->modified = 0;
+	}else if(strcmp(buf, "canundo") == 0){
+		free(buf);
+		return tkvalue(val, "%d", (tkt->undostk != nil || tkt->curcomp != nil));
+	}else if(strcmp(buf, "canredo") == 0){
+		free(buf);
+		return tkvalue(val, "%d", tkt->redostk != nil);
+	}else if(strcmp(buf, "modified") == 0){
+		arg = tkskip(arg, " \t");
+		if(*arg == '\0'){
+			free(buf);
+			return tkvalue(val, "%d", tkt->modified != 0);
+		}
+		tkword(tk->env->top, arg, buf, buf+Tkmaxitem, nil);
+		tkt->modified = (atoi(buf) != 0);
+	}else{
+		free(buf);
+		return TkBadcm;
+	}
+	free(buf);
+	return nil;
+}
+
 static char*
 tktextdelete(Tk *tk, char *arg, char **val)
+{
+	TkText *tkt = TKobj(TkText, tk);
+	TkTindex i1, i2;
+	char *e, *p, *uidx, *utext, *gspec;
+	int rec;
+
+	uidx = utext = nil;
+	rec = (tkt->undoon == BoolT && !tkt->undoing);
+	if(rec){
+		p = arg;
+		if(tktindparse(tk, &p, &i1) == nil){
+			tktadjustind(tkt, TkTbycharstart, &i1);
+			if(*tkskip(p, " \t") != '\0')
+				tktindparse(tk, &p, &i2);
+			else{
+				i2 = i1;
+				tktadjustind(tkt, TkTbychar, &i2);
+			}
+			if(!tktindcompare(tkt, &i1, TkGte, &i2)){
+				uidx = smprint("%d.%d", tktlinenum(tkt, &i1), tktlinepos(tkt, &i1));
+				gspec = smprint("%d.%d %d.%d", tktlinenum(tkt, &i1), tktlinepos(tkt, &i1),
+					tktlinenum(tkt, &i2), tktlinepos(tkt, &i2));
+				tktextget(tk, gspec, &utext);
+				free(gspec);
+			}
+		}
+	}
+
+	e = tktdeleteworker(tk, arg, val);
+
+	if(e == nil && rec && uidx != nil)
+		tktundorecord(tk, TkUdel, uidx, utext != nil ? utext : "");
+	free(uidx);
+	free(utext);
+	return e;
+}
+
+static char*
+tktdeleteworker(Tk *tk, char *arg, char **val)
 {
 	int sameit;
 	char *e;
@@ -2851,6 +3233,33 @@ tktextindex(Tk *tk, char *arg, char **val)
 static char*
 tktextinsert(Tk *tk, char *arg, char **val)
 {
+	TkText *tkt = TKobj(TkText, tk);
+	TkTindex ins;
+	char *e, *p, *uidx, *utext;
+	int rec;
+
+	uidx = utext = nil;
+	rec = (tkt->undoon == BoolT && !tkt->undoing);
+	if(rec){
+		p = arg;
+		if(tktindparse(tk, &p, &ins) == nil){
+			uidx = smprint("%d.%d", tktlinenum(tkt, &ins), tktlinepos(tkt, &ins));
+			utext = tktinserttext(tk->env->top, p);
+		}
+	}
+
+	e = tktinsertworker(tk, arg, val);
+
+	if(e == nil && rec && uidx != nil && utext != nil)
+		tktundorecord(tk, TkUins, uidx, utext);
+	free(uidx);
+	free(utext);
+	return e;
+}
+
+static char*
+tktinsertworker(Tk *tk, char *arg, char **val)
+{
 	int n;
 	char *e, *p, *pe;
 	TkTindex ins, pins;
@@ -3014,11 +3423,20 @@ tktextinserti(Tk *tk, char *arg, char **val)
 	}
 
 	lmin = tktprevwrapline(tk, ix.line);
-	tktinsert(tk, &ix, tbuf==nil ? buf : tbuf, 0);
-	tktfixgeom(tk, lmin, ix.line, 0);
-	if(tktmarkind(tk, "insert", &ix))		/* index doesn't remain valid after fixgeom */
-		tktsee(tk, &ix, 0);
-	tktextsize(tk, 1);
+	{
+		char *uidx = nil;
+		int urec = (tkt->undoon == BoolT && !tkt->undoing);
+		if(urec)
+			uidx = smprint("%d.%d", tktlinenum(tkt, &ix), tktlinepos(tkt, &ix));
+		tktinsert(tk, &ix, tbuf==nil ? buf : tbuf, 0);
+		tktfixgeom(tk, lmin, ix.line, 0);
+		if(tktmarkind(tk, "insert", &ix))	/* index doesn't remain valid after fixgeom */
+			tktsee(tk, &ix, 0);
+		tktextsize(tk, 1);
+		if(urec && uidx != nil)
+			tktundorecord(tk, TkUins, uidx, tbuf==nil ? buf : tbuf);
+		free(uidx);
+	}
 Ret:
 	if(tbuf != nil)
 		free(tbuf);
@@ -3660,6 +4078,7 @@ TkCmdtab tktextcmd[] =
 	"delete",		tktextdelete,
 	"dlineinfo",		tktextdlineinfo,
 	"dump",			tktextdump,
+	"edit",			tktextedit,
 	"get",			tktextget,
 	"index",		tktextindex,
 	"insert",		tktextinsert,
