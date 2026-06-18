@@ -18,6 +18,7 @@ OFILES=\
 	ttkprog.$O\
 	ttknb.$O\
 	ttkpane.$O\
+	ttktree.$O\
 	utils.$O\
 	varbl.$O\
 	windw.$O\

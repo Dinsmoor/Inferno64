@@ -298,6 +298,56 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("panedwindow instate disabled", cmd(".pw instate disabled") == "1");
 	cmd(".pw state {!disabled}");
 
+	# ---- 18. ttk::treeview ----
+	cmd("ttk::treeview .tv -columns {size kind} -height 6");
+	cmd("pack .tv");
+	cmd("update");
+	ok("treeview class Treeview", cmd("winfo class .tv") == "Treeview");
+	ok("treeview style default", cmd(".tv style") == "Treeview");
+	# headings
+	cmd(".tv heading #0 -text Name");
+	cmd(".tv heading size -text Size");
+	ok("treeview heading get", cmd(".tv heading size") == "Size");
+	cmd(".tv column size -width 60 -anchor e");
+	ok("treeview column width get", cmd(".tv column size") == "60");
+	# insert items, capture ids
+	root1 := cmd(".tv insert {} end -text alpha -values {10 dir}");
+	ok("treeview insert returns id", root1 != "" && root1[0] == 'I');
+	child1 := cmd(".tv insert " + root1 + " end -text beta -values {20 file}");
+	cmd(".tv insert {} end -id leaf -text gamma");
+	ok("treeview explicit id honoured", cmd(".tv exists leaf") == "1");
+	ok("treeview exists negative", cmd(".tv exists nope") == "0");
+	ok("treeview children", cmd(".tv children " + root1) == child1);
+	ok("treeview parent", cmd(".tv parent " + child1) == root1);
+	ok("treeview index", cmd(".tv index leaf") == "1");
+	ok("treeview item -text get", cmd(".tv item " + root1 + " -text") == "alpha");
+	cmd(".tv item " + root1 + " -text ALPHA");
+	ok("treeview item -text set", cmd(".tv item " + root1 + " -text") == "ALPHA");
+	ok("treeview item -values get", cmd(".tv item " + child1 + " -values") == "20 file");
+	# selection + focus
+	cmd(".tv selection set " + root1);
+	ok("treeview selection set/get", cmd(".tv selection") == root1);
+	cmd(".tv selection add leaf");
+	ok("treeview selection add", has(cmd(".tv selection"), "leaf"));
+	cmd(".tv selection remove " + root1);
+	ok("treeview selection remove", cmd(".tv selection") == "leaf");
+	cmd(".tv focus leaf");
+	ok("treeview focus get", cmd(".tv focus") == "leaf");
+	# open/close affects nothing queryable but item -open does
+	cmd(".tv item " + root1 + " -open 1");
+	ok("treeview item -open get", cmd(".tv item " + root1 + " -open") == "1");
+	# move + reparent
+	cmd(".tv move leaf " + root1 + " end");
+	ok("treeview move reparents", cmd(".tv parent leaf") == root1);
+	# delete
+	cmd(".tv delete " + root1);
+	ok("treeview delete subtree", cmd(".tv exists leaf") == "0");
+	ok("treeview delete root item", cmd(".tv exists " + root1) == "0");
+	# state/instate
+	cmd(".tv state disabled");
+	ok("treeview instate disabled", cmd(".tv instate disabled") == "1");
+	cmd(".tv state {!disabled}");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

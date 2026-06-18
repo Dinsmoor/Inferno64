@@ -195,6 +195,7 @@ TkMethod *tkmethod[] =
 	&ttksizegripmethod,	/* TKttksizegrip */
 	&ttknotebookmethod,	/* TKttknotebook */
 	&ttkpanedwindowmethod,	/* TKttkpanedwindow */
+	&ttktreeviewmethod,	/* TKttktreeview */
 };
 
 char TkNomem[]	= "!out of memory";

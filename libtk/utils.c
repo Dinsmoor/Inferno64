@@ -69,6 +69,7 @@ static struct Cmd cmdmain[] =
 	"ttk::separator",	tkttkseparator,
 	"ttk::sizegrip",	tkttksizegrip,
 	"ttk::style",	tkttkstyle,
+	"ttk::treeview",	tkttktreeview,
 	"update",	tkupdatecmd,
 	"variable",	tkvariable,
 	"winfo",	tkwinfo,

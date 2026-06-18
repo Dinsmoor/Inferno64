@@ -672,23 +672,41 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   `sashpos`). Drag clamps to the immediate neighbours' minimums (cascading-push
   is a future refinement). Shares the `tkimageof` `TKttkpanedwindow` case with
   the notebook. Verified rendering + live sash-drag resize under `wm/wm`.
-- **Not yet: `ttk::treeview`, `ttk::combobox`, `ttk::spinbox`** and the
-  megawidget shims (§4). `ttk::combobox` needs a transient popup-window
-  mechanism (reuse the classic `choicebutton`/menu path in `menus.c`).
+- `ttk::treeview` (in `ttktree.c`, a fresh file — class `Treeview`): a
+  hierarchical, multi-column item list. Items form a tree rooted at an unnamed
+  sentinel; each carries the tree-column (`#0`) text plus one value per data
+  column. A self-drawing leaf widget like the classic `listbox` (no embedded
+  child widgets) — rows, headings, the disclosure triangle and the selection
+  highlight are painted directly, and the body scrolls vertically through a
+  `yscrollcommand`/`yview` pair (modelled on `listb.c`). Options: `-columns`,
+  `-show` (`tree`/`headings`), `-selectmode` (`browse`/`extended`/`none`),
+  `-height` (in rows — claimed by the widget's own optab ahead of `tkgeneric`),
+  `-xscrollcommand`/`-yscrollcommand`. Subcommands:
+  `insert`/`delete`/`detach`/`move`/`item`/`children`/`parent`/`index`/`exists`/
+  `selection`(set/add/remove/toggle)/`focus`/`see`/`yview`/`xview`/`heading`/
+  `column`/`identify`/`tag configure`/`instate`/`state`/`style`/`cget`/
+  `configure`. Item ids are auto-generated (`I001`…) or set with `-id`; detached
+  items live on a side list so they still `exists` and can be re-`move`d.
+  Fires `<<TreeviewSelect>>` on selection change. Verified rendering (nested
+  open subtrees, right-anchored data column, selection bar, headings,
+  scrollbar) under `wm/wm`.
+- **Not yet: `ttk::combobox`, `ttk::spinbox`** and the megawidget shims (§4).
+  `ttk::combobox` needs a transient popup-window mechanism (reuse the classic
+  `choicebutton`/menu path in `menus.c`).
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
 
 **Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
 gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
-progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, and a
-two-pane `ttk::panedwindow`) renders end-to-end under `wm/wm`. The ~20-app
-migration in §11 is the remaining effort and is now gated only on
-`ttk::treeview`/`ttk::combobox` (both containers are done), since those apps
-lean on trees and comboboxes. Migration order and the golden baselines are in
-§11; a pixel change in a *classic* widget remains a regression by definition.
+progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, a two-pane
+`ttk::panedwindow`, and a `ttk::treeview` with nested subtrees + a
+`ttk::scrollbar`) renders end-to-end under `wm/wm`. The ~20-app migration in §11
+is the remaining effort and is now gated only on `ttk::combobox` (the tree and
+both containers are done). Migration order and the golden baselines are in §11;
+a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (85/85) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (107/107) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -696,10 +714,13 @@ configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 through the shared core, `-style`, `disabled` state), `ttk::scale`
 (class, `-value`/`set`/`get`, `-style`, `disabled` state), `ttk::sizegrip`,
 `ttk::notebook` (class, `tabs`/`index`/`select` by path and index, auto-select,
-`tab -text` get/set, disabled-tab skipping, `forget`, `-style`, `state`), and
+`tab -text` get/set, disabled-tab skipping, `forget`, `-style`, `state`),
 `ttk::panedwindow` (class, `-orient`, `add`/`panes`/`forget`, `sashpos`
-set/get, `-style`, `state`).
+set/get, `-style`, `state`), and `ttk::treeview` (class, `heading`/`column`
+get, `insert` id allocation + `-id`, `exists`, `children`/`parent`/`index`,
+`item -text`/`-values`/`-open` get/set, `selection` set/add/remove, `focus`,
+`move` reparent, `delete` subtree, `state`).
 
-**Next session, in order:** `ttk::combobox` → `ttk::treeview` → `ttk::spinbox`
+**Next session, in order:** `ttk::combobox` → `ttk::spinbox`
 → megawidget shims → migrate apps from §11 top-down, diffing classic regions
 each time.

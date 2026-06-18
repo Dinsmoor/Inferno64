@@ -97,7 +97,28 @@ cfg := array[] of {
 	".pw add .pw.left",
 	".pw add .pw.right",
 
-	"pack .classic .modern .lf .nb .pw -side left -padx 8 -pady 8 -anchor n",
+	# a treeview with two data columns and a nested, open subtree
+	"ttk::frame .tvf",
+	"ttk::treeview .tvf.t -columns {size kind} -height 7 -yscrollcommand {.tvf.sb set}",
+	"ttk::scrollbar .tvf.sb -orient vertical -command {.tvf.t yview}",
+	".tvf.t heading #0 -text Name",
+	".tvf.t heading size -text Size",
+	".tvf.t heading kind -text Kind",
+	".tvf.t column #0 -width 130",
+	".tvf.t column size -width 56 -anchor e",
+	".tvf.t column kind -width 56",
+	".tvf.t insert {} end -id src -text src -values {- dir} -open 1",
+	".tvf.t insert src end -text tk.c -values {41k C}",
+	".tvf.t insert src end -text ttktree.c -values {28k C}",
+	".tvf.t insert src end -id img -text images -values {- dir} -open 1",
+	".tvf.t insert img end -text logo.png -values {12k PNG}",
+	".tvf.t insert img end -text icon.gif -values {3k GIF}",
+	".tvf.t insert {} end -text README -values {2k text}",
+	".tvf.t selection set src",
+	"pack .tvf.sb -side right -fill y",
+	"pack .tvf.t -side left -fill both -expand 1",
+
+	"pack .classic .modern .lf .nb .pw .tvf -side left -padx 8 -pady 8 -anchor n",
 
 	# a sizegrip in the bottom-right corner
 	"ttk::sizegrip .sg",

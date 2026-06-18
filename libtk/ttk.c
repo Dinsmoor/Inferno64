@@ -222,6 +222,7 @@ classstyle(int type)
 	case TKttksizegrip:	return "TSizegrip";
 	case TKttknotebook:	return "TNotebook";
 	case TKttkpanedwindow:	return "TPanedwindow";
+	case TKttktreeview:	return "Treeview";
 	}
 	return "TFrame";
 }
