@@ -64,11 +64,16 @@ ss := -1;
 # the widget tree: a toolbar with the menus, a notebook of section views, and
 # a status bar.  The classic `menu' widgets are what the ttk::menubuttons post.
 ui_cfg := array[] of {
-	# Keep the data views a clean white listing (to match the code/data text
-	# panes); the toolbar, tabs, headings and menus stay themed.  Without this
-	# the treeview body fills with the theme's light-background slot, which is
-	# a saturated colour under blue/cyan wm themes.
-	"ttk::style configure Treeview -fieldbackground #ffffff",
+	# wm/rt keeps a deliberate light "code listing" surface for its data views,
+	# to match the white code/data text panes -- an editor-style scheme that is
+	# the same regardless of the desktop theme.  Pin all three Treeview surfaces
+	# (body, heading, text) so the listing stays high-contrast even under a dark
+	# desktop theme; the toolbar, tabs, menus, scrollbars and status bar are
+	# left to follow the system theme.  (A bare ttk::treeview themes correctly
+	# on its own -- libtk falls its body back to the plain themed background --
+	# so this is an app choice, not a workaround.)
+	"ttk::style configure Treeview -fieldbackground #ffffff "+
+		"-background #e8e8e8 -foreground #1b1b1b",
 
 	# --- menus (posted by the ttk::menubuttons) ---
 	"menu .filemenu",

@@ -877,11 +877,25 @@ property/value `Treeview`; a syntax-highlighted monospace Code listing via text
 tags; Data; and `Treeview`s for the type/link/import descriptors and a
 hierarchical handlers tree), driven by a `ttk::menubutton` toolbar + `ttk::button`
 quick actions and a themed status bar with a `ttk::sizegrip`. It also gained a
-command-line argument (`wm/rt path.dis` opens straight away). Note: the app sets
-`ttk::style configure Treeview -fieldbackground #ffffff` so the data panes stay a
-clean white listing under any wm theme (otherwise the `Treeview` body fills with
-the theme's `TkCbackgndlght` slot, which is a saturated colour under blue/cyan
-themes).
+command-line argument (`wm/rt path.dis` opens straight away). It keeps a
+deliberate light "code listing" surface for its data views to match the white
+code/data text panes: `ttk::style configure Treeview -fieldbackground #ffffff
+-background #e8e8e8 -foreground #1b1b1b` pins all three `Treeview` surfaces (body,
+heading band, text) so the listing stays high-contrast even under a dark desktop
+theme, while the toolbar, tabs, menus, scrollbars and status bar follow the
+system theme. This is an app *choice*, not a workaround — a bare `ttk::treeview`
+themes correctly on its own (see below).
+
+**ttk theming fix.** A `ttk::treeview` body and a selected `ttk::notebook` tab
+used to fall back to `TkCbackgndlght`, the *light* env shade. `tkrgbashade()`
+brightens HSV value only, so the light shade of a saturated themed background is a
+brighter version of the *same hue* — filling a large surface with it made the
+area glow (the "why is the background blue" report under the blue/cyan theme).
+Fixed at the root in `libtk`: the treeview body and selected notebook tab now
+fall back to `TkCbackgnd` (matching `text`/`entry`/`listbox`), the treeview
+heading and unselected tabs to `TkCbackgnddark` (a distinct recessed band), and
+the light shade is reserved for thin bevels and the small check/radio indicator.
+See `ON_THEMING.md` §"ttk widgets".
 
 **Remaining (optional polish, not gating):** the megawidget shims beyond
 `Progressbar` (deliberately kept, see above). Tk's Shift/Ctrl-click listbox

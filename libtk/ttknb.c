@@ -777,7 +777,13 @@ ttkdrawnb(Tk *tk, Point orig)
 		cell.max.x = cell.min.x + tab->w;
 		cell.max.y = po.y + nb->tabh + (selected ? 1 : 0);
 
-		slot = selected ? TkCbackgndlght : TkCbackgnd;
+		/*
+		 * The selected tab merges with the page below it (TkCbackgnd, the
+		 * page background), unselected tabs are recessed (the dark shade).
+		 * Avoid the light shade for this fill: tkrgbashade() brightens HSV
+		 * value only, so on a saturated desktop theme it would glow in-hue.
+		 */
+		slot = selected ? TkCbackgnd : TkCbackgnddark;
 		if(tab->state & Sdisabled)
 			slot = TkCbackgnd;
 		fill = tkgc(e, slot);

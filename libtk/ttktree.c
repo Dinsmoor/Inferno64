@@ -675,7 +675,15 @@ ttkdrawtv(Tk *tk, Point orig)
 	po.x = orig.x + tk->act.x + tk->borderwidth;
 	po.y = orig.y + tk->act.y + tk->borderwidth;
 
-	bg = ttkcolorx(tk, style, st, "-fieldbackground", TkCbackgndlght);
+	/*
+	 * The body is the primary content surface, so it falls back to the plain
+	 * themed background (TkCbackgnd) like a listbox/text/entry -- NOT the light
+	 * shade.  tkrgbashade() brightens only HSV value, so a "light" shade of a
+	 * saturated themed bg stays fully saturated; filling the whole data region
+	 * with it makes the body glow in-hue on a coloured desktop theme.  The
+	 * heading (below) takes the dark shade so it still reads as a distinct band.
+	 */
+	bg = ttkcolorx(tk, style, st, "-fieldbackground", TkCbackgnd);
 	line = ttkcolorx(tk, style, st, "-bordercolor", TkCbackgnddark);
 	fg = ttkcolorx(tk, style, st, "-foreground", TkCforegnd);
 	selbg = tkgc(env, TkCselectbgnd);
@@ -690,7 +698,7 @@ ttkdrawtv(Tk *tk, Point orig)
 
 	/* heading row */
 	if(t->show & Showhead){
-		Image *hbg = ttkcolorx(tk, style, st, "-background", TkCbackgnd);
+		Image *hbg = ttkcolorx(tk, style, st, "-background", TkCbackgnddark);
 		row.min.x = po.x + Tvinset;
 		row.min.y = po.y + Tvinset;
 		row.max.x = po.x + tk->act.width - Tvinset;

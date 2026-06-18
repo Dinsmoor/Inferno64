@@ -40,6 +40,32 @@ env, reopens the font if it changed, and marks the tree dirty).
 > but text that reports a colour (`theme get`) must mask `& 0xffffffff` or it
 > prints 16 hex digits.
 
+### ttk widgets
+
+The ttk widget set (`ttk::button`, `ttk::treeview`, `ttk::notebook`, …) themes
+through the same `TkEnv` palette as the classic widgets, so the `theme` command
+re-colours it with no extra work: a ttk painter resolves each colour with
+`ttkcolorx(tk, style, state, "-opt", fallbackslot)` (`libtk/ttk.c`), which first
+consults any `ttk::style configure/map` override for that style+state and
+otherwise falls back to a themed env slot. Because the slots are read at draw
+time and `theme reapply` rebuilds the env in place and marks the tree dirty, ttk
+widgets re-theme live exactly like classic ones. An explicit `ttk::style
+configure` value is the ttk analogue of a per-widget `-bg`/`-foreground`: it
+overrides the theme for that style and is preserved across a re-theme.
+
+A fill that covers a whole surface uses the plain background slot `TkCbackgnd`,
+never the light shade `TkCbackgndlght`. `tkrgbashade()` (`libtk/utils.c`) shifts
+only the HSV *value*, preserving hue and saturation, so the "light" shade of a
+saturated themed background is a *brighter* version of the same colour. Filling a
+large area (a `ttk::treeview` body, a selected `ttk::notebook` tab) with it makes
+that area glow in-hue on a coloured desktop theme. So content surfaces fall back
+to `TkCbackgnd` (matching the classic `text`/`entry`/`listbox` default), recessed
+chrome (a treeview heading band, an unselected notebook tab) falls back to the
+dark shade `TkCbackgnddark`, and the light shade is reserved for thin bevel
+highlights (separator, sizegrip, paned sash) and small input fields (the
+check/radio indicator), where a single brighter pixel-line reads correctly on
+every theme.
+
 ### The window titlebar
 
 The window titlebar (`appl/lib/titlebar.b`) sets its colours explicitly (it is
