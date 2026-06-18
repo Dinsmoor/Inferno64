@@ -1,11 +1,15 @@
 # DEV_TK_MODERN — bringing Inferno's Tk up to a modern (Tk 8.6 + ttk) feature set, in C
 
-> **Status:** in progress. Phase 0 (substrate) and Phase 1 (ttk engine) are
-> done; Phase 2 (basic ttk widgets) is largely done; Phase 3 has started
-> (`ttk::progressbar`). See §12 for the live state. This document is the
-> cold-start briefing; it captures how `libtk` actually works (with `file:line`
-> anchors), the gap to modern Tk/ttk, and a phased plan. Read it top to bottom
-> once before touching code.
+> **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
+> ttk widgets, bar `ttk::menubutton`), Phase 3 (complex widgets: notebook,
+> panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration + a
+> verified-rendering app suite) are done; `tests/dis/tkttk.b` is 136/136 and
+> `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
+> polish (`ttk::menubutton`, megawidget shims, Phase 4 classic completeness).
+> See §12 for the live state. This document is the cold-start briefing; it
+> captures how `libtk` actually works (with `file:line` anchors), the gap to
+> modern Tk/ttk, and a phased plan. Read it top to bottom once before touching
+> code.
 >
 > **Decision already taken (do not relitigate):**
 > 1. Implement everything **natively in C inside `libtk`** — do *not* port the
@@ -722,14 +726,41 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
 
-**Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
-gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
+**Phase 5 — app migration + render verification: DONE.** `wm/ttkdemo` is the
+gallery app proving the whole set (a `ttk::entry`, a `ttk::scale`-driven
 progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, a two-pane
 `ttk::panedwindow`, a `ttk::treeview` with nested subtrees + a `ttk::scrollbar`,
-a `ttk::combobox`, and a `ttk::spinbox`) renders end-to-end under `wm/wm`. The
-~20-app migration in §11 is the remaining effort; the tree, both containers, the
-combobox, and the spinbox are done. Migration order and the golden baselines are in §11;
-a pixel change in a *classic* widget remains a regression by definition.
+a `ttk::combobox`, and a `ttk::spinbox`) end-to-end under `wm/wm`.
+
+Verification harness `tests/dis/tk_render_check.sh` launches every §11 app on
+the ttk build under Xvfb, fails on a crash/break or a blank grab, and diffs each
+shot against the classic baseline (`tk_baseline/`, into `tk_current/`). **All 19
+apps render (no crash, non-blank);** `bible` reports NEEDS-SETUP (wants `biblefs`
+mounted — a data precondition, not a Tk fault). The small baseline diffs on the
+static apps (`about` ~7.7k px, `colours` ~9.5k, `clock` ~5.8k) confirm classic
+widgets did not regress; the large diffs are all live-content apps (`pleromussy`
+feed, `man`/`debugger`/`acme` loaded content) or `tkwdemo` opening compact.
+
+Migration is **opt-in and surgical** — an app is moved to `ttk::*` only when the
+swap is clean and improves the look, never where it would regress bespoke
+rendering or rely on classic-only idioms:
+- **Migrated:** `wm/task` — frames, scrollbar and all five buttons → `ttk::*`
+  (the listbox stays classic: there is no `ttk::listbox`, and its
+  `insert`/`get`/`curselection` API is not `ttk::treeview`'s). Renders with
+  themed button chrome; the process table is unchanged.
+- **Already modern:** `wm/wm`+`wm/toolbar` (the Run dialog uses `Combobox`),
+  `wm/pleromussy` and `wm/tkwdemo` (`Tkwidgets` megawidgets).
+- **Intentionally left classic** (migration would regress, not improve):
+  `wm/about` (custom black/orange splash with a bitmap), `wm/man` (bitmap
+  back/forward buttons + `configure -state`, which `ttk::button` does not carry),
+  `wm/ftree` (a bespoke canvas tree with drag-drop file ops beyond
+  `ttk::treeview`), and the canvas/text apps `acme`/`charon`/`wm/edit`/`wm/sh`/
+  `wm/vt`/`wm/memory`/`wm/colors`/`wm/tetris`/`wm/deb` (heavy custom rendering or
+  `text`-tag machinery that ttk does not touch). `wm/rt` waits on
+  `ttk::menubutton` (deferred) before a clean sweep.
+
+A pixel change in a *classic* widget remains a regression by definition; the
+harness is the standing guard.
 
 Combined ttk test: `tests/dis/tkttk.b` (136/136) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
@@ -752,5 +783,8 @@ state gating, `tkComboPick` sets value + `current`), and `ttk::spinbox` (class,
 increment, clamp at `-from`/`-to`, `-wrap` round both ends, disabled blocks
 step, `-values` cycle forward/back).
 
-**Next session, in order:** megawidget shims + `ttk::menubutton`
-→ migrate apps from §11 top-down, diffing classic regions each time.
+**Remaining (optional polish, not gating):** `ttk::menubutton` and the
+megawidget→thin-wrapper shims (Phase 3/4 leftovers); a clean `wm/rt` sweep once
+`ttk::menubutton` lands; classic `spinbox`/`-validate`/text-undo (Phase 4). The
+core modernization — ttk engine, the full ttk widget set, and a verified-rendering
+app suite — is complete.

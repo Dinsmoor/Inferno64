@@ -37,15 +37,15 @@ Wm: module
 };
 
 task_cfg := array[] of {
-	"frame .fl",
-	"scrollbar .fl.scroll -command {.fl.l yview}",
+	"ttk::frame .fl",
+	"ttk::scrollbar .fl.scroll -orient vertical -command {.fl.l yview}",
 	"listbox .fl.l -width 40w -yscrollcommand {.fl.scroll set}",
-	"frame .b",
-	"button .b.ref -text Refresh -command {send cmd r}",
-	"button .b.deb -text Debug -command {send cmd d}",
-	"button .b.files -text Files -command {send cmd f}",
-	"button .b.kill -text Kill -command {send cmd k}",
-	"button .b.killg -text {Kill Group} -command {send cmd kg}",
+	"ttk::frame .b",
+	"ttk::button .b.ref -text Refresh -command {send cmd r}",
+	"ttk::button .b.deb -text Debug -command {send cmd d}",
+	"ttk::button .b.files -text Files -command {send cmd f}",
+	"ttk::button .b.kill -text Kill -command {send cmd k}",
+	"ttk::button .b.killg -text {Kill Group} -command {send cmd kg}",
 	"pack .b.ref .b.deb .b.files .b.kill .b.killg -side left -padx 2 -pady 2",
 	"pack .b -fill x",
 	"pack .fl.scroll -side left -fill y",
