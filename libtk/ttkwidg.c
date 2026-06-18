@@ -56,6 +56,19 @@ static TkOption ttkbuttonopts[] =
 	nil
 };
 
+static TkOption ttkmenubuttonopts[] =
+{
+	"text",		OPTtext,	O(TkTtk, text),		nil,
+	"textvariable",	OPTtext,	O(TkTtk, textvar),	nil,
+	"style",	OPTtext,	O(TkTtk, style),	nil,
+	"menu",		OPTtext,	O(TkTtk, menu),		nil,
+	"underline",	OPTdist,	O(TkTtk, ul),		nil,
+	"anchor",	OPTflag,	O(TkTtk, anchor),	tkanchor,
+	"justify",	OPTstab,	O(TkTtk, justify),	tkjustify,
+	"width",	OPTdist,	O(TkTtk, width),	nil,
+	nil
+};
+
 static TkOption ttkcheckopts[] =
 {
 	"text",		OPTtext,	O(TkTtk, text),		nil,
@@ -113,6 +126,15 @@ static TkEbind ttkbb[] =
 	{TkKey,		"%W tkttkKey 0x%K"},
 };
 
+/* a menubutton posts its menu on press rather than invoking a command */
+static TkEbind ttkmbb[] =
+{
+	{TkEnter,	"%W tkttkEnter"},
+	{TkLeave,	"%W tkttkLeave"},
+	{TkButton1P,	"%W tkttkMbpress"},
+	{TkKey,		"%W tkttkMbkey 0x%K"},
+};
+
 /* ---- helpers ---- */
 
 static char*
@@ -128,6 +150,15 @@ hasindicator(Tk *tk)
 	return tk->type == TKttkcheckbutton || tk->type == TKttkradiobutton;
 }
 
+/* width of the down-arrow column drawn on a menubutton's right edge */
+static int
+mbarrowwidth(Tk *tk)
+{
+	if(tk->type != TKttkmenubutton)
+		return 0;
+	return tk->env->font->height;
+}
+
 void
 ttksize(Tk *tk)
 {
@@ -141,6 +172,7 @@ ttksize(Tk *tk)
 
 	switch(tk->type){
 	case TKttkbutton:
+	case TKttkmenubutton:
 		padx = Btnpadx; pady = Btnpady; break;
 	case TKttkcheckbutton:
 	case TKttkradiobutton:
@@ -167,6 +199,7 @@ ttksize(Tk *tk)
 
 	w = tw + 2*padx;
 	h = th + 2*pady;
+	w += mbarrowwidth(tk);
 	if(hasindicator(tk)){
 		w += Ind + Indgap;
 		if(h < Ind)
@@ -228,10 +261,10 @@ ttkdraw(Tk *tk, Point orig)
 	TkTtk *d = TKobj(TkTtk, tk);
 	TkEnv *e = tk->env;
 	Image *dst, *i, *ct;
-	Rectangle r, mainr;
+	Rectangle r, mainr, arrowr;
 	Point p, u, sz;
 	char *text;
-	int dx, dy, padx, pady;
+	int dx, dy, padx, pady, aw;
 
 	dst = tkimageof(tk);
 	if(dst == nil)
@@ -247,15 +280,24 @@ ttkdraw(Tk *tk, Point orig)
 		return nil;
 
 	ttkfillbg(tk, i, r, d->state);
-	if(tk->type == TKttkbutton)
+	if(tk->type == TKttkbutton || tk->type == TKttkmenubutton)
 		ttkborder(tk, i, r, d->state);
 
 	mainr = insetrect(r, tk->borderwidth + tk->highlightwidth);
 	switch(tk->type){
 	case TKttkbutton:
+	case TKttkmenubutton:
 		padx = Btnpadx; pady = Btnpady; break;
 	default:
 		padx = Lblpad; pady = Lblpad; break;
+	}
+
+	/* carve the down-arrow column off the right edge of a menubutton */
+	arrowr = mainr;
+	aw = mbarrowwidth(tk);
+	if(aw > 0){
+		arrowr.min.x = mainr.max.x - aw;
+		mainr.max.x = arrowr.min.x;
 	}
 
 	p = mainr.min;
@@ -287,12 +329,28 @@ ttkdraw(Tk *tk, Point orig)
 			tp.y += dy/2;
 		else if(d->anchor & Tksouth)
 			tp.y += dy;
-		if(tk->type == TKttkbutton && (d->state & Spressed)){
+		if((tk->type == TKttkbutton || tk->type == TKttkmenubutton) && (d->state & Spressed)){
 			tp.x++;
 			tp.y++;
 		}
 		ct = tkgc(e, fgslot(d->state));
 		tkdrawstring(tk, i, tp, text, d->ul, ct, d->justify);
+	}
+
+	/* the menubutton's down-arrow indicator */
+	if(aw > 0){
+		Point a[3];
+		int cx, cy, asz;
+		ct = tkgc(e, fgslot(d->state));
+		asz = e->font->height/3;
+		if(asz < 2)
+			asz = 2;
+		cx = (arrowr.min.x + arrowr.max.x)/2;
+		cy = (arrowr.min.y + arrowr.max.y)/2;
+		a[0] = Pt(cx - asz, cy - asz/2);
+		a[1] = Pt(cx + asz, cy - asz/2);
+		a[2] = Pt(cx, cy + asz/2 + 1);
+		fillpoly(i, a, 3, ~0, ct, a[0]);
 	}
 
 	ttkfocusring(tk, i, r, d->state);
@@ -527,6 +585,7 @@ ttkmake(TkTop *t, int type, char *arg, char **ret, TkOption *opts,
 
 	switch(type){
 	case TKttkbutton:
+	case TKttkmenubutton:
 		tk->borderwidth = 1;
 		tk->highlightwidth = 1;
 		tk->flag |= Tktakefocus;
@@ -629,6 +688,7 @@ ttkconf(Tk *tk, char *arg, char **val, TkOption *opts)
 
 WRAP(ttklbl, ttklabelopts)
 WRAP(ttkbtn, ttkbuttonopts)
+WRAP(ttkmb, ttkmenubuttonopts)
 WRAP(ttkchk, ttkcheckopts)
 WRAP(ttkrad, ttkradioopts)
 WRAP(ttkfrm, ttkframeopts)
@@ -737,6 +797,33 @@ ttkcmdkey(Tk *tk, char *arg, char **val)
 	return nil;
 }
 
+/* menubutton: press posts (or unposts) the attached menu */
+static char*
+ttkcmdmbpress(Tk *tk, char *arg, char **val)
+{
+	TkTtk *d = TKobj(TkTtk, tk);
+	USED(arg); USED(val);
+	if(d->state & Sdisabled)
+		return nil;
+	ttksetstate(tk, d->state | Spressed);
+	return tkttkpostmenu(tk, d->menu);
+}
+
+static char*
+ttkcmdmbkey(Tk *tk, char *arg, char **val)
+{
+	int key;
+	TkTtk *d = TKobj(TkTtk, tk);
+
+	USED(val);
+	if(d->state & Sdisabled)
+		return nil;
+	key = strtol(arg, nil, 0);
+	if(key == '\n' || key == ' ' || key == '\r')
+		return tkttkpostmenu(tk, d->menu);
+	return nil;
+}
+
 /* check/radio explicit select/deselect (compat with classic api) */
 static char*
 ttkselect(Tk *tk, char *arg, char **val)
@@ -783,6 +870,12 @@ char*
 tkttkbutton(TkTop *t, char *arg, char **ret)
 {
 	return ttkmake(t, TKttkbutton, arg, ret, ttkbuttonopts, ttkbb, nelem(ttkbb));
+}
+
+char*
+tkttkmenubutton(TkTop *t, char *arg, char **ret)
+{
+	return ttkmake(t, TKttkmenubutton, arg, ret, ttkmenubuttonopts, ttkmbb, nelem(ttkmbb));
 }
 
 char*
@@ -905,6 +998,21 @@ static TkCmdtab ttkbuttoncmd[] =
 	nil
 };
 
+static TkCmdtab ttkmenubuttoncmd[] =
+{
+	"cget",		ttkmbcget,
+	"configure",	ttkmbconf,
+	"instate",	ttkinstatecmd,
+	"state",	ttkstatecmd,
+	"style",	ttkstylecmd,
+	"identify",	ttkidentcmd,
+	"tkttkEnter",	ttkcmdenter,
+	"tkttkLeave",	ttkcmdleave,
+	"tkttkMbpress",	ttkcmdmbpress,
+	"tkttkMbkey",	ttkcmdmbkey,
+	nil
+};
+
 static TkCmdtab ttkcheckcmd[] =
 {
 	"cget",		ttkchkcget,
@@ -986,6 +1094,11 @@ TkMethod ttklabelmethod = {
 
 TkMethod ttkbuttonmethod = {
 	"TButton", ttkbuttoncmd, ttkfree, ttkdraw,
+	nil, nil, nil, nil, nil, nil, nil, nil, ttkvarchanged
+};
+
+TkMethod ttkmenubuttonmethod = {
+	"TMenubutton", ttkmenubuttoncmd, ttkfree, ttkdraw,
 	nil, nil, nil, nil, nil, nil, nil, nil, ttkvarchanged
 };
 

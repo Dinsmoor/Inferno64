@@ -225,6 +225,7 @@ classstyle(int type)
 	case TKttktreeview:	return "Treeview";
 	case TKttkcombobox:	return "TCombobox";
 	case TKttkspinbox:	return "TSpinbox";
+	case TKttkmenubutton:	return "TMenubutton";
 	}
 	return "TFrame";
 }
@@ -356,6 +357,7 @@ ttkfreedata(Tk *tk)
 	free(d->style);
 	free(d->text);
 	free(d->command);
+	free(d->menu);
 	free(d->value);
 	free(d->onvalue);
 	free(d->offvalue);

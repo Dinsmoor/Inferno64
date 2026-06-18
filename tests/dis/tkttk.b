@@ -427,6 +427,28 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	cmd(".sv tkSpinStep -1");
 	ok("spinbox values step back", cmd(".sv get") == "banana");
 
+	# ---- 21. ttk::menubutton ----
+	# (the live post path needs a wm to return the window image, like the
+	#  combobox dropdown, so only the data model + state are unit-tested here)
+	cmd("menu .m");
+	cmd(".m add command -label One");
+	cmd(".m add command -label Two");
+	cmd("ttk::menubutton .mb -text Actions -menu .m");
+	cmd("pack .mb");
+	ok("menubutton class TMenubutton", cmd("winfo class .mb") == "TMenubutton");
+	ok("menubutton style default", cmd(".mb style") == "TMenubutton");
+	ok("menubutton -text cget", cmd(".mb cget -text") == "Actions");
+	ok("menubutton -menu cget", cmd(".mb cget -menu") == ".m");
+	ok("menubutton starts empty state", cmd(".mb state") == "");
+	cmd(".mb configure -text Menu");
+	ok("menubutton reconfigure -text", cmd(".mb cget -text") == "Menu");
+	cmd(".mb state disabled");
+	ok("menubutton instate disabled", cmd(".mb instate disabled") == "1");
+	# pressing while disabled is a clean no-op (returns before any wm request)
+	ok("disabled menubutton press is a no-op", cmd(".mb tkttkMbpress") == "");
+	cmd(".mb state {!disabled}");
+	ok("menubutton re-enabled", cmd(".mb instate disabled") == "0");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

@@ -61,6 +61,7 @@ static struct Cmd cmdmain[] =
 	"ttk::frame",	tkttkframe,
 	"ttk::label",	tkttklabel,
 	"ttk::labelframe",	tkttklabelframe,
+	"ttk::menubutton",	tkttkmenubutton,
 	"ttk::notebook",	tkttknotebook,
 	"ttk::panedwindow",	tkttkpanedwindow,
 	"ttk::progressbar",	tkttkprogressbar,

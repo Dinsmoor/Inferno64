@@ -198,6 +198,7 @@ TkMethod *tkmethod[] =
 	&ttktreeviewmethod,	/* TKttktreeview */
 	&ttkcomboboxmethod,	/* TKttkcombobox */
 	&ttkspinboxmethod,	/* TKttkspinbox */
+	&ttkmenubuttonmethod,	/* TKttkmenubutton */
 };
 
 char TkNomem[]	= "!out of memory";

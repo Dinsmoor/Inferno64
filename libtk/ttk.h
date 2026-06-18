@@ -41,6 +41,7 @@ struct TkTtk
 	char*	onvalue;	/* -onvalue (check) */
 	char*	offvalue;	/* -offvalue (check) */
 	char*	value;		/* -value (radio) */
+	char*	menu;		/* -menu (menubutton: a named TKmenu) */
 	int	check;		/* check/radio currently selected */
 	int	ul;		/* -underline */
 	int	anchor;		/* -anchor (Tk* anchor bits) */

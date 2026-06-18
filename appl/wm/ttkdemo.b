@@ -54,6 +54,11 @@ cfg := array[] of {
 	".modern.cb set green",
 	"ttk::spinbox .modern.sp -from 0 -to 100 -increment 5",
 	".modern.sp set 25",
+	# a menubutton that posts a small named menu
+	"menu .modern.actions",
+	".modern.actions add command -label {Say hi} -command {.modern.l configure -text hi!}",
+	".modern.actions add command -label {Reset} -command {.modern.l configure -text Label}",
+	"ttk::menubutton .modern.mb -text Actions -menu .modern.actions",
 	# a themed listbox + ttk::scrollbar, wired the usual two-way
 	"frame .modern.lbf",
 	"listbox .modern.lbf.l -height 4 -width 12 -yscrollcommand {.modern.lbf.sb set}",
@@ -61,7 +66,7 @@ cfg := array[] of {
 	".modern.lbf.l insert end one two three four five six",
 	"pack .modern.lbf.sb -side right -fill y",
 	"pack .modern.lbf.l -side left -fill both -expand 1",
-	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s .modern.e .modern.cb .modern.sp .modern.lbf -fill x",
+	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s .modern.e .modern.cb .modern.sp .modern.mb .modern.lbf -fill x",
 
 	# progress group
 	"ttk::labelframe .lf -text {Progress}",

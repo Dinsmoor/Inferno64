@@ -60,6 +60,7 @@ enum
 	TKttktreeview,
 	TKttkcombobox,
 	TKttkspinbox,
+	TKttkmenubutton,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -736,6 +737,7 @@ extern	char*	tkttkpanedwindow(TkTop*, char*, char**);
 extern	char*	tkttktreeview(TkTop*, char*, char**);
 extern	char*	tkttkcombobox(TkTop*, char*, char**);
 extern	char*	tkttkspinbox(TkTop*, char*, char**);
+extern	char*	tkttkmenubutton(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -755,6 +757,7 @@ extern	TkMethod	ttkpanedwindowmethod;
 extern	TkMethod	ttktreeviewmethod;
 extern	TkMethod	ttkcomboboxmethod;
 extern	TkMethod	ttkspinboxmethod;
+extern	TkMethod	ttkmenubuttonmethod;
 
 extern	TkMethod	*tkmethod[];
 
@@ -845,6 +848,7 @@ extern	int		tkhasmanagedslave(Tk*);
 extern	char*		tkvirtbind(TkTop*, Tk*, char*, char*, int);
 extern	void		tkvirtgen(TkTop*, Tk*, char*);
 extern	char*		tkpostlist(Tk*, char**, int, int, char*);
+extern	char*		tkttkpostmenu(Tk*, char*);
 extern	void		tkfreevirt(Tk*);
 extern	void		tksetslavereq(Tk*, TkGeom);
 extern	int		tkisslave(Tk*, Tk*);

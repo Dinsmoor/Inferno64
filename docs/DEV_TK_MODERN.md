@@ -1,11 +1,11 @@
 # DEV_TK_MODERN — bringing Inferno's Tk up to a modern (Tk 8.6 + ttk) feature set, in C
 
 > **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
-> ttk widgets, bar `ttk::menubutton`), Phase 3 (complex widgets: notebook,
-> panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration + a
-> verified-rendering app suite) are done; `tests/dis/tkttk.b` is 136/136 and
+> ttk widgets, now including `ttk::menubutton`), Phase 3 (complex widgets:
+> notebook, panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration
+> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 145/145 and
 > `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
-> polish (`ttk::menubutton`, megawidget shims, Phase 4 classic completeness).
+> polish (megawidget shims, Phase 4 classic completeness).
 > See §12 for the live state. This document is the cold-start briefing; it
 > captures how `libtk` actually works (with `file:line` anchors), the gap to
 > modern Tk/ttk, and a phased plan. Read it top to bottom once before touching
@@ -615,9 +615,15 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   themed background and paints three bevelled diagonal grip lines in the
   bottom-right corner. Carries `cget`/`configure`/`state`/`instate`/`style`/
   `identify`. Draw-only for now (no drag-to-resize binding yet).
-- **Not yet: `ttk::menubutton`** (the classic core lives in the shared
-  `TkLabel` struct used by label/button/choicebutton, so it needs either a
-  careful shared-struct extension or a fresh menu-posting widget — deferred).
+- `ttk::menubutton` (in `ttkwidg.c`): a fresh `TkTtk`-backed widget (class
+  `TMenubutton`) drawn like a `TButton` with a down-arrow column carved off the
+  right edge. A `-menu` option names a `TKmenu`; pressing posts it directly
+  below the widget — or unposts it if already mapped — via the exported
+  `tkttkpostmenu` helper in `menus.c`, which mirrors the classic non-choice
+  `tkMBpress` path. The named menu is a real window, so its wm image routes by
+  its own name with no choice-menu redirect in `libinterp/tk.c`. Carries
+  `cget`/`configure`/`state`/`instate`/`style`/`identify` plus the
+  `tkttkMbpress`/`tkttkMbkey` press/keyboard handlers.
 
 **Phase 3 — complex widgets: started.**
 - Done: `ttk::progressbar` (`ttkprog.c`) — determinate (`-value/-maximum/
@@ -721,7 +727,7 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   keyboard Up/Down step via a spinbox-only `bspin[]` binding layered on in the
   constructor. `set`/`get` reuse the combobox/entry core. Verified rendering and
   stepping (numeric clamp/wrap, list cycle) under `wm/wm`.
-- **Not yet:** the megawidget shims (§4) and `ttk::menubutton`.
+- **Not yet:** the megawidget shims (§4).
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
@@ -756,13 +762,13 @@ rendering or rely on classic-only idioms:
   `wm/ftree` (a bespoke canvas tree with drag-drop file ops beyond
   `ttk::treeview`), and the canvas/text apps `acme`/`charon`/`wm/edit`/`wm/sh`/
   `wm/vt`/`wm/memory`/`wm/colors`/`wm/tetris`/`wm/deb` (heavy custom rendering or
-  `text`-tag machinery that ttk does not touch). `wm/rt` waits on
-  `ttk::menubutton` (deferred) before a clean sweep.
+  `text`-tag machinery that ttk does not touch). `wm/rt` is a candidate for a
+  `ttk::menubutton`/`ttk::*` sweep now that the widget exists.
 
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
 
-Combined ttk test: `tests/dis/tkttk.b` (136/136) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (145/145) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -781,10 +787,12 @@ known/unknown value, `current` tracks/clears, editable insert, `readonly`
 state gating, `tkComboPick` sets value + `current`), and `ttk::spinbox` (class,
 `-style`, `-from`/`-increment` cget, `set`/`get`, `tkSpinStep` up/down by
 increment, clamp at `-from`/`-to`, `-wrap` round both ends, disabled blocks
-step, `-values` cycle forward/back).
+step, `-values` cycle forward/back), and `ttk::menubutton` (class, `-style`,
+`-text`/`-menu` cget, reconfigure, `state`/`instate` disabled, disabled-press
+no-op; the live post is verified visually under `wm/wm`, like the combobox
+dropdown).
 
-**Remaining (optional polish, not gating):** `ttk::menubutton` and the
-megawidget→thin-wrapper shims (Phase 3/4 leftovers); a clean `wm/rt` sweep once
-`ttk::menubutton` lands; classic `spinbox`/`-validate`/text-undo (Phase 4). The
-core modernization — ttk engine, the full ttk widget set, and a verified-rendering
-app suite — is complete.
+**Remaining (optional polish, not gating):** the megawidget→thin-wrapper shims
+(Phase 3/4 leftovers); a clean `wm/rt` `ttk::*` sweep; classic
+`spinbox`/`-validate`/text-undo (Phase 4). The core modernization — ttk engine,
+the full ttk widget set, and a verified-rendering app suite — is complete.

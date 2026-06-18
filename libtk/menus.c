@@ -479,6 +479,31 @@ tkpostlist(Tk *anchor, char **values, int n, int cur, char *pickverb)
 	return nil;
 }
 
+/*
+ * Post the existing named TKmenu `menuname' directly below `anchor'
+ * (a ttk::menubutton), or unpost it if already mapped.  Mirrors the
+ * classic non-choice tkMBpress path; the menu is a real named window,
+ * so its wm image routes by its own name with no choice-redirect.
+ */
+char*
+tkttkpostmenu(Tk *anchor, char *menuname)
+{
+	Tk *menu;
+	Point g;
+
+	if(menuname == nil || menuname[0] == '\0')
+		return nil;
+	menu = tklook(anchor->env->top, menuname, 0);
+	if(menu == nil || menu->type != TKmenu)
+		return TkBadwp;
+	if(menu->flag & Tkmapped){
+		tkunmapmenu(menu);
+		return nil;
+	}
+	g = tkposn(anchor);
+	return tkmpost(menu, g.x, g.y, 0, anchor->act.height + 2*anchor->borderwidth, 1);
+}
+
 static char*
 tkMBpress(Tk *tk, char *arg, char **val)
 {
