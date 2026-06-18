@@ -1,0 +1,147 @@
+implement TkTtk;
+
+#
+# Headless functional test for the ttk parallel widget set and the
+# ttk::style engine.  Run under a graphical emu (Xvfb).
+#
+
+include "sys.m";
+	sys: Sys;
+include "draw.m";
+	draw: Draw;
+include "tk.m";
+	tk: Tk;
+include "tkclient.m";
+	tkclient: Tkclient;
+include "wmclient.m";
+	wmclient: Wmclient;
+
+TkTtk: module
+{
+	init: fn(ctxt: ref Draw->Context, argv: list of string);
+};
+
+top: ref Tk->Toplevel;
+mypid := 0;
+nok := 0;
+nfail := 0;
+
+ok(desc: string, cond: int)
+{
+	if(cond){ nok++; sys->print("ok - %s\n", desc); }
+	else { nfail++; sys->print("not ok - %s\n", desc); }
+}
+
+cmd(s: string): string
+{
+	return tk->cmd(top, s);
+}
+
+init(ctxt: ref Draw->Context, nil: list of string)
+{
+	sys = load Sys Sys->PATH;
+	draw = load Draw Draw->PATH;
+	tk = load Tk Tk->PATH;
+	tkclient = load Tkclient Tkclient->PATH;
+	wmclient = load Wmclient Wmclient->PATH;
+	mypid = sys->pctl(Sys->NEWPGRP, nil);
+	wmclient->init();
+	tkclient->init();
+	if(ctxt == nil)
+		ctxt = wmclient->makedrawcontext();
+	if(ctxt == nil){
+		sys->fprint(sys->fildes(2), "tkttk: no window context\n");
+		raise "fail:no ctxt";
+	}
+	(top, nil) = tkclient->toplevel(ctxt, "320x260", "tkttk", Tkclient->Appl);
+
+	# build the widget set inside a ttk frame
+	cmd("ttk::frame .f");
+	cmd("ttk::label .f.l -text Hello");
+	cmd("ttk::button .f.b -text Go -command {.f.l configure -text clicked}");
+	cmd("ttk::checkbutton .f.c -text Check -variable cv -onvalue on -offvalue off");
+	cmd("ttk::radiobutton .f.r1 -text A -variable rv -value a");
+	cmd("ttk::radiobutton .f.r2 -text B -variable rv -value b");
+	cmd("ttk::separator .f.s -orient horizontal");
+	cmd("ttk::label .f.out -text -");
+	cmd("pack .f.l .f.b .f.c .f.r1 .f.r2 .f.s .f.out");
+	cmd("pack .f");
+	cmd("update");
+
+	# 1. classes
+	ok("frame class TFrame", cmd("winfo class .f") == "TFrame");
+	ok("label class TLabel", cmd("winfo class .f.l") == "TLabel");
+	ok("button class TButton", cmd("winfo class .f.b") == "TButton");
+	ok("check class TCheckbutton", cmd("winfo class .f.c") == "TCheckbutton");
+	ok("radio class TRadiobutton", cmd("winfo class .f.r1") == "TRadiobutton");
+	ok("separator class TSeparator", cmd("winfo class .f.s") == "TSeparator");
+
+	# 2. button invoke runs -command
+	cmd(".f.b invoke");
+	cmd("update");
+	ok("button invoke fired command", cmd(".f.l cget -text") == "clicked");
+
+	# 3. state machine
+	ok("starts in empty state", cmd(".f.b state") == "");
+	cmd(".f.b state disabled");
+	ok("instate disabled true", cmd(".f.b instate disabled") == "1");
+	ok("instate !disabled false", cmd(".f.b instate {!disabled}") == "0");
+	ok("state lists disabled", cmd(".f.b state") == "disabled");
+	# disabled button does not invoke
+	cmd(".f.l configure -text reset");
+	cmd(".f.b invoke");
+	ok("disabled button ignores invoke", cmd(".f.l cget -text") == "reset");
+	cmd(".f.b state {!disabled}");
+	ok("re-enabled", cmd(".f.b instate disabled") == "0");
+
+	# 4. instate with a script
+	cmd(".f.out configure -text no");
+	cmd(".f.b instate {!disabled} {.f.out configure -text yes}");
+	ok("instate runs script when matching", cmd(".f.out cget -text") == "yes");
+
+	# 5. checkbutton toggles variable + selected state
+	ok("check starts unselected", cmd(".f.c instate selected") == "0");
+	cmd(".f.c invoke");
+	cmd("update");
+	ok("check variable set on", cmd("variable cv") == "on");
+	ok("check now selected", cmd(".f.c instate selected") == "1");
+	cmd(".f.c invoke");
+	ok("check variable set off", cmd("variable cv") == "off");
+	ok("check now unselected", cmd(".f.c instate selected") == "0");
+
+	# 6. radiobutton sets shared variable
+	cmd(".f.r2 invoke");
+	ok("radio sets variable", cmd("variable rv") == "b");
+	cmd(".f.r1 invoke");
+	ok("radio re-sets variable", cmd("variable rv") == "a");
+
+	# 7. ttk::style configure + lookup
+	cmd("ttk::style configure TButton -foreground #ff0000");
+	ok("style lookup returns configured value", cmd("ttk::style lookup TButton -foreground") == "#ff0000");
+
+	# 8. ttk::style map (state-specific value)
+	cmd("ttk::style map TButton -foreground {disabled #808080 active #00ff00}");
+	ok("style map disabled", cmd("ttk::style lookup TButton -foreground disabled") == "#808080");
+	ok("style map active", cmd("ttk::style lookup TButton -foreground active") == "#00ff00");
+	ok("style map falls back to configure", cmd("ttk::style lookup TButton -foreground {}") == "#ff0000");
+
+	# 9. style inheritance via dotted prefix
+	cmd("ttk::style configure Danger.TButton -background #aa0000");
+	ok("dotted style own option", cmd("ttk::style lookup Danger.TButton -background") == "#aa0000");
+	ok("dotted style inherits parent", cmd("ttk::style lookup Danger.TButton -foreground") == "#ff0000");
+
+	sys->print("1..%d\n", nok+nfail);
+	if(nfail == 0)
+		sys->print("# all %d ttk tests passed\n", nok);
+	else
+		sys->print("# %d FAILED\n", nfail);
+	shutdown();
+	exit;
+}
+
+shutdown()
+{
+	fd := sys->open("#p/" + string mypid + "/ctl", Sys->OWRITE);
+	if(fd != nil)
+		sys->fprint(fd, "killgrp");
+}

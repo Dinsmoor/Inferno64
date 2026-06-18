@@ -181,6 +181,12 @@ TkMethod *tkmethod[] =
 	&scalemethod,	/* TKscale */
 	&panelmethod,	/* TKpanel */
 	&choicebuttonmethod,	/*TKchoicebutton */
+	&ttkframemethod,	/* TKttkframe */
+	&ttklabelmethod,	/* TKttklabel */
+	&ttkbuttonmethod,	/* TKttkbutton */
+	&ttkcheckbuttonmethod,	/* TKttkcheckbutton */
+	&ttkradiobuttonmethod,	/* TKttkradiobutton */
+	&ttkseparatormethod,	/* TKttkseparator */
 };
 
 char TkNomem[]	= "!out of memory";

@@ -43,6 +43,12 @@ enum
 	TKscale,
 	TKpanel,
 	TKchoicebutton,
+	TKttkframe,		/* ttk parallel widget set */
+	TKttklabel,
+	TKttkbutton,
+	TKttkcheckbutton,
+	TKttkradiobutton,
+	TKttkseparator,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -649,6 +655,7 @@ struct TkTop
 	TkImg*		imgs;
 	TkPanelimage*	panelimages;
 	TkVirt*		virts;			/* virtual-event bindings (event.c) */
+	void*		ttk;			/* ttk style table (Ttkstyle list, ttk.c) */
 	TkAction*	binds[TKwidgets];
 	int		debug;
 	int		execdepth;
@@ -699,6 +706,22 @@ extern	char*	tktext(TkTop*, char*, char**);
 extern	char*	tkupdatecmd(TkTop*, char*, char**);
 extern	char*	tkvariable(TkTop*, char*, char**);
 extern	char*	tkwinfo(TkTop*, char*, char**);
+
+/* ttk parallel widget set (ttkwidg.c / ttk.c) */
+extern	char*	tkttkframe(TkTop*, char*, char**);
+extern	char*	tkttklabel(TkTop*, char*, char**);
+extern	char*	tkttkbutton(TkTop*, char*, char**);
+extern	char*	tkttkcheckbutton(TkTop*, char*, char**);
+extern	char*	tkttkradiobutton(TkTop*, char*, char**);
+extern	char*	tkttkseparator(TkTop*, char*, char**);
+extern	char*	tkttkstyle(TkTop*, char*, char**);
+
+extern	TkMethod	ttkframemethod;
+extern	TkMethod	ttklabelmethod;
+extern	TkMethod	ttkbuttonmethod;
+extern	TkMethod	ttkcheckbuttonmethod;
+extern	TkMethod	ttkradiobuttonmethod;
+extern	TkMethod	ttkseparatormethod;
 
 extern	TkMethod	*tkmethod[];
 
@@ -871,6 +894,7 @@ extern	void		tkcancelrepeat(Tk*);
 extern	void		tkblink(Tk*, void(*)(Tk*, int));
 extern	void		tkblinkreset(Tk*);
 extern	void		tkafterfreetop(TkTop*);
+extern	void		ttkfreetop(TkTop*);
 extern	char*	tkname(Tk*);
 
 /* General - windw.c */

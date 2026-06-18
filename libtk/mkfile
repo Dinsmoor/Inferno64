@@ -13,6 +13,8 @@ OFILES=\
 	panel.$O\
 	parse.$O\
 	place.$O\
+	ttk.$O\
+	ttkwidg.$O\
 	utils.$O\
 	varbl.$O\
 	windw.$O\
