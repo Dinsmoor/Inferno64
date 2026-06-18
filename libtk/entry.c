@@ -3,6 +3,7 @@
 #include "draw.h"
 #include "keyboard.h"
 #include "tk.h"
+#include "ttk.h"
 
 /* Widget Commands (+ means implemented)
 	+bbox
@@ -102,6 +103,11 @@ struct TkEntry
 	int		xsel0;		/* position of start of selection */
 	int		xsel1;		/* position of end of selection */
 	int		xicursor;		/* position of insertion cursor */
+
+	/* ttk (ttk::entry) extension; zero/nil for the classic entry */
+	int		ttk;		/* 1 => themed chrome + state subcommands */
+	ulong		tstate;		/* ttk S* state bits */
+	char*		tstyle;		/* explicit -style, nil => "TEntry" */
 };
 
 static void blinkreset(Tk*);
@@ -114,6 +120,60 @@ TkOption opts[] =
 	"show",			OPTtext,	O(TkEntry, show),	nil,
 	nil
 };
+
+/* ttk::entry shares the editing core but adds -style; selected when tke->ttk */
+static
+TkOption ttkopts[] =
+{
+	"xscrollcommand",	OPTtext,	O(TkEntry, xscroll),	nil,
+	"justify",		OPTstab,	O(TkEntry, flag),	tkjust,
+	"show",			OPTtext,	O(TkEntry, show),	nil,
+	"style",		OPTtext,	O(TkEntry, tstyle),	nil,
+	nil
+};
+
+static TkOption*
+entryopts(TkEntry *tke)
+{
+	return tke->ttk ? ttkopts : opts;
+}
+
+/* the resolved ttk style name for a themed entry */
+static char*
+ttkentrystylename(TkEntry *tke)
+{
+	if(tke->tstyle != nil && tke->tstyle[0] != '\0')
+		return tke->tstyle;
+	return "TEntry";
+}
+
+/* live ttk state: stored bits plus focus/disabled derived from Tk.flag */
+static ulong
+ttkentrystate(Tk *tk)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	ulong st = tke->tstate;
+
+	if(tk->flag & Tkdisabled)
+		st |= Sdisabled;
+	if(tkhaskeyfocus(tk))
+		st |= Sfocus;
+	return st;
+}
+
+/* an Image* for a themed-entry colour option, falling back to an env slot */
+static Image*
+ttkentrycolor(Tk *tk, char *opt, int slot)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	char *s;
+	ulong pix;
+
+	s = ttkresolve(tk->env->top, ttkentrystylename(tke), opt, ttkentrystate(tk));
+	if(s != nil && s[0] != '\0' && tkparsecolor(s, &pix) == nil)
+		return tkcolor(tk->env->top->ctxt, pix);
+	return tkgc(tk->env, slot);
+}
 
 static int
 xinset(Tk *tk)
@@ -220,8 +280,8 @@ recalcentry(Tk *tk)
 		unlockdisplay(tk->env->top->display);
 }
 
-char*
-tkentry(TkTop *t, char *arg, char **ret)
+static char*
+entrymake(TkTop *t, char *arg, char **ret, int ttk)
 {
 	Tk *tk;
 	char *e;
@@ -229,21 +289,28 @@ tkentry(TkTop *t, char *arg, char **ret)
 	TkEntry *tke;
 	TkOptab tko[3];
 
-	tk = tknewobj(t, TKentry, sizeof(Tk)+sizeof(TkEntry));
+	tk = tknewobj(t, ttk ? TKttkentry : TKentry, sizeof(Tk)+sizeof(TkEntry));
 	if(tk == nil)
 		return TkNomem;
 
-	tk->relief = TKsunken;
-	tk->borderwidth = 1;
 	tk->flag |= Tktakefocus;
-	tk->highlightwidth = 1;
-
 	tke = TKobj(TkEntry, tk);
+	tke->ttk = ttk;
+	if(ttk){
+		/* themed chrome: flat border + focus ring, no 3D relief/highlight */
+		tk->relief = TKflat;
+		tk->borderwidth = 1;
+		tk->highlightwidth = 0;
+	}else{
+		tk->relief = TKsunken;
+		tk->borderwidth = 1;
+		tk->highlightwidth = 1;
+	}
 
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tke;
-	tko[1].optab = opts;
+	tko[1].optab = entryopts(tke);
 	tko[2].ptr = nil;
 
 	names = nil;
@@ -273,6 +340,18 @@ tkentry(TkTop *t, char *arg, char **ret)
 	return tkvalue(ret, "%s", tk->name->name);
 }
 
+char*
+tkentry(TkTop *t, char *arg, char **ret)
+{
+	return entrymake(t, arg, ret, 0);
+}
+
+char*
+tkttkentry(TkTop *t, char *arg, char **ret)
+{
+	return entrymake(t, arg, ret, 1);
+}
+
 static char*
 tkentrycget(Tk *tk, char *arg, char **val)
 {
@@ -282,7 +361,7 @@ tkentrycget(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tke;
-	tko[1].optab = opts;
+	tko[1].optab = entryopts(tke);
 	tko[2].ptr = nil;
 
 	return tkgencget(tko, arg, val, tk->env->top);
@@ -296,6 +375,7 @@ tkfreeentry(Tk *tk)
 	free(tke->xscroll);
 	free(tke->text);
 	free(tke->show);
+	free(tke->tstyle);
 }
 
 static void
@@ -363,6 +443,7 @@ tkdrawentry(Tk *tk, Point orig)
 	Rectangle r, s;
 	Image *i;
 	int xp, yp;
+	TkEntry *tke;
 
 	env = tk->env;
 
@@ -373,6 +454,10 @@ tkdrawentry(Tk *tk, Point orig)
 	if(i == nil)
 		return nil;
 
+	tke = TKobj(TkEntry, tk);
+	if(tke->ttk)	/* themed field background under the text */
+		draw(i, r, ttkentrycolor(tk, "-fieldbackground", TkCbackgnd), nil, ZP);
+
 	xp = tk->borderwidth + xinset(tk);
 	yp = tk->borderwidth + yinset(tk);
 	s = r;
@@ -382,10 +467,19 @@ tkdrawentry(Tk *tk, Point orig)
 	s.max.y -= yp;
 	tkentrytext(i, s, tk, env);
 
-	tkdrawrelief(i, tk, ZP, TkCbackgnd, tk->relief);
-
-	if (tkhaskeyfocus(tk))
-		tkbox(i, insetrect(r, tk->borderwidth), tk->highlightwidth, tkgc(tk->env, TkChighlightfgnd));
+	if(tke->ttk){
+		ulong st = ttkentrystate(tk);
+		if(tk->borderwidth > 0)
+			tkbox(i, r, tk->borderwidth,
+				ttkentrycolor(tk, "-bordercolor", TkCbackgnddark));
+		if(st & Sfocus)
+			tkbox(i, insetrect(r, tk->borderwidth+1), 1,
+				tkgc(env, TkChighlightfgnd));
+	}else{
+		tkdrawrelief(i, tk, ZP, TkCbackgnd, tk->relief);
+		if (tkhaskeyfocus(tk))
+			tkbox(i, insetrect(r, tk->borderwidth), tk->highlightwidth, tkgc(tk->env, TkChighlightfgnd));
+	}
 
 	p.x = tk->act.x + orig.x;
 	p.y = tk->act.y + orig.y;
@@ -458,7 +552,7 @@ tkentryconf(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tke;
-	tko[1].optab = opts;
+	tko[1].optab = entryopts(tke);
 	tko[2].ptr = nil;
 
 	if(*arg == '\0')
@@ -757,6 +851,8 @@ tkentryinsert(Tk *tk, char *arg, char **val)
 
 	USED(val);
 	tke = TKobj(TkEntry, tk);
+	if(tke->ttk && (tke->tstate & (Sdisabled|Sreadonly)))
+		return nil;
 
 	top = tk->env->top;
 	buf = mallocz(Tkmaxitem, 0);
@@ -826,6 +922,8 @@ tkentrydelete(Tk *tk, char *arg, char **val)
 	USED(val);
 
 	tke = TKobj(TkEntry, tk);
+	if(tke->ttk && (tke->tstate & (Sdisabled|Sreadonly)))
+		return nil;
 
 	top = tk->env->top;
 	buf = mallocz(Tkmaxitem, 0);
@@ -1362,6 +1460,135 @@ TkCmdtab tkentrycmd[] =
 TkMethod entrymethod = {
 	"entry",
 	tkentrycmd,
+	tkfreeentry,
+	tkdrawentry,
+	tkentrygeom
+};
+
+/* ---- ttk::entry: the same editing core, themed chrome + state machine ---- */
+
+static char*
+ttkentrystatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	TkTop *t = tk->env->top;
+	char *spec, *e;
+	char buf[256];
+	ulong on, off, new;
+
+	spec = mallocz(Tkmaxitem, 0);
+	if(spec == nil)
+		return TkNomem;
+	tkword(t, arg, spec, spec+Tkmaxitem, nil);
+
+	if(spec[0] == '\0'){
+		ttkstatestr(ttkentrystate(tk), buf, sizeof(buf));
+		free(spec);
+		return tkvalue(ret, "%s", buf);
+	}
+	if(ttkstateparse(spec, &on, &off) < 0){
+		free(spec);
+		return TkBadvl;
+	}
+	new = (tke->tstate | on) & ~off;
+	ttkrestorespec(tke->tstate, new, buf, sizeof(buf));
+	tke->tstate = new;
+	if(new & Sdisabled)
+		tk->flag |= Tkdisabled;
+	else
+		tk->flag &= ~Tkdisabled;
+	tk->dirty = tkrect(tk, 1);
+	tkdirty(tk);
+	e = tkvalue(ret, "%s", buf);
+	free(spec);
+	return e;
+}
+
+static char*
+ttkentryinstatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	TkTop *t = tk->env->top;
+	char *spec, *script, *e;
+	ulong on, off, st;
+	int match;
+
+	spec = mallocz(Tkmaxitem, 0);
+	script = mallocz(Tkmaxitem, 0);
+	if(spec == nil || script == nil){
+		free(spec); free(script);
+		return TkNomem;
+	}
+	arg = tkword(t, arg, spec, spec+Tkmaxitem, nil);
+	tkword(t, arg, script, script+Tkmaxitem, nil);
+
+	if(ttkstateparse(spec, &on, &off) < 0){
+		free(spec); free(script);
+		return TkBadvl;
+	}
+	st = ttkentrystate(tk);
+	USED(tke);
+	match = (st & on) == on && (st & off) == 0;
+	if(script[0] != '\0'){
+		e = nil;
+		if(match)
+			e = tkexec(t, script, ret);
+		free(spec); free(script);
+		return e;
+	}
+	e = tkvalue(ret, "%d", match);
+	free(spec); free(script);
+	return e;
+}
+
+static char*
+ttkentrystylecmd(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+
+	USED(arg);
+	return tkvalue(ret, "%s", ttkentrystylename(tke));
+}
+
+static char*
+ttkentryidentcmd(Tk *tk, char *arg, char **ret)
+{
+	USED(tk);
+	USED(arg);
+	return tkvalue(ret, "");
+}
+
+static
+TkCmdtab tkttkentrycmd[] =
+{
+	"cget",			tkentrycget,
+	"configure",		tkentryconf,
+	"delete",		tkentrydelete,
+	"get",			tkentryget,
+	"icursor",		tkentryicursor,
+	"index",		tkentryindex,
+	"insert",		tkentryinsert,
+	"selection",		tkentryselect,
+	"xview",		tkentryxview,
+	"tkEntryBS",		tkentrybs,
+	"tkEntryBW",		tkentrybw,
+	"tkEntryB1P",		tkentryb1p,
+	"tkEntryB1M",		tkentryb1m,
+	"tkEntryB1R",		tkentryb1r,
+	"tkEntryB2P",		tkentryb2p,
+	"tkEntryFocus",		tkentryfocus,
+	"bbox",			tkentrybboxcmd,
+	"see",		tkentryseecmd,
+	"state",		ttkentrystatecmd,
+	"instate",		ttkentryinstatecmd,
+	"style",		ttkentrystylecmd,
+	"identify",		ttkentryidentcmd,
+	nil
+};
+
+TkMethod ttkentrymethod = {
+	"TEntry",
+	tkttkentrycmd,
 	tkfreeentry,
 	tkdrawentry,
 	tkentrygeom

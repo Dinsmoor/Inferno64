@@ -189,6 +189,7 @@ TkMethod *tkmethod[] =
 	&ttkseparatormethod,	/* TKttkseparator */
 	&ttkprogressbarmethod,	/* TKttkprogressbar */
 	&ttklabelframemethod,	/* TKttklabelframe */
+	&ttkentrymethod,	/* TKttkentry */
 };
 
 char TkNomem[]	= "!out of memory";

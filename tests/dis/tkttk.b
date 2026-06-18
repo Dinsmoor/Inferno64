@@ -159,6 +159,29 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("labelframe title", cmd(".f.lf cget -text") == "Group");
 	ok("labelframe holds child", has(cmd("winfo children .f.lf"), ".f.lf.inner"));
 
+	# 12. ttk::entry - shares the classic editing core, themed chrome + state
+	cmd("ttk::entry .f.e");
+	cmd("pack .f.e");
+	cmd("update");
+	ok("entry class TEntry", cmd("winfo class .f.e") == "TEntry");
+	cmd(".f.e insert 0 hello");
+	ok("entry insert+get", cmd(".f.e get") == "hello");
+	cmd(".f.e delete 0 1");
+	ok("entry delete", cmd(".f.e get") == "ello");
+	ok("entry style default TEntry", cmd(".f.e style") == "TEntry");
+	cmd(".f.e configure -style Search.TEntry");
+	ok("entry -style honoured", cmd(".f.e style") == "Search.TEntry");
+	ok("entry starts !disabled", cmd(".f.e instate disabled") == "0");
+	cmd(".f.e state readonly");
+	cmd(".f.e insert 0 X");
+	ok("readonly entry ignores insert", cmd(".f.e get") == "ello");
+	cmd(".f.e state {!readonly}");
+	cmd(".f.e insert 0 Y");
+	ok("writable entry accepts insert", cmd(".f.e get") == "Yello");
+	cmd(".f.e state disabled");
+	ok("entry instate disabled", cmd(".f.e instate disabled") == "1");
+	cmd(".f.e state {!disabled}");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

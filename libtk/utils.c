@@ -56,6 +56,7 @@ static struct Cmd cmdmain[] =
 	"theme",	tkthemecmd,
 	"ttk::button",	tkttkbutton,
 	"ttk::checkbutton",	tkttkcheckbutton,
+	"ttk::entry",	tkttkentry,
 	"ttk::frame",	tkttkframe,
 	"ttk::label",	tkttklabel,
 	"ttk::labelframe",	tkttklabelframe,

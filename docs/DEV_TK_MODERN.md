@@ -592,12 +592,21 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
 
 **Phase 2 — basic ttk widgets: mostly done.** `libtk/ttkwidg.c`, `ttkprog.c`.
 - Done: `ttk::frame` (focus traversal), `ttk::label`, `ttk::button`,
-  `ttk::checkbutton`, `ttk::radiobutton`, `ttk::separator`, `ttk::labelframe`.
+  `ttk::checkbutton`, `ttk::radiobutton`, `ttk::separator`, `ttk::labelframe`,
+  `ttk::entry`.
   `-text/-textvariable/-variable/-command/-style/-anchor/-underline/-width`,
   hover/press/invoke bindings, variable binding via `varchanged`.
-- **Not yet: `ttk::entry`, `ttk::menubutton`, `ttk::sizegrip`.** `ttk::entry` is
-  the important gap — most app forms need it; it is the next thing to build
-  (template: classic `entry.c`, themed field + cursor/selection).
+- `ttk::entry` (in `entry.c`, not a new file): backs the themed widget with the
+  classic `TkEntry` editing core via a shared `entrymake(...,ttk)` constructor —
+  the full `get/insert/delete/icursor/index/selection/xview/bbox/see` command
+  set and all key/mouse bindings are reused verbatim. Only the chrome differs
+  (`tkdrawentry` branches on `tke->ttk`: a flat themed `-bordercolor` border +
+  `-fieldbackground` fill + focus ring, instead of the sunken relief +
+  highlight box). Adds the `state`/`instate`/`style` subcommands (own
+  `tstate`/`tstyle` fields, driven through the layout-agnostic engine helpers
+  `ttkstateparse`/`ttkstatestr`/`ttkrestorespec`/`ttkresolve`), and `disabled`/
+  `readonly` block edits. `state disabled` mirrors into `Tkdisabled`.
+- **Not yet: `ttk::menubutton`, `ttk::sizegrip`.**
 
 **Phase 3 — complex widgets: started.**
 - Done: `ttk::progressbar` (`ttkprog.c`) — determinate (`-value/-maximum/
@@ -611,16 +620,18 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
 text undo + embedded images, listbox `extended`/`activestyle`).
 
 **Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
-gallery app proving the set renders end-to-end under `wm/wm`. The ~20-app
-migration in §11 is the remaining effort and is gated on `ttk::entry` +
-`ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on text
-entry, trees, tabs and comboboxes. Migration order and the golden baselines are
-in §11; a pixel change in a *classic* widget remains a regression by definition.
+gallery app proving the set (now including a `ttk::entry`) renders end-to-end
+under `wm/wm`. The ~20-app migration in §11 is the remaining effort and is gated
+on `ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on
+trees, tabs and comboboxes. Migration order and the golden baselines are in §11;
+a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (35/35) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (44/44) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
-configure/map/lookup, dotted-style inheritance, progressbar, labelframe.
+configure/map/lookup, dotted-style inheritance, progressbar, labelframe, and
+`ttk::entry` (class, insert/get/delete via the shared core, `-style`,
+`readonly`/`disabled` state gating).
 
-**Next session, in order:** `ttk::entry` → `ttk::scrollbar`/`ttk::scale` →
-`ttk::notebook` → `ttk::combobox` → `ttk::treeview` → megawidget shims → migrate
-apps from §11 top-down, diffing classic regions each time.
+**Next session, in order:** `ttk::scrollbar`/`ttk::scale` → `ttk::notebook` →
+`ttk::combobox` → `ttk::treeview` → megawidget shims → migrate apps from §11
+top-down, diffing classic regions each time.

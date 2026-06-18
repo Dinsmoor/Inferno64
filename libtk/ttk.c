@@ -370,8 +370,8 @@ ttksetstate(Tk *tk, ulong state)
 }
 
 /* build the spec that restores `old' given the new state (changed bits) */
-static char*
-restorespec(ulong old, ulong new, char *buf, int len)
+char*
+ttkrestorespec(ulong old, ulong new, char *buf, int len)
 {
 	int i, first;
 	char *p, *e;
@@ -420,7 +420,7 @@ ttkstatecmd(Tk *tk, char *arg, char **ret)
 		return TkBadvl;
 	}
 	new = (d->state | on) & ~off;
-	restorespec(d->state, new, buf, sizeof(buf));
+	ttkrestorespec(d->state, new, buf, sizeof(buf));
 	ttksetstate(tk, new);
 	e = tkvalue(ret, "%s", buf);
 	free(spec);

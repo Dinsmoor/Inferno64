@@ -93,6 +93,7 @@ struct Ttkstyle
 /* engine entry points (ttk.c) */
 extern	int	ttkstateparse(char*, ulong*, ulong*);
 extern	char*	ttkstatestr(ulong, char*, int);
+extern	char*	ttkrestorespec(ulong, ulong, char*, int);
 extern	char*	ttkresolve(TkTop*, char*, char*, ulong);
 extern	Image*	ttkcolor(Tk*, char*, int);
 extern	char*	ttkget(Tk*, char*);

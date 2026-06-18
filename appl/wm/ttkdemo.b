@@ -48,7 +48,9 @@ cfg := array[] of {
 	"ttk::radiobutton .modern.r1 -text One -variable mr -value 1",
 	"ttk::radiobutton .modern.r2 -text Two -variable mr -value 2",
 	"ttk::separator .modern.s -orient horizontal",
-	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s -fill x",
+	"ttk::entry .modern.e",
+	".modern.e insert 0 {edit me}",
+	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s .modern.e -fill x",
 
 	# progress group
 	"ttk::labelframe .lf -text {Progress}",
