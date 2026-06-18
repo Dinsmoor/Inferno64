@@ -1,9 +1,11 @@
 # DEV_TK_MODERN — bringing Inferno's Tk up to a modern (Tk 8.6 + ttk) feature set, in C
 
-> **Status:** research / roadmap. No code yet. This document is the cold-start
-> briefing for a session that will do the work on a fresh worktree. It captures
-> how `libtk` actually works (with `file:line` anchors), the gap to modern
-> Tk/ttk, and a phased plan. Read it top to bottom once before touching code.
+> **Status:** in progress. Phase 0 (substrate) and Phase 1 (ttk engine) are
+> done; Phase 2 (basic ttk widgets) is largely done; Phase 3 has started
+> (`ttk::progressbar`). See §12 for the live state. This document is the
+> cold-start briefing; it captures how `libtk` actually works (with `file:line`
+> anchors), the gap to modern Tk/ttk, and a phased plan. Read it top to bottom
+> once before touching code.
 >
 > **Decision already taken (do not relitigate):**
 > 1. Implement everything **natively in C inside `libtk`** — do *not* port the
@@ -555,3 +557,70 @@ and the other games, `wm/mand`, `wm/polyhedra`, `wm/raycube*`/`rayteapot`,
 > argument / interaction to show full content; the shots are a visual reference,
 > not a pixel-exact acceptance target. For acceptance, drive the full desktop and
 > diff classic-widget regions per §7.
+
+---
+
+## 12. Implementation status (live)
+
+Everything below is **additive** — classic widgets and existing apps are
+untouched, verified by `wm/about` rendering byte-identical to its baseline and
+by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
+
+**Phase 0 — substrate: DONE.**
+- `after ms cmd` / `after cancel` / `after idle` / `after info` — `libtk/after.c`,
+  pending-timer registry over `rptproc`. Test `tests/dis/tkafter.b` (10/10).
+- `place` geometry manager (+ `winfo` geometry queries) — `libtk/place.c`,
+  `ebind.c`. Placed slaves ride the shared `master->slave` list, skipped by
+  pack/grid, so a master may mix placed and packed children. Test
+  `tests/dis/tkplace.b` (20/20).
+- `event generate` + virtual events (`<<Name>>`) — `libtk/event.c`. Concrete
+  events synthesised through `tkseqparse`+`tkdeliver`; virtual events on a
+  per-top `{widget,name,script}` registry. Test `tests/dis/tkevent.b` (8/8).
+- `font measure|metrics|actual|families|names` — `libtk/font.c` (measurement
+  subset; named-font creation deferred). Test `tests/dis/tkfont.b` (12/12).
+
+**Phase 1 — ttk engine: DONE.** `libtk/ttk.c` + `libtk/ttk.h`.
+- State machine (`active disabled focus pressed selected background alternate
+  invalid readonly hover`) in a per-widget `TkTtk.state`; `state`/`instate`
+  subcommands; `disabled`/`active` mirrored into `Tk.flag`.
+- Named-style registry per `TkTop` (freed via `ttkfreetop`, hooked into
+  `tkfreetop`): `ttk::style configure|map|lookup|theme`. Option resolution with
+  dotted-prefix inheritance; colour options fall back to themed `TkEnv` slots so
+  the `theme` command themes ttk too.
+- Element painters (background, flat border, focus ring, indicators) over the
+  existing `tkgc`/`tkbox`/`tkbevel` primitives.
+
+**Phase 2 — basic ttk widgets: mostly done.** `libtk/ttkwidg.c`, `ttkprog.c`.
+- Done: `ttk::frame` (focus traversal), `ttk::label`, `ttk::button`,
+  `ttk::checkbutton`, `ttk::radiobutton`, `ttk::separator`, `ttk::labelframe`.
+  `-text/-textvariable/-variable/-command/-style/-anchor/-underline/-width`,
+  hover/press/invoke bindings, variable binding via `varchanged`.
+- **Not yet: `ttk::entry`, `ttk::menubutton`, `ttk::sizegrip`.** `ttk::entry` is
+  the important gap — most app forms need it; it is the next thing to build
+  (template: classic `entry.c`, themed field + cursor/selection).
+
+**Phase 3 — complex widgets: started.**
+- Done: `ttk::progressbar` (`ttkprog.c`) — determinate (`-value/-maximum/
+  -variable`, `step`) and indeterminate (`start`/`stop` over `tkrepeat`);
+  absorbs the `Progressbar` megawidget.
+- **Not yet: `ttk::notebook`, `ttk::treeview`, `ttk::combobox`,
+  `ttk::panedwindow`, `ttk::scale`, `ttk::scrollbar`, `ttk::spinbox`** and the
+  megawidget shims (§4). These are the bulk of the remaining work.
+
+**Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
+text undo + embedded images, listbox `extended`/`activestyle`).
+
+**Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
+gallery app proving the set renders end-to-end under `wm/wm`. The ~20-app
+migration in §11 is the remaining effort and is gated on `ttk::entry` +
+`ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on text
+entry, trees, tabs and comboboxes. Migration order and the golden baselines are
+in §11; a pixel change in a *classic* widget remains a regression by definition.
+
+Combined ttk test: `tests/dis/tkttk.b` (35/35) — classes, invoke, state machine,
+`instate` scripts, check/radio variable binding, `ttk::style`
+configure/map/lookup, dotted-style inheritance, progressbar, labelframe.
+
+**Next session, in order:** `ttk::entry` → `ttk::scrollbar`/`ttk::scale` →
+`ttk::notebook` → `ttk::combobox` → `ttk::treeview` → megawidget shims → migrate
+apps from §11 top-down, diffing classic regions each time.
