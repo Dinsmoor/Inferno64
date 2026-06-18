@@ -198,6 +198,22 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	cmd(".f.sb state {!disabled}");
 	ok("scrollbar instate !disabled", cmd(".f.sb instate disabled") == "0");
 
+	# 14. ttk::scale - shares the classic core, flat themed trough/thumb + state
+	cmd("ttk::scale .f.sc -orient horizontal -from 0 -to 100 -value 25");
+	cmd("pack .f.sc");
+	cmd("update");
+	ok("scale class TScale", cmd("winfo class .f.sc") == "TScale");
+	ok("scale -value initial", cmd(".f.sc get") == "25");
+	cmd(".f.sc set 60");
+	ok("scale set+get", cmd(".f.sc get") == "60");
+	ok("scale style default TScale", cmd(".f.sc style") == "TScale");
+	cmd(".f.sc configure -style Horizontal.TScale");
+	ok("scale -style honoured", cmd(".f.sc style") == "Horizontal.TScale");
+	ok("scale starts !disabled", cmd(".f.sc instate disabled") == "0");
+	cmd(".f.sc state disabled");
+	ok("scale instate disabled", cmd(".f.sc instate disabled") == "1");
+	cmd(".f.sc state {!disabled}");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

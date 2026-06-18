@@ -63,9 +63,11 @@ cfg := array[] of {
 	"ttk::labelframe .lf -text {Progress}",
 	"ttk::progressbar .lf.p1 -length 170 -maximum 100 -value 65",
 	"ttk::progressbar .lf.p2 -length 170 -mode indeterminate",
+	# a ttk::scale drives the determinate bar live
+	"ttk::scale .lf.sc -orient horizontal -length 170 -from 0 -to 100 -value 65 -command {.lf.p1 configure -value}",
 	"ttk::button .lf.go -text {Animate} -command {.lf.p2 start}",
 	"ttk::button .lf.halt -text {Stop} -command {.lf.p2 stop}",
-	"pack .lf.p1 .lf.p2 .lf.go .lf.halt -padx 6 -pady 3 -fill x",
+	"pack .lf.p1 .lf.sc .lf.p2 .lf.go .lf.halt -padx 6 -pady 3 -fill x",
 
 	"pack .classic .modern .lf -side left -padx 8 -pady 8 -anchor n",
 

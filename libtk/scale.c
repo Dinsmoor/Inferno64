@@ -2,6 +2,7 @@
 #include <kernel.h>
 #include "draw.h"
 #include "tk.h"
+#include "ttk.h"
 #include "keyboard.h"
 
 #define	O(t, e)		((long)(&((t*)0)->e))
@@ -33,6 +34,11 @@ struct TkScale
 	int	base;
 	int	flag;
 	int	jump;
+
+	/* ttk (ttk::scale) extension; zero/nil for the classic widget */
+	int	ttk;		/* 1 => flat themed trough/thumb */
+	ulong	tstate;		/* ttk S* state bits */
+	char*	tstyle;		/* explicit -style, nil => "TScale" */
 };
 
 enum {
@@ -61,6 +67,53 @@ TkOption opts[] =
 	"orient",		OPTstab,	O(TkScale, orient),	tkorient,
 	nil
 };
+
+/*
+ * ttk::scale options: a continuous slider, so no label/ticks/value-readout
+ * decoration.  -value sets the position directly (the classic widget uses the
+ * `set' subcommand); -style picks the engine style.
+ */
+static
+TkOption ttkopts[] =
+{
+	"command",	OPTtext,	O(TkScale, command),	nil,
+	"from",		OPTfrac,	O(TkScale, from),	nil,
+	"length",	OPTdist,	O(TkScale, len),	nil,
+	"orient",	OPTstab,	O(TkScale, orient),	tkorient,
+	"style",	OPTtext,	O(TkScale, tstyle),	nil,
+	"to",		OPTfrac,	O(TkScale, to),		nil,
+	"value",	OPTfrac,	O(TkScale, value),	nil,
+	nil
+};
+
+static TkOption*
+scaleopts(TkScale *tks)
+{
+	return tks->ttk ? ttkopts : opts;
+}
+
+/* the resolved ttk style name for a themed scale */
+static char*
+ttkscalestylename(TkScale *tks)
+{
+	if(tks->tstyle != nil && tks->tstyle[0] != '\0')
+		return tks->tstyle;
+	return "TScale";
+}
+
+/* live ttk state: stored bits plus focus/disabled derived from Tk.flag */
+static ulong
+ttkscalestate(Tk *tk)
+{
+	TkScale *tks = TKobj(TkScale, tk);
+	ulong st = tks->tstate;
+
+	if(tk->flag & Tkdisabled)
+		st |= Sdisabled;
+	if(tkhaskeyfocus(tk))
+		st |= Sfocus;
+	return st;
+}
 
 static char trough1[] = "trough1";
 static char trough2[] = "trough2";
@@ -185,8 +238,14 @@ tkscalecheckvalue(Tk *tk)
 	return limit;
 }
 
-char*
-tkscale(TkTop *t, char *arg, char **ret)
+/*
+ * Shared constructor for the classic scale and ttk::scale.  Both share the
+ * entire value/geometry/command core (set/get/coords/identify, drag and key
+ * bindings); ttk only swaps the chrome (flat themed trough/thumb in
+ * tkscalehoriz/tkscalevert) and presents a continuous, decoration-free slider.
+ */
+static char*
+scalemake(TkTop *t, char *arg, char **ret, int ttk)
 {
 	Tk *tk;
 	char *e;
@@ -194,25 +253,26 @@ tkscale(TkTop *t, char *arg, char **ret)
 	TkScale *tks;
 	TkOptab tko[3];
 
-	tk = tknewobj(t, TKscale, sizeof(Tk)+sizeof(TkScale));
+	tk = tknewobj(t, ttk ? TKttkscale : TKscale, sizeof(Tk)+sizeof(TkScale));
 	if(tk == nil)
 		return TkNomem;
 
 	tk->flag |= Tktakefocus;
 	tks = TKobj(TkScale, tk);
-	tks->res = TKI2F(1);
+	tks->res = ttk ? 0 : TKI2F(1);	/* ttk scale is continuous */
 	tks->to = TKI2F(100);
 	tks->len = ScaleLen;
 	tks->orient = Tkvertical;
 	tks->relief = TKraised;
 	tks->sl = ScaleSlider;
-	tks->sv = BoolT;
+	tks->sv = ttk ? BoolF : BoolT;	/* no value readout in ttk */
 	tks->bigi = 0;
+	tks->ttk = ttk;
 
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scaleopts(tks);
 	tko[2].ptr = nil;
 
 	names = nil;
@@ -244,6 +304,18 @@ tkscale(TkTop *t, char *arg, char **ret)
 	return tkvalue(ret, "%s", tk->name->name);
 }
 
+char*
+tkscale(TkTop *t, char *arg, char **ret)
+{
+	return scalemake(t, arg, ret, 0);
+}
+
+char*
+tkttkscale(TkTop *t, char *arg, char **ret)
+{
+	return scalemake(t, arg, ret, 1);
+}
+
 static char*
 tkscalecget(Tk *tk, char *arg, char **val)
 {
@@ -253,7 +325,7 @@ tkscalecget(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scaleopts(tks);
 	tko[2].ptr = nil;
 
 	return tkgencget(tko, arg, val, tk->env->top);
@@ -268,6 +340,8 @@ tkfreescale(Tk *tk)
 		free(tks->command);
 	if(tks->label != nil)
 		free(tks->label);
+	if(tks->tstyle != nil)
+		free(tks->tstyle);
 }
 
 static void
@@ -310,7 +384,12 @@ tkscalehoriz(Tk *tk, Image *i)
 
 	l = tkgc(e, TkCbackgndlght);
 	d = tkgc(e, TkCbackgnddark);
-	tkbevel(i, r.min, w, h, ScaleBW, d, l);
+	if(tks->ttk)
+		draw(i, Rect(r.min.x, r.min.y, r.min.x+w, r.min.y+h),
+			ttkcolorx(tk, ttkscalestylename(tks), ttkscalestate(tk),
+				"-troughcolor", TkCbackgnddark), nil, ZP);
+	else
+		tkbevel(i, r.min, w, h, ScaleBW, d, l);
 
 	tks->pixmin = sr.min.x;
 	tks->pixmax = sr.max.x;
@@ -357,7 +436,14 @@ tkscalehoriz(Tk *tk, Image *i)
 		r2.max.y = sr.max.y;
 		draw(i, r2, tkgc(e, TkCactivebgnd), nil, ZP);
 	}
-	switch(tks->relief) {
+	if(tks->ttk) {
+		ulong st = ttkscalestate(tk);
+		if(tk->flag & Tkactivated)
+			st |= Sactive;
+		draw(i, Rect(p.x, p.y, p.x+tks->sl, p.y+sh),
+			ttkcolorx(tk, ttkscalestylename(tks), st, "-background", TkCbackgnd),
+			nil, ZP);
+	} else switch(tks->relief) {
 	case TKsunken:
 		tkbevel(i, p, tks->sl, sh, ScaleBW, d, l);
 		tkbevel(i, q, 0, gh, 1, l, d);
@@ -431,7 +517,12 @@ tkscalevert(Tk *tk, Image *i)
 
 	l = tkgc(e, TkCbackgndlght);
 	d = tkgc(e, TkCbackgnddark);
-	tkbevel(i, r.min, w, h, ScaleBW, d, l);
+	if(tks->ttk)
+		draw(i, Rect(r.min.x, r.min.y, r.min.x+w, r.min.y+h),
+			ttkcolorx(tk, ttkscalestylename(tks), ttkscalestate(tk),
+				"-troughcolor", TkCbackgnddark), nil, ZP);
+	else
+		tkbevel(i, r.min, w, h, ScaleBW, d, l);
 
 	tks->pixmin = sr.min.y;
 	tks->pixmax = sr.max.y;
@@ -479,7 +570,14 @@ tkscalevert(Tk *tk, Image *i)
 		r2.max.y = p.y+sl;
 		draw(i, r2, tkgc(e, TkCactivebgnd), nil, ZP);
 	}
-	switch(tks->relief) {
+	if(tks->ttk) {
+		ulong st = ttkscalestate(tk);
+		if(tk->flag & Tkactivated)
+			st |= Sactive;
+		draw(i, Rect(p.x, p.y, p.x+sw, p.y+tks->sl),
+			ttkcolorx(tk, ttkscalestylename(tks), st, "-background", TkCbackgnd),
+			nil, ZP);
+	} else switch(tks->relief) {
 	case TKsunken:
 		tkbevel(i, p, sw, tks->sl, ScaleBW, d, l);
 		tkbevel(i, q, gw, 0, 1, l, d);
@@ -568,7 +666,7 @@ tkscaleconf(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scaleopts(tks);
 	tko[2].ptr = nil;
 
 	if(*arg == '\0')
@@ -958,6 +1056,54 @@ TkCmdtab tkscalecmd[] =
 TkMethod scalemethod = {
 	"scale",
 	tkscalecmd,
+	tkfreescale,
+	tkdrawscale
+};
+
+/* ttk::scale state/instate/style subcommands (engine-backed) */
+static char*
+ttkscalestatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkScale *tks = TKobj(TkScale, tk);
+
+	return ttkstateop(tk, &tks->tstate, arg, ret);
+}
+
+static char*
+ttkscaleinstatecmd(Tk *tk, char *arg, char **ret)
+{
+	return ttkinstateop(tk, ttkscalestate(tk), arg, ret);
+}
+
+static char*
+ttkscalestylecmd(Tk *tk, char *arg, char **ret)
+{
+	USED(arg);
+	return tkvalue(ret, "%s", ttkscalestylename(TKobj(TkScale, tk)));
+}
+
+TkCmdtab tkttkscalecmd[] =
+{
+	"cget",			tkscalecget,
+	"configure",		tkscaleconf,
+	"coords",		tkscalecoords,
+	"get",			tkscaleget,
+	"identify",		tkscaleident,
+	"instate",		ttkscaleinstatecmd,
+	"set",			tkscaleset,
+	"state",		ttkscalestatecmd,
+	"style",		ttkscalestylecmd,
+	"tkScaleMotion",	tkscalemotion,
+	"tkScaleDrag",		tkscaledrag,
+	"tkScaleBut1P",		tkscalebut1p,
+	"tkScaleBut1R",		tkscalebut1r,
+	"tkScaleKey",		tkscalekey,
+	nil
+};
+
+TkMethod ttkscalemethod = {
+	"TScale",
+	tkttkscalecmd,
 	tkfreescale,
 	tkdrawscale
 };
