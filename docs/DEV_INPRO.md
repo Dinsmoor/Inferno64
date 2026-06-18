@@ -64,10 +64,16 @@ pointer here.
 
 ## Recently landed (move detail into the subsystem doc, then drop)
 
-_Empty — landed work whose detail has been moved: portability generalization +
-cross-ABI canaries → `tests/cunit/README.md` + `ON_TESTING.md`; native aarch64
-kernel → `os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS →
-`ON_NETWORK.md`._
+- **Launcher menu registration + editor** — the toolbar start menu is now
+  data-driven: a `menu`/`delmenu` model rebuilt into `.m`, exposed at run time
+  via the `/chan/wmmenu` control file (programs register/unregister themselves
+  by writing a `menu` line) and a graphical "Customize menu..." editor that
+  persists to `$home/lib/menu` (replayed by `/lib/wmsetup`). Detail in
+  `man/1/toolbar`; source `appl/wm/toolbar.b`. _Drop this bullet once read._
+
+_Also landed, detail moved: portability generalization + cross-ABI canaries →
+`tests/cunit/README.md` + `ON_TESTING.md`; native aarch64 kernel →
+`os/boards/virt64/README.md` + `ON_PORTING.md`; modern TLS → `ON_NETWORK.md`._
 
 ## Parked / deferred
 

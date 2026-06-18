@@ -87,3 +87,8 @@ menu Games			'Teapot (3D)'		{wmrun wm/rayteapot}
 #menu Games			'Game client (local)'	{wmrun games/gameclient -l > /dev/null >[2=1]}
 
 if {ftest -f $home/lib/wmsetup} {run $home/lib/wmsetup} {}
+
+# Per-user launcher menu saved by the graphical editor (the wm "Customize
+# menu..." item).  It begins with a `delmenu`, so when present it fully replaces
+# the default menu defined above; when absent, the defaults stand.
+if {ftest -f $home/lib/menu} {run $home/lib/menu} {}
