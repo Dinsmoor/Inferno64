@@ -323,7 +323,8 @@ ttknewobj(TkTop *t, int type, char *defstyle)
 	d->ul = -1;
 	d->anchor = Tkcenter;
 	d->justify = Tkleft;
-	d->maximum = 100.0;
+	d->pmaximum = 100*Tkfpscalar;
+	d->length = 100;
 	d->orient = Tkhorizontal;
 	return tk;
 }

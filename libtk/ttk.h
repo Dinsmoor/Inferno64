@@ -47,8 +47,12 @@ struct TkTtk
 	int	justify;
 	int	width;		/* -width in chars, 0 = natural */
 	int	orient;		/* Tkhorizontal/Tkvertical (separator/progress) */
-	double	dvalue;		/* -value (progressbar) */
-	double	maximum;	/* -maximum (progressbar) */
+	int	pvalue;		/* -value (progressbar, fixed point Tkfpscalar) */
+	int	pmaximum;	/* -maximum (progressbar, fixed point) */
+	int	length;		/* -length (progressbar, px) */
+	int	pmode;		/* 0 = determinate, 1 = indeterminate */
+	int	prunning;	/* progressbar animation active */
+	int	phase;		/* indeterminate animation phase */
 	Point	tsize;		/* natural content size, set by ttksize */
 };
 

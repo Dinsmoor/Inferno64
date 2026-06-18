@@ -15,6 +15,7 @@ OFILES=\
 	place.$O\
 	ttk.$O\
 	ttkwidg.$O\
+	ttkprog.$O\
 	utils.$O\
 	varbl.$O\
 	windw.$O\

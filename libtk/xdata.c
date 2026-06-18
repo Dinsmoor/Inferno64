@@ -187,6 +187,8 @@ TkMethod *tkmethod[] =
 	&ttkcheckbuttonmethod,	/* TKttkcheckbutton */
 	&ttkradiobuttonmethod,	/* TKttkradiobutton */
 	&ttkseparatormethod,	/* TKttkseparator */
+	&ttkprogressbarmethod,	/* TKttkprogressbar */
+	&ttklabelframemethod,	/* TKttklabelframe */
 };
 
 char TkNomem[]	= "!out of memory";

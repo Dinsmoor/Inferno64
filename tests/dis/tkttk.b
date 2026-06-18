@@ -130,6 +130,35 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("dotted style own option", cmd("ttk::style lookup Danger.TButton -background") == "#aa0000");
 	ok("dotted style inherits parent", cmd("ttk::style lookup Danger.TButton -foreground") == "#ff0000");
 
+	# 10. progressbar
+	cmd("ttk::progressbar .f.p -maximum 100 -value 0 -length 120");
+	cmd("pack .f.p");
+	cmd("update");
+	ok("progressbar class", cmd("winfo class .f.p") == "TProgressbar");
+	cmd(".f.p configure -value 25");
+	ok("progressbar value set", int cmd(".f.p cget -value") == 25);
+	cmd(".f.p step 10");
+	ok("progressbar step", int cmd(".f.p cget -value") == 35);
+	cmd(".f.p configure -value 90");
+	cmd(".f.p step 20");	# wraps modulo maximum (110 -> 10)
+	ok("progressbar step wraps", int cmd(".f.p cget -value") == 10);
+
+	# progressbar driven by a variable
+	cmd("ttk::progressbar .f.p2 -variable pv -maximum 50");
+	cmd("variable pv 20");
+	cmd("update");
+	ok("progressbar follows variable", int cmd(".f.p2 cget -value") == 20);
+
+	# 11. labelframe
+	cmd("ttk::labelframe .f.lf -text Group");
+	cmd("ttk::label .f.lf.inner -text inside");
+	cmd("pack .f.lf.inner");
+	cmd("pack .f.lf");
+	cmd("update");
+	ok("labelframe class", cmd("winfo class .f.lf") == "TLabelframe");
+	ok("labelframe title", cmd(".f.lf cget -text") == "Group");
+	ok("labelframe holds child", has(cmd("winfo children .f.lf"), ".f.lf.inner"));
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);
@@ -137,6 +166,15 @@ init(ctxt: ref Draw->Context, nil: list of string)
 		sys->print("# %d FAILED\n", nfail);
 	shutdown();
 	exit;
+}
+
+has(s: string, sub: string): int
+{
+	n := len sub;
+	for(i := 0; i+n <= len s; i++)
+		if(s[i:i+n] == sub)
+			return 1;
+	return 0;
 }
 
 shutdown()

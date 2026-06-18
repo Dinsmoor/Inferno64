@@ -49,6 +49,8 @@ enum
 	TKttkcheckbutton,
 	TKttkradiobutton,
 	TKttkseparator,
+	TKttkprogressbar,
+	TKttklabelframe,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -714,6 +716,8 @@ extern	char*	tkttkbutton(TkTop*, char*, char**);
 extern	char*	tkttkcheckbutton(TkTop*, char*, char**);
 extern	char*	tkttkradiobutton(TkTop*, char*, char**);
 extern	char*	tkttkseparator(TkTop*, char*, char**);
+extern	char*	tkttkprogressbar(TkTop*, char*, char**);
+extern	char*	tkttklabelframe(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -722,6 +726,8 @@ extern	TkMethod	ttkbuttonmethod;
 extern	TkMethod	ttkcheckbuttonmethod;
 extern	TkMethod	ttkradiobuttonmethod;
 extern	TkMethod	ttkseparatormethod;
+extern	TkMethod	ttkprogressbarmethod;
+extern	TkMethod	ttklabelframemethod;
 
 extern	TkMethod	*tkmethod[];
 
