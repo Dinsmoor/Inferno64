@@ -125,6 +125,7 @@ Reader.readline(r: self ref Reader, prompt: string): string
 	cur := 0;
 	hpos := r.nhist;	# index into history; == nhist means "the live line"
 	saved := "";		# live line stashed while browsing history
+	prevtab := 0;		# the previous key was a Tab that made no progress
 	redraw(r, prompt, buf, cur);
 
 	line: string;
@@ -139,6 +140,8 @@ Reader.readline(r: self ref Reader, prompt: string): string
 			}
 			continue;
 		}
+		if(c != TAB)
+			prevtab = 0;
 		case c {
 		NL or CR =>
 			rawoff(r);
@@ -202,7 +205,7 @@ Reader.readline(r: self ref Reader, prompt: string): string
 			(hpos, buf, cur, saved) = histnext(r, hpos, buf, saved);
 			redraw(r, prompt, buf, cur);
 		TAB =>
-			(buf, cur) = complete(r, prompt, buf, cur);
+			(buf, cur, prevtab) = complete(r, prompt, buf, cur, prevtab);
 			redraw(r, prompt, buf, cur);
 		ESCC =>
 			(hpos, buf, cur, saved) = escseq(r, hpos, buf, cur, saved);
@@ -295,7 +298,13 @@ escseq(r: ref Reader, hpos: int, buf: string, cur: int, saved: string): (int, st
 # A token containing '/' completes as a path; a bare first word also draws
 # command names from /dis.
 #
-complete(r: ref Reader, prompt, buf: string, cur: int): (string, int)
+# Tab extends the token as far as the matches share a common prefix.  When the
+# cursor sits at a fork (nothing more can be completed) a single Tab just rings
+# the bell; a second consecutive Tab lists the choices.  `prevtab` carries that
+# "the last key was a no-progress Tab" state between calls; the returned int is
+# its new value.
+#
+complete(r: ref Reader, prompt, buf: string, cur, prevtab: int): (string, int, int)
 {
 	i := cur;
 	while(i > 0 && !isspace(buf[i-1]))
@@ -317,7 +326,7 @@ complete(r: ref Reader, prompt, buf: string, cur: int): (string, int)
 	n := len matches;
 	if(n == 0){
 		out(r, "\a");
-		return (buf, cur);
+		return (buf, cur, 0);
 	}
 
 	repl: string;
@@ -330,17 +339,22 @@ complete(r: ref Reader, prompt, buf: string, cur: int): (string, int)
 		if(len common > len base)
 			repl = common;
 		else {
+			# at a fork: bell on the first Tab, list on the second.
+			if(!prevtab){
+				out(r, "\a");
+				return (buf, cur, 1);
+			}
 			out(r, "\n");
 			showmatches(r, matches);
 			redraw(r, prompt, buf, cur);
-			return (buf, cur);
+			return (buf, cur, 0);
 		}
 	}
 
 	pre := tok[0:len tok - len base];	# directory portion already typed
 	newtok := pre + repl;
 	nb := buf[0:i] + newtok + buf[cur:];
-	return (nb, i + len newtok);
+	return (nb, i + len newtok, 0);
 }
 
 nopath(s: string): int
@@ -375,6 +389,10 @@ listmatches(dir, base: string): array of string
 			break;
 		for(j := 0; j < n; j++){
 			nm := d[j].name;
+			# .sbl files are limbo symbol-table build artifacts: never
+			# something to run or name, so keep them out of completions.
+			if(len nm >= 4 && nm[len nm-4:] == ".sbl")
+				continue;
 			if(len nm >= len base && nm[0:len base] == base){
 				if(d[j].mode & Sys->DMDIR)
 					nm += "/";

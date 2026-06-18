@@ -789,6 +789,10 @@ listdir(dir, base: string): array of string
 			break;
 		for(j := 0; j < n; j++){
 			nm := d[j].name;
+			# .sbl files are limbo symbol-table build artifacts: never
+			# something to run, so keep them out of the dropdown.
+			if(len nm >= 4 && nm[len nm-4:] == ".sbl")
+				continue;
 			if(len nm >= len base && nm[0:len base] == base){
 				if(d[j].mode & Sys->DMDIR)
 					nm += "/";
