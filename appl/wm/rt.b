@@ -1,5 +1,17 @@
 implement WmRt;
 
+#
+# wm/rt - a Dis VM disassembler / module inspector.
+#
+# The whole module is presented at once through a ttk::notebook: a Summary
+# tab (header fields as a property/value treeview), a syntax-highlighted Code
+# listing, a Data segment, and columnar treeviews for the type / link / import
+# descriptors and the exception handlers.  A ttk toolbar carries the File and
+# Properties menus (ttk::menubutton) plus quick actions, and a themed status
+# bar shows the loaded module at a glance.  The .dis / .s writers and the
+# stack-extent editor are unchanged underneath.
+#
+
 include "sys.m";
 	sys: Sys;
 	sprint: import sys;
@@ -43,52 +55,160 @@ disfile: string;
 
 TK:	con 1;
 
+CODEFONT:	con "/fonts/pelm/ascii.12.font";
+
 m: ref Mod;
 rt := 0;
 ss := -1;
 
-rt_cfg := array[] of {
-	"frame .m",
-	"menubutton .m.open -text File -menu .file",
-	"menubutton .m.prop -text Properties -menu .prop",
-	"menubutton .m.view -text View -menu .view",
-	"label .m.l",
-	"pack .m.open .m.view .m.prop -side left",
-	"pack .m.l -side right",
-	"frame .b",
-	"text .b.t -width 12c -height 7c -yscrollcommand {.b.s set} -bg white",
-	"scrollbar .b.s -command {.b.t yview}",
-	"pack .b.s -fill y -side left",
-	"pack .b.t -fill both -expand 1",
-	"pack .m -anchor w -fill x",
-	"pack .b -fill both -expand 1",
-	"pack propagate . 0",
+# the widget tree: a toolbar with the menus, a notebook of section views, and
+# a status bar.  The classic `menu' widgets are what the ttk::menubuttons post.
+ui_cfg := array[] of {
+	# Keep the data views a clean white listing (to match the code/data text
+	# panes); the toolbar, tabs, headings and menus stay themed.  Without this
+	# the treeview body fills with the theme's light-background slot, which is
+	# a saturated colour under blue/cyan wm themes.
+	"ttk::style configure Treeview -fieldbackground #ffffff",
+
+	# --- menus (posted by the ttk::menubuttons) ---
+	"menu .filemenu",
+	".filemenu add command -label {Open module...} -command {send cmd open}",
+	".filemenu add separator",
+	".filemenu add command -label {Write .dis module} -command {send cmd save}",
+	".filemenu add command -label {Write .s file} -command {send cmd list}",
+
+	"menu .propmenu",
+	".propmenu add checkbutton -label {Must compile} -command {send cmd must}",
+	".propmenu add checkbutton -label {Don't compile} -command {send cmd dont}",
+	".propmenu add separator",
+	".propmenu add command -label {Set stack extent...} -command {send cmd stack}",
+	".propmenu add command -label {Sign module} -command {send cmd sign}",
+
+	# --- toolbar ---
+	"ttk::frame .top",
+	"ttk::menubutton .top.file -text File -menu .filemenu",
+	"ttk::menubutton .top.props -text Properties -menu .propmenu",
+	"ttk::separator .top.sep -orient vertical",
+	"ttk::button .top.open -text {Open module} -command {send cmd open}",
+	"ttk::button .top.asm -text {Export .s} -command {send cmd list}",
+	"pack .top.file .top.props -side left -padx 2 -pady 3",
+	"pack .top.sep -side left -fill y -padx 5 -pady 3",
+	"pack .top.open .top.asm -side left -padx 2 -pady 3",
+	"pack .top -side top -fill x",
+	"ttk::separator .topsep -orient horizontal",
+	"pack .topsep -side top -fill x",
+
+	# --- status bar ---
+	"ttk::frame .sb",
+	"ttk::label .sb.l -text {No module loaded — use File ▸ Open} -anchor w",
+	"pack .sb.l -side left -fill x -expand 1 -padx 8 -pady 3",
+	"ttk::sizegrip .sb.grip",
+	"pack .sb.grip -side right -anchor se",
+	"ttk::separator .sbsep -orient horizontal",
+	"pack .sb -side bottom -fill x",
+	"pack .sbsep -side bottom -fill x",
+
+	# --- notebook ---
+	"ttk::notebook .nb",
+	"pack .nb -side top -fill both -expand 1",
+
+	# Summary: header fields as a property/value tree
+	"ttk::frame .nb.sum",
+	"ttk::treeview .nb.sum.t -columns val -height 16 -yscrollcommand {.nb.sum.sb set}",
+	"ttk::scrollbar .nb.sum.sb -orient vertical -command {.nb.sum.t yview}",
+	".nb.sum.t heading #0 -text Property",
+	".nb.sum.t heading val -text Value",
+	".nb.sum.t column #0 -width 200",
+	".nb.sum.t column val -width 360",
+	"pack .nb.sum.sb -side right -fill y",
+	"pack .nb.sum.t -side left -fill both -expand 1",
+	".nb add .nb.sum -text Summary",
+
+	# Code: syntax-highlighted disassembly
+	"ttk::frame .nb.code",
+	"text .nb.code.t -width 80 -height 26 -wrap none -bg white "+
+		"-yscrollcommand {.nb.code.sb set} -xscrollcommand {.nb.code.xsb set}",
+	"ttk::scrollbar .nb.code.sb -orient vertical -command {.nb.code.t yview}",
+	"ttk::scrollbar .nb.code.xsb -orient horizontal -command {.nb.code.t xview}",
+	".nb.code.t tag configure pcnum -font "+CODEFONT+" -foreground #8a8a8a",
+	".nb.code.t tag configure opcode -font "+CODEFONT+" -foreground #0b5ed7",
+	".nb.code.t tag configure operand -font "+CODEFONT+" -foreground #1b1b1b",
+	".nb.code.t tag configure cmt -font "+CODEFONT+" -foreground #117a3a",
+	"grid .nb.code.t -row 0 -column 0 -sticky nsew",
+	"grid .nb.code.sb -row 0 -column 1 -sticky ns",
+	"grid .nb.code.xsb -row 1 -column 0 -sticky ew",
+	"grid rowconfigure .nb.code 0 -weight 1",
+	"grid columnconfigure .nb.code 0 -weight 1",
+	".nb add .nb.code -text Code",
+
+	# Data segment
+	"ttk::frame .nb.data",
+	"text .nb.data.t -width 80 -height 26 -wrap none -bg white "+
+		"-yscrollcommand {.nb.data.sb set}",
+	"ttk::scrollbar .nb.data.sb -orient vertical -command {.nb.data.t yview}",
+	".nb.data.t tag configure mono -font "+CODEFONT+" -foreground #1b1b1b",
+	"pack .nb.data.sb -side right -fill y",
+	"pack .nb.data.t -side left -fill both -expand 1",
+	".nb add .nb.data -text Data",
+
+	# Type descriptors
+	"ttk::frame .nb.types",
+	"ttk::treeview .nb.types.t -columns {size map} -height 16 -yscrollcommand {.nb.types.sb set}",
+	"ttk::scrollbar .nb.types.sb -orient vertical -command {.nb.types.t yview}",
+	".nb.types.t heading #0 -text Desc",
+	".nb.types.t heading size -text {Size (bytes)}",
+	".nb.types.t heading map -text {Pointer map}",
+	".nb.types.t column #0 -width 80",
+	".nb.types.t column size -width 100 -anchor e",
+	".nb.types.t column map -width 360",
+	"pack .nb.types.sb -side right -fill y",
+	"pack .nb.types.t -side left -fill both -expand 1",
+	".nb add .nb.types -text Types",
+
+	# Link descriptors
+	"ttk::frame .nb.links",
+	"ttk::treeview .nb.links.t -columns {desc pc sig} -height 16 -yscrollcommand {.nb.links.sb set}",
+	"ttk::scrollbar .nb.links.sb -orient vertical -command {.nb.links.t yview}",
+	".nb.links.t heading #0 -text Name",
+	".nb.links.t heading desc -text Desc",
+	".nb.links.t heading pc -text PC",
+	".nb.links.t heading sig -text Signature",
+	".nb.links.t column #0 -width 220",
+	".nb.links.t column desc -width 60 -anchor e",
+	".nb.links.t column pc -width 60 -anchor e",
+	".nb.links.t column sig -width 120",
+	"pack .nb.links.sb -side right -fill y",
+	"pack .nb.links.t -side left -fill both -expand 1",
+	".nb add .nb.links -text Links",
+
+	# Import descriptors
+	"ttk::frame .nb.imports",
+	"ttk::treeview .nb.imports.t -columns sig -height 16 -yscrollcommand {.nb.imports.sb set}",
+	"ttk::scrollbar .nb.imports.sb -orient vertical -command {.nb.imports.t yview}",
+	".nb.imports.t heading #0 -text Name",
+	".nb.imports.t heading sig -text Signature",
+	".nb.imports.t column #0 -width 320",
+	".nb.imports.t column sig -width 140",
+	"pack .nb.imports.sb -side right -fill y",
+	"pack .nb.imports.t -side left -fill both -expand 1",
+	".nb add .nb.imports -text Imports",
+
+	# Exception handlers (handler -> entries)
+	"ttk::frame .nb.handlers",
+	"ttk::treeview .nb.handlers.t -columns {info} -height 16 -yscrollcommand {.nb.handlers.sb set}",
+	"ttk::scrollbar .nb.handlers.sb -orient vertical -command {.nb.handlers.t yview}",
+	".nb.handlers.t heading #0 -text Handler",
+	".nb.handlers.t heading info -text Detail",
+	".nb.handlers.t column #0 -width 220",
+	".nb.handlers.t column info -width 320",
+	"pack .nb.handlers.sb -side right -fill y",
+	"pack .nb.handlers.t -side left -fill both -expand 1",
+	".nb add .nb.handlers -text Handlers",
+
 	"update",
-
-	"menu .prop",
-	".prop add checkbutton -text {Must compile} -command {send cmd must}",
-	".prop add checkbutton -text {Don't compile} -command {send cmd dont}",
-	".prop add separator",
-	".prop add command -text {Set stack extent} -command {send cmd stack}",
-	".prop add command -text {Sign module} -command {send cmd sign}",
-
-	"menu .view",
-	".view add command -text {Header} -command {send cmd hdr}",
-	".view add command -text {Code segment} -command {send cmd code}",
-	".view add command -text {Data segment} -command {send cmd data}",
-	".view add command -text {Type descriptors} -command {send cmd type}",
-	".view add command -text {Link descriptors} -command {send cmd link}",
-	".view add command -text {Import descriptors} -command {send cmd imports}",
-	".view add command -text {Exception handlers} -command {send cmd handlers}",
-
-	"menu .file",
-	".file add command -text {Open module} -command {send cmd open}",
-	".file add separator",
-	".file add command -text {Write .dis module} -command {send cmd save}",
-	".file add command -text {Write .s file} -command {send cmd list}",
 };
 
-init(ctxt: ref Draw->Context, nil: list of string)
+init(ctxt: ref Draw->Context, argv: list of string)
 {
 	sys = load Sys Sys->PATH;
 	if (ctxt == nil) {
@@ -109,12 +229,12 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	gctxt = ctxt;
 
 	menubut: chan of string;
-	(t, menubut) = tkclient->toplevel(ctxt, "", "Dis Module Manager", Tkclient->Appl);
+	(t, menubut) = tkclient->toplevel(ctxt, "", "Dis Disassembler", Tkclient->Appl);
 
 	cmd := chan of string;
 
 	tk->namechan(t, cmd, "cmd");
-	tkcmds(t, rt_cfg);
+	tkcmds(t, ui_cfg);
 	tkclient->onscreen(t, nil);
 	tkclient->startinput(t, "kbd"::"ptr"::nil);
 
@@ -126,6 +246,15 @@ init(ctxt: ref Draw->Context, nil: list of string)
 		return;
 	}
 	dis->init();
+
+	# an optional module path on the command line opens straight away
+	if(argv != nil)
+		argv = tl argv;
+	if(argv != nil) {
+		e := loadmod(hd argv);
+		if(e != nil)
+			ioerror("Open " + hd argv, e);
+	}
 
 	for(;;) alt {
 	s := <-t.ctxt.kbd =>
@@ -147,24 +276,12 @@ init(ctxt: ref Draw->Context, nil: list of string)
 			writedis();
 		"list" =>
 			writeasm();
-		"hdr" =>
-			hdr();
-		"code" =>
-			das(TK);
-		"data" =>
-			dat(TK);
-		"type" =>
-			desc(TK);
-		"link" =>
-			link(TK);
-		"imports" =>
-			imports(TK);
-		"handlers" =>
-			handlers(TK);
 		"must" =>
 			rt ^= MUSTCOMPILE;
+			setstatus();
 		"dont" =>
 			rt ^= DONTCOMPILE;
+			setstatus();
 		"stack" =>
 			spawn stack(ctxt);
 		"sign" =>
@@ -175,21 +292,83 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	}
 }
 
+# refresh the status bar from the loaded module
+setstatus()
+{
+	s: string;
+	if(m == nil || m.magic == 0)
+		s = "No module loaded — use File ▸ Open";
+	else {
+		fl := rtflag(rt);
+		if(fl == "")
+			fl = "no flags";
+		s = sprint("%s   —   v%d Dis   —   %d instructions, %d type descriptors   —   %s",
+			m.name, m.magic - XMAGIC + 1, m.isize, m.tsize, fl);
+	}
+	tk->cmd(t, ".sb.l configure -text " + tk->quote(s));
+}
+
+# wipe every section view before repopulating
+clearviews()
+{
+	tk->cmd(t, ".nb.code.t delete 1.0 end");
+	tk->cmd(t, ".nb.data.t delete 1.0 end");
+	cleartree(".nb.sum.t");
+	cleartree(".nb.types.t");
+	cleartree(".nb.links.t");
+	cleartree(".nb.imports.t");
+	cleartree(".nb.handlers.t");
+}
+
+cleartree(path: string)
+{
+	ids := tk->cmd(t, path + " children {}");
+	if(ids != "" && ids[0] != '!')
+		tk->cmd(t, path + " delete " + ids);
+}
+
+# format an array of strings as a braced Tk list, each element braced
+vlist(a: array of string): string
+{
+	s := "{";
+	for(i := 0; i < len a; i++) {
+		if(i > 0)
+			s += " ";
+		s += "{" + a[i] + "}";
+	}
+	return s + "}";
+}
+
+trow(path: string, parent: string, id: string, text: string, vals: array of string)
+{
+	c := path + " insert " + parent + " end";
+	if(id != "")
+		c += " -id " + id;
+	c += " -text " + tk->quote(text) + " -values " + vlist(vals);
+	tk->cmd(t, c);
+}
+
 stack_cfg := array[] of {
-	"scale .s -length 200 -to 32768 -resolution 128 -orient horizontal",
-	"frame .f",
-	"pack .s .f -pady 5 -fill x -expand 1",
+	"ttk::frame .f -padding 10",
+	"ttk::label .f.l -text {Stack extent (bytes):}",
+	"ttk::label .f.v -text 0",
+	"ttk::scale .f.s -length 260 -from 0 -to 32768 -orient horizontal "+
+		"-command {.f.v configure -text}",
+	"grid .f.l -row 0 -column 0 -sticky w",
+	"grid .f.v -row 0 -column 1 -sticky e",
+	"grid .f.s -row 1 -column 0 -columnspan 2 -sticky ew -pady 6",
+	"grid columnconfigure .f 0 -weight 1",
+	"pack .f -fill both -expand 1",
 };
 
 stack(ctxt: ref Draw->Context)
 {
-	# (s, sbut) := tkclient->toplevel(ctxt, tkclient->geom(t), "Dis Stack", 0);
-	(s, sbut) := tkclient->toplevel(ctxt, "", "Dis Stack", 0);
+	(s, sbut) := tkclient->toplevel(ctxt, "", "Stack extent", 0);
 
 	cmd := chan of string;
 	tk->namechan(s, cmd, "cmd");
 	tkcmds(s, stack_cfg);
-	tk->cmd(s, ".s set " + string ss);
+	tk->cmd(s, ".f.s set " + string ss);
 	tk->cmd(s, "update");
 	tkclient->onscreen(s, nil);
 	tkclient->startinput(s, "kbd"::"ptr"::nil);
@@ -204,11 +383,12 @@ stack(ctxt: ref Draw->Context)
 		tkclient->wmctl(s, c);
 	wmctl := <-sbut =>
 		if(wmctl == "exit") {
-			ss = int tk->cmd(s, ".s get");
+			ss = int tk->cmd(s, ".f.s get");
+			setstatus();
 			return;
 		}
 		tkclient->wmctl(s, wmctl);
-	}	
+	}
 }
 
 openfile(ctxt: ref Draw->Context)
@@ -223,15 +403,9 @@ openfile(ctxt: ref Draw->Context)
 		if(disfile == "")
 			break;
 
-		s: string;
-		(m, s) = dis->loadobj(disfile);
-		if(s == nil) {
-			ss = m.ssize;
-			rt = m.rt;
-			tk->cmd(t, ".m.l configure -text {"+m.name+"}");
-			das(TK);
+		s := loadmod(disfile);
+		if(s == nil)
 			return;
-		}
 
 		r := dialog->prompt(ctxt, t.image, "error -fg red", "Open Dis File",
 				s,
@@ -239,6 +413,30 @@ openfile(ctxt: ref Draw->Context)
 		if(r == 1)
 			return;
 	}
+}
+
+# load a .dis module and populate every section view; returns an error string
+loadmod(file: string): string
+{
+	(mm, e) := dis->loadobj(file);
+	if(e != nil)
+		return e;
+	m = mm;
+	disfile = file;
+	ss = m.ssize;
+	rt = m.rt;
+	clearviews();
+	summary();
+	das(TK);
+	dat(TK);
+	desc(TK);
+	link(TK);
+	imports(TK);
+	handlers(TK);
+	setstatus();
+	tk->cmd(t, ".nb select .nb.code");
+	tk->cmd(t, "update");
+	return nil;
 }
 
 writedis()
@@ -266,6 +464,7 @@ writedis()
 		discon(fd, ss);
 		m.rt = rt;
 		m.ssize = ss;
+		setstatus();
 		return;
 	}
 	# rt and ss representations changed in length: read the file in,
@@ -312,6 +511,7 @@ writedis()
 		ioerror("Rewriting "+disfile, "write error: "+sprint("%r"));
 	m.rt = rt;
 	m.ssize = ss;
+	setstatus();
 }
 
 ioerror(title: string, err: string)
@@ -434,20 +634,15 @@ link(flag: int)
 		return;
 	}
 
-	if(flag == TK)
-		tk->cmd(t, ".b.t delete 1.0 end");
-
 	for(i := 0; i < m.lsize; i++) {
 		l := m.links[i];
-		s := sprint("	link %d,%d, 0x%ux, \"%s\"\n",
-					l.desc, l.pc, l.sig, l.name);
 		if(flag == TK)
-			tk->cmd(t, ".b.t insert end '"+s);
+			trow(".nb.links.t", "{}", "", l.name,
+				array[] of { string l.desc, string l.pc, sprint("0x%ux", l.sig) });
 		else
-			fasm.puts(s);
+			fasm.puts(sprint("	link %d,%d, 0x%ux, \"%s\"\n",
+						l.desc, l.pc, l.sig, l.name));
 	}
-	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
 }
 
 imports(flag: int)
@@ -459,23 +654,18 @@ imports(flag: int)
 		return;
 	}
 
-	if(flag == TK)
-		tk->cmd(t, ".b.t delete 1.0 end");
-
 	mi := m.imports;
 	for(i := 0; i < len mi; i++) {
 		a := mi[i];
 		for(j := 0; j < len a; j++) {
 			ai := a[j];
-			s := sprint("	import 0x%ux, \"%s\"\n", ai.sig, ai.name);
 			if(flag == TK)
-				tk->cmd(t, ".b.t insert end '"+s);
+				trow(".nb.imports.t", "{}", "", ai.name,
+					array[] of { sprint("0x%ux", ai.sig) });
 			else
-				fasm.puts(s);
+				fasm.puts(sprint("	import 0x%ux, \"%s\"\n", ai.sig, ai.name));
 		}
 	}
-	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
 }
 
 handlers(flag: int)
@@ -487,9 +677,6 @@ handlers(flag: int)
 		return;
 	}
 
-	if(flag == TK)
-		tk->cmd(t, ".b.t delete 1.0 end");
-
 	hs := m.handlers;
 	for(i := 0; i < len hs; i++) {
 		h := hs[i];
@@ -500,26 +687,31 @@ handlers(flag: int)
 				break;
 			}
 		}
-		s := sprint("	%d-%d, o=%d, e=%d t=%d\n", h.pc1, h.pc2, h.eoff, h.ne, tt);
+		hid := "h" + string i;
 		if(flag == TK)
-			tk->cmd(t, ".b.t insert end '"+s);
+			trow(".nb.handlers.t", "{}", hid, sprint("handler %d", i),
+				array[] of { sprint("pc %d-%d, off=%d, n=%d, type=$%d", h.pc1, h.pc2, h.eoff, h.ne, tt) });
 		else
-			fasm.puts(s);
+			fasm.puts(sprint("	%d-%d, o=%d, e=%d t=%d\n", h.pc1, h.pc2, h.eoff, h.ne, tt));
 		et := h.etab;
 		for(j = 0; j < len et; j++) {
 			e := et[j];
-			if(e.s == nil)
-				s = sprint("		%d	*\n", e.pc);
-			else
-				s = sprint("		%d	\"%s\"\n", e.pc, e.s);
-			if(flag == TK)
-				tk->cmd(t, ".b.t insert end '"+s);
-			else
-				fasm.puts(s);
+			if(flag == TK) {
+				label: string;
+				if(e.s == nil)
+					label = "*";
+				else
+					label = "\"" + e.s + "\"";
+				trow(".nb.handlers.t", hid, "", sprint("pc %d", e.pc),
+					array[] of { label });
+			} else {
+				if(e.s == nil)
+					fasm.puts(sprint("		%d	*\n", e.pc));
+				else
+					fasm.puts(sprint("		%d	\"%s\"\n", e.pc, e.s));
+			}
 		}
 	}
-	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
 }
 
 desc(flag: int)
@@ -531,52 +723,45 @@ desc(flag: int)
 		return;
 	}
 
-	if(flag == TK)
-		tk->cmd(t, ".b.t delete 1.0 end");
-
 	for(i := 0; i < m.tsize; i++) {
 		h := m.types[i];
-		s := sprint("	desc $%d, %d, \"", i, h.size);
+		mp := "";
 		for(j := 0; j < h.np; j++)
-			s += sprint("%.2ux", int h.map[j]);
-		s += "\"\n";
+			mp += sprint("%.2ux", int h.map[j]);
 		if(flag == TK)
-			tk->cmd(t, ".b.t insert end '"+s);
-		else
+			trow(".nb.types.t", "{}", "", sprint("$%d", i),
+				array[] of { string h.size, mp });
+		else {
+			s := sprint("	desc $%d, %d, \"%s\"\n", i, h.size, mp);
 			fasm.puts(s);
+		}
 	}
-	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
 }
 
-hdr()
+# Summary tab: the header fields as a property/value tree
+summary()
 {
-	if(m == nil || m.magic == 0) {
-		dialog->prompt(gctxt, t.image, "error -fg red", "Header",
-				"no module loaded",
-				0, "Continue"::nil);
+	if(m == nil || m.magic == 0)
 		return;
-	}
 
-	tk->cmd(t, ".b.t delete 1.0 end");
-
-	s := sprint("%.8ux Version %d Dis VM\n", m.magic, m.magic - XMAGIC + 1);
-	s += sprint("%.8ux Runtime flags %s\n", m.rt, rtflag(m.rt));
-	s += sprint("%8d bytes per stack extent\n\n", m.ssize);
-
-
-	s += sprint("%8d instructions\n", m.isize);
-	s += sprint("%8d data size\n", m.dsize);
-	s += sprint("%8d heap type descriptors\n", m.tsize);
-	s += sprint("%8d link directives\n", m.lsize);
-	s += sprint("%8d entry pc\n", m.entry);
-	s += sprint("%8d entry type descriptor\n\n", m.entryt);
-
+	trow(".nb.sum.t", "{}", "", "Module", array[] of { m.name });
+	trow(".nb.sum.t", "{}", "", "Version",
+		array[] of { sprint("%d  (magic %.8ux)", m.magic - XMAGIC + 1, m.magic) });
+	fl := rtflag(m.rt);
+	if(fl == "")
+		fl = "none";
+	trow(".nb.sum.t", "{}", "", "Runtime flags", array[] of { fl });
+	trow(".nb.sum.t", "{}", "", "Stack extent", array[] of { sprint("%d bytes", m.ssize) });
+	trow(".nb.sum.t", "{}", "", "Instructions", array[] of { string m.isize });
+	trow(".nb.sum.t", "{}", "", "Data size", array[] of { sprint("%d bytes", m.dsize) });
+	trow(".nb.sum.t", "{}", "", "Type descriptors", array[] of { string m.tsize });
+	trow(".nb.sum.t", "{}", "", "Link directives", array[] of { string m.lsize });
+	trow(".nb.sum.t", "{}", "", "Entry PC", array[] of { string m.entry });
+	trow(".nb.sum.t", "{}", "", "Entry type", array[] of { sprint("$%d", m.entryt) });
+	sec := "Signed";
 	if(m.sign == nil)
-		s += "Module is Insecure\n";
-
-	tk->cmd(t, ".b.t insert end '"+s);
-	tk->cmd(t, ".b.t see 1.0; update");
+		sec = "Insecure (unsigned)";
+	trow(".nb.sum.t", "{}", "", "Security", array[] of { sec });
 }
 
 rtflag(flag: int): string
@@ -607,27 +792,28 @@ das(flag: int)
 		return;
 	}
 
-	if(flag == TK)
-		tk->cmd(t, ".b.t delete 1.0 end");
-
 	for(i := 0; i < m.isize; i++) {
-		prefix := "";
-		if(flag == TK)
-			prefix = sprint(".b.t insert end '%4d   ", i);
-		else {
+		op := dis->inst2s(m.inst[i]);
+		if(flag == TK) {
+			# inst2s left-justifies the opcode in 10 columns, then the
+			# operands; split there for a coloured PC/opcode/operands listing.
+			opc := op;
+			opr := "";
+			if(len op > 10) {
+				opc = op[0:10];
+				opr = op[10:];
+			}
+			tk->cmd(t, ".nb.code.t insert end {" + sprint("%6d  ", i) + "} pcnum");
+			tk->cmd(t, ".nb.code.t insert end {" + opc + "} opcode");
+			tk->cmd(t, ".nb.code.t insert end {" + opr + "\n} operand");
+		} else {
 			if(i % 10 == 0)
 				fasm.puts("#" + string i + "\n");
-			prefix = sprint("\t");
+			fasm.puts("\t" + op + "\n");
 		}
-		s := prefix + dis->inst2s(m.inst[i]) + "\n";
-
-		if(flag == TK)
-			tk->cmd(t, s);
-		else
-			fasm.puts(s);
 	}
 	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
+		tk->cmd(t, ".nb.code.t see 1.0");
 }
 
 dat(flag: int)
@@ -638,14 +824,13 @@ dat(flag: int)
 				0, "Continue"::nil);
 		return;
 	}
-	s := sprint("	var @mp, %d\n", m.types[0].size);
-	if(flag == TK) {
-		tk->cmd(t, ".b.t delete 1.0 end");
-		tk->cmd(t, ".b.t insert end '"+s);
-	} else
-		fasm.puts(s);
+	hdr := sprint("\tvar @mp, %d\n", m.types[0].size);
+	if(flag == TK)
+		datline(hdr);
+	else
+		fasm.puts(hdr);
 
-	s = "";
+	s := "";
 	for(d := m.data; d != nil; d = tl d) {
 		pick dat := hd d {
 		Bytes =>
@@ -676,13 +861,20 @@ dat(flag: int)
 				s += sprint(", %bd", dat.bigs[n]);
 		}
 		if(flag == TK)
-			tk->cmd(t, ".b.t insert end '"+s+"\n");
+			datline(s + "\n");
 		else
 			fasm.puts(s+"\n");
 	}
 
 	if(flag == TK)
-		tk->cmd(t, ".b.t see 1.0; update");
+		tk->cmd(t, ".nb.data.t see 1.0");
+}
+
+# insert one literal line into the data text view (the ' prefix keeps the
+# whole line, including embedded quotes, verbatim)
+datline(s: string)
+{
+	tk->cmd(t, ".nb.data.t insert end '" + s);
 }
 
 mapstr(s: string): string
@@ -694,8 +886,8 @@ mapstr(s: string): string
 	return s;
 }
 
-tkcmds(t: ref Toplevel, cfg: array of string)
+tkcmds(top: ref Toplevel, cfg: array of string)
 {
 	for(i := 0; i < len cfg; i++)
-		tk->cmd(t, cfg[i]);
+		tk->cmd(top, cfg[i]);
 }

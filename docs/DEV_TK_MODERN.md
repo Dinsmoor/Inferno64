@@ -817,8 +817,10 @@ rendering or rely on classic-only idioms:
   `wm/ftree` (a bespoke canvas tree with drag-drop file ops beyond
   `ttk::treeview`), and the canvas/text apps `acme`/`charon`/`wm/edit`/`wm/sh`/
   `wm/vt`/`wm/memory`/`wm/colors`/`wm/tetris`/`wm/deb` (heavy custom rendering or
-  `text`-tag machinery that ttk does not touch). `wm/rt` is a candidate for a
-  `ttk::menubutton`/`ttk::*` sweep now that the widget exists.
+  `text`-tag machinery that ttk does not touch).
+- **Fully migrated to ttk:** `wm/rt` (the Dis disassembler) — rebuilt around a
+  `ttk::notebook` + `Treeview`s + `ttk::menubutton`s + a themed status bar (see
+  the §12 note below); the showcase app for the new widget set.
 
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
@@ -869,10 +871,22 @@ would need a new C event path *and* rewrites of every consumer (`tkwdemo`,
 New code wanting the themed look uses the native `ttk::*` widgets directly. See
 `ON_TK_WIDGETS.md`.
 
-**Remaining (optional polish, not gating):** a clean `wm/rt` `ttk::*` sweep;
-the megawidget shims beyond `Progressbar` (deliberately kept, see above). Tk's
-Shift/Ctrl-click listbox selection is out of reach on Inferno's input model
-(mouse events carry no modifier state). The core modernization — ttk engine, the
-full ttk widget set, a verified-rendering app suite, and Phase 4 classic
-completeness (entry `-validate`, classic `spinbox`, text `-undo`, text embedded
-images, listbox `-activestyle`) — is complete.
+**`wm/rt` (the Dis disassembler) is now a full ttk app** — the showcase for the
+new widget set: a `ttk::notebook` presents every section at once (Summary as a
+property/value `Treeview`; a syntax-highlighted monospace Code listing via text
+tags; Data; and `Treeview`s for the type/link/import descriptors and a
+hierarchical handlers tree), driven by a `ttk::menubutton` toolbar + `ttk::button`
+quick actions and a themed status bar with a `ttk::sizegrip`. It also gained a
+command-line argument (`wm/rt path.dis` opens straight away). Note: the app sets
+`ttk::style configure Treeview -fieldbackground #ffffff` so the data panes stay a
+clean white listing under any wm theme (otherwise the `Treeview` body fills with
+the theme's `TkCbackgndlght` slot, which is a saturated colour under blue/cyan
+themes).
+
+**Remaining (optional polish, not gating):** the megawidget shims beyond
+`Progressbar` (deliberately kept, see above). Tk's Shift/Ctrl-click listbox
+selection is out of reach on Inferno's input model (mouse events carry no
+modifier state). The core modernization — ttk engine, the full ttk widget set, a
+verified-rendering app suite, and Phase 4 classic completeness (entry
+`-validate`, classic `spinbox`, text `-undo`, text embedded images, listbox
+`-activestyle`) — is complete.
