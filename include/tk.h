@@ -128,7 +128,9 @@ enum
 	TkRptpause	= 300,	/* autorepeat inital delay */
 	TkRptinterval	= 100,	/* autorepeat interval */
 
-	TkBlinkinterval	= 500
+	TkBlinkinterval	= 500,
+
+	TkAftertick	= 20	/* `after' timer resolution (ms) */
 };
 
 #define TKSTRUCTALIGN	4
@@ -617,6 +619,7 @@ struct TkTop
 #define OPTION(p, t, o)	(*(t*)((char*)p + o))
 
 /* Command entry points */
+extern	char*	tkafter(TkTop*, char*, char**);
 extern	char*	tkbind(TkTop*, char*, char**);
 extern	char*	tkbutton(TkTop*, char*, char**);
 extern	char*	tkcanvas(TkTop*, char*, char**);
@@ -812,6 +815,7 @@ extern	void		tkrepeat(Tk*, void(*)(Tk*, void*, int), void*, int, int);
 extern	void		tkcancelrepeat(Tk*);
 extern	void		tkblink(Tk*, void(*)(Tk*, int));
 extern	void		tkblinkreset(Tk*);
+extern	void		tkafterfreetop(TkTop*);
 extern	char*	tkname(Tk*);
 
 /* General - windw.c */

@@ -961,6 +961,8 @@ tkfreetop(Heap *h, int swept)
 	t = H2D(TkTop*, h);
 	lockctxt(t->ctxt);
 
+	tkafterfreetop(t);
+
 	if(swept) {
 		t->di = H;
 		t->dd = H;

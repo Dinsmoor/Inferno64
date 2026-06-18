@@ -3,6 +3,7 @@
 LIB=libtk.a
 
 OFILES=\
+	after.$O\
 	ebind.$O\
 	grids.$O\
 	image.$O\

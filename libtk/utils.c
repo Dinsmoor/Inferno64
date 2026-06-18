@@ -21,6 +21,7 @@ struct Cmd
 };
 static struct Cmd cmdmain[] =
 {
+	"after",	tkafter,
 	"bind",		tkbind,
 	"button",	tkbutton,
 	"canvas",	tkcanvas,
