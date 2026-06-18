@@ -3,7 +3,7 @@
 > **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
 > ttk widgets, now including `ttk::menubutton`), Phase 3 (complex widgets:
 > notebook, panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration
-> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 145/145 and
+> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 155/155 and
 > `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
 > polish (megawidget shims, Phase 4 classic completeness).
 > See §12 for the live state. This document is the cold-start briefing; it
@@ -729,8 +729,22 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   stepping (numeric clamp/wrap, list cycle) under `wm/wm`.
 - **Not yet:** the megawidget shims (§4).
 
-**Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
-text undo + embedded images, listbox `extended`/`activestyle`).
+**Phase 4 — classic completeness: started.**
+- **entry `-validate` (done, in `entry.c`).** The full classic validation model:
+  `-validate none|key|focus|focusin|focusout|all`, `-validatecommand`,
+  `-invalidcommand`, with Tk's `%`-substitutions (`%d` type, `%i` index, `%P`
+  proposed value, `%s` current value, `%S` change, `%v` mode, `%V` condition,
+  `%W` path, `%%`). A `key` edit (insert *or* delete, so backspace too) is
+  rejected when the command returns false; focus checks run the hooks but cannot
+  veto; a non-boolean result disables validation (Tk's rule); a reentrancy guard
+  stops the hooks recursing. Strictly additive — `Vnone` (the default) skips the
+  whole path, and the gate is checked before any work, so the ordinary entry is
+  untouched. Shared by the classic entry and the ttk entry/combobox/spinbox.
+  *Inferno caveat:* the validatecommand is an ordinary Inferno-Tk script, which
+  has no `expr`/`string` — compute the boolean elsewhere and return it via
+  `variable` (or gate from Limbo), e.g. `-validatecommand {variable ok}`.
+- **Not yet:** classic `spinbox` (the themed `ttk::spinbox` already covers the
+  need), entry text undo + embedded images, listbox `extended`/`activestyle`.
 
 **Phase 5 — app migration + render verification: DONE.** `wm/ttkdemo` is the
 gallery app proving the whole set (a `ttk::entry`, a `ttk::scale`-driven
@@ -768,7 +782,7 @@ rendering or rely on classic-only idioms:
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
 
-Combined ttk test: `tests/dis/tkttk.b` (145/145) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (155/155) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -790,7 +804,9 @@ increment, clamp at `-from`/`-to`, `-wrap` round both ends, disabled blocks
 step, `-values` cycle forward/back), and `ttk::menubutton` (class, `-style`,
 `-text`/`-menu` cget, reconfigure, `state`/`instate` disabled, disabled-press
 no-op; the live post is verified visually under `wm/wm`, like the combobox
-dropdown).
+dropdown), and classic **entry `-validate`** (key accept/reject on insert and
+delete, `%P`/`%S` substitution, `-invalidcommand` firing, `-validate none`
+bypass, non-boolean result disabling validation).
 
 **Megawidget shims.** `Tkwidgets`'s `Progressbar` is now a thin shim over the
 native `ttk::progressbar` (themed fill, same API/path). The other megawidgets
@@ -805,6 +821,7 @@ New code wanting the themed look uses the native `ttk::*` widgets directly. See
 `ON_TK_WIDGETS.md`.
 
 **Remaining (optional polish, not gating):** a clean `wm/rt` `ttk::*` sweep;
-classic `spinbox`/`-validate`/text-undo (Phase 4). The core modernization — ttk
-engine, the full ttk widget set, and a verified-rendering app suite — is
-complete.
+the rest of Phase 4 (classic `spinbox` — already covered by `ttk::spinbox`;
+entry text undo + embedded images; listbox `extended`/`activestyle`). The core
+modernization — ttk engine, the full ttk widget set, a verified-rendering app
+suite, and now entry `-validate` — is complete.

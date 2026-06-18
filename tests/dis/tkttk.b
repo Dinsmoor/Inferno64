@@ -449,6 +449,43 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	cmd(".mb state {!disabled}");
 	ok("menubutton re-enabled", cmd(".mb instate disabled") == "0");
 
+	# ---- 22. classic entry -validate (Phase 4 classic completeness) ----
+	# The validatecommand is an ordinary Tk script; here it records the %P
+	# substitution into one variable and returns the boolean held in another,
+	# so we can drive accept/reject deterministically.
+	cmd("entry .ve");
+	cmd("pack .ve");
+	cmd("variable allow 1");
+	cmd(".ve configure -validate key -validatecommand {variable seen %P; variable allow}");
+	cmd(".ve insert end abc");
+	ok("validate allows when command true", cmd(".ve get") == "abc");
+	ok("validate %P substituted to new value", cmd("variable seen") == "abc");
+	cmd("variable allow 0");
+	cmd(".ve insert end Z");
+	ok("validate rejects insert when command false", cmd(".ve get") == "abc");
+	# -invalidcommand fires on rejection, seeing the %S change string
+	cmd("variable bads {}");
+	cmd(".ve configure -invalidcommand {variable bads %S}");
+	cmd(".ve insert end Q");
+	ok("invalidcommand ran with %S change", cmd("variable bads") == "Q");
+	ok("rejected insert left text intact", cmd(".ve get") == "abc");
+	# delete is validated too (type 0)
+	cmd(".ve delete 0 1");
+	ok("validate blocks delete when false", cmd(".ve get") == "abc");
+	cmd("variable allow 1");
+	cmd(".ve delete 0 1");
+	ok("validate allows delete when true", cmd(".ve get") == "bc");
+	# -validate none => no checks at all
+	cmd(".ve configure -validate none");
+	cmd("variable allow 0");
+	cmd(".ve insert end XY");
+	ok("validate none ignores the command", cmd(".ve get") == "bcXY");
+	# a non-boolean result disables validation (Tk's rule) and lets the edit through
+	cmd(".ve configure -validate key -validatecommand {variable nope}");
+	cmd(".ve insert end !");
+	ok("non-boolean result lets edit through", cmd(".ve get") == "bcXY!");
+	ok("non-boolean result turned validation off", cmd(".ve cget -validate") == "none");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

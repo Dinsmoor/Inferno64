@@ -47,6 +47,27 @@ static TkStab tkjust[] =
 	nil
 };
 
+/* -validate modes (and the %V condition that triggered a check) */
+enum {
+	Vnone,
+	Vkey,
+	Vfocus,
+	Vfocusin,
+	Vfocusout,
+	Vall,
+};
+
+static TkStab tkvalidate[] =
+{
+	"none",		Vnone,
+	"key",		Vkey,
+	"focus",	Vfocus,
+	"focusin",	Vfocusin,
+	"focusout",	Vfocusout,
+	"all",		Vall,
+	nil
+};
+
 static
 TkEbind b[] = 
 {
@@ -130,6 +151,12 @@ struct TkEntry
 	int		spininc;	/* fixed-point -increment */
 	int		spinwrap;	/* -wrap: step past an end wraps round */
 	char*		spincmd;	/* -command, run after each step */
+
+	/* classic -validate machinery (Phase 4); Vnone (default) => no checks */
+	int		validate;	/* Vnone/Vkey/Vfocus/Vfocusin/Vfocusout/Vall */
+	char*		vcmd;		/* -validatecommand */
+	char*		invcmd;		/* -invalidcommand */
+	int		validating;	/* reentrancy guard while a hook runs */
 };
 
 static void blinkreset(Tk*);
@@ -140,6 +167,9 @@ TkOption opts[] =
 	"xscrollcommand",	OPTtext,	O(TkEntry, xscroll),	nil,
 	"justify",		OPTstab,	O(TkEntry, flag),	tkjust,
 	"show",			OPTtext,	O(TkEntry, show),	nil,
+	"validate",		OPTstab,	O(TkEntry, validate),	tkvalidate,
+	"validatecommand",	OPTtext,	O(TkEntry, vcmd),	nil,
+	"invalidcommand",	OPTtext,	O(TkEntry, invcmd),	nil,
 	nil
 };
 
@@ -151,6 +181,9 @@ TkOption ttkopts[] =
 	"justify",		OPTstab,	O(TkEntry, flag),	tkjust,
 	"show",			OPTtext,	O(TkEntry, show),	nil,
 	"style",		OPTtext,	O(TkEntry, tstyle),	nil,
+	"validate",		OPTstab,	O(TkEntry, validate),	tkvalidate,
+	"validatecommand",	OPTtext,	O(TkEntry, vcmd),	nil,
+	"invalidcommand",	OPTtext,	O(TkEntry, invcmd),	nil,
 	nil
 };
 
@@ -163,6 +196,9 @@ TkOption comboopts[] =
 	"show",			OPTtext,	O(TkEntry, show),	nil,
 	"style",		OPTtext,	O(TkEntry, tstyle),	nil,
 	"values",		OPTtext,	O(TkEntry, values),	nil,
+	"validate",		OPTstab,	O(TkEntry, validate),	tkvalidate,
+	"validatecommand",	OPTtext,	O(TkEntry, vcmd),	nil,
+	"invalidcommand",	OPTtext,	O(TkEntry, invcmd),	nil,
 	nil
 };
 
@@ -180,6 +216,9 @@ TkOption spinopts[] =
 	"increment",		OPTfrac,	O(TkEntry, spininc),	nil,
 	"wrap",			OPTstab,	O(TkEntry, spinwrap),	tkbool,
 	"command",		OPTtext,	O(TkEntry, spincmd),	nil,
+	"validate",		OPTstab,	O(TkEntry, validate),	tkvalidate,
+	"validatecommand",	OPTtext,	O(TkEntry, vcmd),	nil,
+	"invalidcommand",	OPTtext,	O(TkEntry, invcmd),	nil,
 	nil
 };
 
@@ -618,6 +657,8 @@ tkfreeentry(Tk *tk)
 	free(tke->tstyle);
 	free(tke->values);
 	free(tke->spincmd);
+	free(tke->vcmd);
+	free(tke->invcmd);
 	for(i = 0; i < tke->valc; i++)
 		free(tke->valv[i]);
 	free(tke->valv);
@@ -1136,6 +1177,161 @@ tkentryget(Tk *tk, char *arg, char **val)
 	return tkvalue(val, "%.*S", last-first, tke->text+first);
 }
 
+/*
+ * Classic Tk entry validation (-validate / -validatecommand / -invalidcommand).
+ * Nothing here runs unless -validate is something other than `none' (the
+ * default) and a -validatecommand is set, so the ordinary entry path is
+ * untouched.  Shared by the classic entry and the ttk entry/combobox/spinbox.
+ */
+
+/* render the current entry contents to a fresh UTF string */
+static char*
+entrytextstr(TkEntry *tke)
+{
+	char *s;
+	int n;
+
+	n = tke->textlen*UTFmax + 1;
+	s = malloc(n);
+	if(s == nil)
+		return nil;
+	if(tke->textlen > 0)
+		snprint(s, n, "%.*S", tke->textlen, tke->text);
+	else
+		s[0] = '\0';
+	return s;
+}
+
+/* "1"/"true"/"yes"/"on" => 1, "0"/"false"/"no"/"off" => 0; else *parsed = 0 */
+static int
+entrybool(char *s, int *parsed)
+{
+	*parsed = 1;
+	if(s != nil){
+		if(strcmp(s,"1")==0||strcmp(s,"true")==0||strcmp(s,"yes")==0||strcmp(s,"on")==0)
+			return 1;
+		if(strcmp(s,"0")==0||strcmp(s,"false")==0||strcmp(s,"no")==0||strcmp(s,"off")==0)
+			return 0;
+	}
+	*parsed = 0;
+	return 0;
+}
+
+/* substitute Tk's %-codes into a -validate/-invalidcommand template */
+static char*
+entryvalsubst(Tk *tk, char *t, int type, int index, char *newval, char *cur, char *change, int cond)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	static char *modes[] = { "none","key","focus","focusin","focusout","all" };
+	char *vcond;
+	Fmt f;
+	Rune r;
+	int n;
+
+	switch(cond){
+	case Vkey:	vcond = "key"; break;
+	case Vfocusin:	vcond = "focusin"; break;
+	case Vfocusout:	vcond = "focusout"; break;
+	default:	vcond = "forced"; break;
+	}
+
+	if(fmtstrinit(&f) < 0)
+		return nil;
+	while(*t){
+		n = chartorune(&r, t);
+		if(r != '%'){
+			fmtprint(&f, "%C", r);
+			t += n;
+			continue;
+		}
+		t += n;
+		if(*t == '\0')
+			break;
+		n = chartorune(&r, t);
+		t += n;
+		switch(r){
+		case '%':	fmtprint(&f, "%%"); break;
+		case 'd':	fmtprint(&f, "%d", type); break;
+		case 'i':	fmtprint(&f, "%d", index); break;
+		case 'P':	fmtprint(&f, "%s", newval ? newval : ""); break;
+		case 's':	fmtprint(&f, "%s", cur ? cur : ""); break;
+		case 'S':	fmtprint(&f, "%s", change ? change : ""); break;
+		case 'v':	fmtprint(&f, "%s", modes[tke->validate]); break;
+		case 'V':	fmtprint(&f, "%s", vcond); break;
+		case 'W':	fmtprint(&f, "%s", tk->name ? tk->name->name : ""); break;
+		default:	fmtprint(&f, "%%%C", r); break;
+		}
+	}
+	return fmtstrflush(&f);
+}
+
+/*
+ * Run validation for a pending change.  Returns 1 to allow it, 0 to reject.
+ * `cond' is what triggered the check (Vkey/Vfocusin/Vfocusout); `type' is
+ * 1=insert, 0=delete, -1=forced.  A false result runs -invalidcommand; an
+ * unparseable boolean result disables validation (Tk's rule).  Focus checks
+ * cannot actually veto, so their caller ignores the return.
+ */
+static int
+entryvalidate(Tk *tk, int cond, int type, int index, char *newval, char *cur, char *change)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	char *cmd, *res, *e;
+	int fire, parsed, truth;
+
+	if(tke->validate == Vnone || tke->vcmd == nil || tke->validating)
+		return 1;
+
+	fire = 0;
+	switch(cond){
+	case Vkey:
+		fire = (tke->validate == Vkey || tke->validate == Vall);
+		break;
+	case Vfocusin:
+		fire = (tke->validate == Vfocus || tke->validate == Vfocusin || tke->validate == Vall);
+		break;
+	case Vfocusout:
+		fire = (tke->validate == Vfocus || tke->validate == Vfocusout || tke->validate == Vall);
+		break;
+	}
+	if(!fire)
+		return 1;
+
+	cmd = entryvalsubst(tk, tke->vcmd, type, index, newval, cur, change, cond);
+	if(cmd == nil)
+		return 1;
+	tke->validating = 1;
+	res = nil;
+	e = tkexec(tk->env->top, cmd, &res);
+	tke->validating = 0;
+	free(cmd);
+	if(e != nil){			/* broken command: leave the edit alone */
+		free(res);
+		return 1;
+	}
+	truth = entrybool(res, &parsed);
+	free(res);
+	if(!parsed){			/* not a boolean: Tk turns validation off */
+		tke->validate = Vnone;
+		return 1;
+	}
+	if(truth)
+		return 1;
+
+	/* invalid: fire -invalidcommand (guarded against recursion), then reject */
+	if(tke->invcmd != nil && !tke->validating){
+		cmd = entryvalsubst(tk, tke->invcmd, type, index, newval, cur, change, cond);
+		if(cmd != nil){
+			tke->validating = 1;
+			e = tkexec(tk->env->top, cmd, nil);
+			tke->validating = 0;
+			free(cmd);
+			USED(e);
+		}
+	}
+	return 0;
+}
+
 static char*
 tkentryinsert(Tk *tk, char *arg, char **val)
 {
@@ -1172,6 +1368,24 @@ tkentryinsert(Tk *tk, char *arg, char **val)
 
 	tkword(top, arg, text, text+n, nil);
 	n = utflen(text);
+
+	/* -validate key check: reject the insert if the command says no */
+	if(tke->validate != Vnone && tke->vcmd != nil && !tke->validating){
+		char *cur, *newval;
+		int ok;
+		cur = entrytextstr(tke);
+		newval = smprint("%.*S%s%.*S", ins, tke->text, text, tke->textlen-ins, tke->text+ins);
+		ok = 1;
+		if(cur != nil && newval != nil)
+			ok = entryvalidate(tk, Vkey, 1, ins, newval, cur, text);
+		free(cur);
+		free(newval);
+		if(!ok){
+			free(text);
+			return nil;
+		}
+	}
+
 	etext = realloc(tke->text, (tke->textlen+n+1)*sizeof(Rune));
 	if(etext == nil) {
 		free(text);
@@ -1244,6 +1458,25 @@ tkentrydelete(Tk *tk, char *arg, char **val)
 	free(buf);
 	if(d1 <= d0 || tke->textlen == 0 || d0 >= tke->textlen)
 		return nil;
+	if(d1 > tke->textlen)
+		d1 = tke->textlen;
+
+	/* -validate key check: reject the delete if the command says no */
+	if(tke->validate != Vnone && tke->vcmd != nil && !tke->validating){
+		char *cur, *newval, *change;
+		int ok;
+		cur = entrytextstr(tke);
+		change = smprint("%.*S", d1-d0, tke->text+d0);
+		newval = smprint("%.*S%.*S", d0, tke->text, tke->textlen-d1, tke->text+d1);
+		ok = 1;
+		if(cur != nil && newval != nil && change != nil)
+			ok = entryvalidate(tk, Vkey, 0, d0, newval, cur, change);
+		free(cur);
+		free(newval);
+		free(change);
+		if(!ok)
+			return nil;
+	}
 
 	memmove(tke->text+d0, tke->text+d1, (tke->textlen-d1)*sizeof(Rune));
 	tke->textlen -= d1 - d0;
@@ -1739,6 +1972,18 @@ tkentryfocus(Tk *tk, char* arg, char **ret)
 		tkblink(nil, nil);
 
 	showcaret(tk, on);
+
+	/* -validate focus check (cannot veto focus; just runs the hooks) */
+	{
+		TkEntry *tke = TKobj(TkEntry, tk);
+		if(tke->validate != Vnone && tke->vcmd != nil && !tke->validating){
+			char *cur = entrytextstr(tke);
+			if(cur != nil)
+				entryvalidate(tk, on ? Vfocusin : Vfocusout, -1,
+					tke->icursor, cur, cur, "");
+			free(cur);
+		}
+	}
 	return nil;
 }
 
