@@ -806,7 +806,7 @@ Tk_putimage(void *a)
 			name = words[0];
 		}
 		if((tk = tklook(t, name, 0)) != nil){
-			if(tk->type == TKchoicebutton){
+			if(tk->type == TKchoicebutton || tk->type == TKttkcombobox){
 				tk = tkfindchoicemenu(tk);
 				if(tk == nil)
 					goto Error;

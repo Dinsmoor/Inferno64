@@ -348,6 +348,42 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("treeview instate disabled", cmd(".tv instate disabled") == "1");
 	cmd(".tv state {!disabled}");
 
+	# ---- 19. ttk::combobox ----
+	cmd("ttk::combobox .cb -values {red green blue}");
+	cmd("pack .cb");
+	cmd("update");
+	ok("combobox class TCombobox", cmd("winfo class .cb") == "TCombobox");
+	ok("combobox style default", cmd(".cb style") == "TCombobox");
+	ok("combobox -values cget", cmd(".cb cget -values") == "red green blue");
+	# current get with nothing selected
+	ok("combobox current empty", cmd(".cb current") == "");
+	# set by index
+	cmd(".cb current 1");
+	ok("combobox current set index", cmd(".cb current") == "1");
+	ok("combobox text follows current", cmd(".cb get") == "green");
+	# set by value string (matches a -value -> updates current)
+	cmd(".cb set blue");
+	ok("combobox set known value", cmd(".cb get") == "blue");
+	ok("combobox current tracks set", cmd(".cb current") == "2");
+	# set an unknown value -> current clears
+	cmd(".cb set purple");
+	ok("combobox set unknown value", cmd(".cb get") == "purple");
+	ok("combobox current clears on unknown", cmd(".cb current") == "");
+	# still an editable entry: insert works in normal state
+	cmd(".cb delete 0 end");
+	cmd(".cb insert 0 hello");
+	ok("combobox editable insert", cmd(".cb get") == "hello");
+	# readonly state blocks typing but keeps the widget
+	cmd(".cb state readonly");
+	ok("combobox instate readonly", cmd(".cb instate readonly") == "1");
+	cmd(".cb insert 0 X");
+	ok("combobox readonly blocks insert", cmd(".cb get") == "hello");
+	cmd(".cb state {!readonly}");
+	# tkComboPick (what a dropdown selection runs) sets text + current
+	cmd(".cb tkComboPick 0");
+	ok("combobox pick sets value", cmd(".cb get") == "red");
+	ok("combobox pick sets current", cmd(".cb current") == "0");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

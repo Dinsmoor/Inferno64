@@ -690,9 +690,22 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   Fires `<<TreeviewSelect>>` on selection change. Verified rendering (nested
   open subtrees, right-anchored data column, selection bar, headings,
   scrollbar) under `wm/wm`.
-- **Not yet: `ttk::combobox`, `ttk::spinbox`** and the megawidget shims (§4).
-  `ttk::combobox` needs a transient popup-window mechanism (reuse the classic
-  `choicebutton`/menu path in `menus.c`).
+- `ttk::combobox` (class `TCombobox`): an entry with a drop-down value list,
+  built on the classic-core-reuse pattern — the same `TkEntry` struct and
+  command/geometry core as `ttk::entry`, behind a `combo` flag. The themed
+  chrome adds an arrow button on the right (`arrowwidth` reserves a column the
+  field text avoids via `textavail`). `-values` is a Tk list; `set`/`get`,
+  `current` (index get/set), and editable vs `readonly` text follow it.
+  Clicking the arrow (or anywhere when `readonly`) drops a transient list popup
+  via `tkpostlist` (`menus.c`), which reuses the `choicebutton`/`TKmenu` window
+  machinery — grab, press-drag-release selection, click-dismiss. The current
+  value's row is highlighted. Picking item `i` runs `<cb> tkComboPick i`,
+  which sets the field and fires `<<ComboboxSelected>>`. The wm's `!reshape`
+  reply for the popup is routed to the menu (not the entry) by extending the
+  choicebutton redirect in `libinterp/tk.c` to `TKttkcombobox`. Verified
+  rendering (drop-down list, highlighted current row) and live selection under
+  `wm/wm`.
+- **Not yet: `ttk::spinbox`** and the megawidget shims (§4).
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
@@ -700,13 +713,13 @@ text undo + embedded images, listbox `extended`/`activestyle`).
 **Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
 gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
 progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, a two-pane
-`ttk::panedwindow`, and a `ttk::treeview` with nested subtrees + a
-`ttk::scrollbar`) renders end-to-end under `wm/wm`. The ~20-app migration in §11
-is the remaining effort and is now gated only on `ttk::combobox` (the tree and
-both containers are done). Migration order and the golden baselines are in §11;
+`ttk::panedwindow`, a `ttk::treeview` with nested subtrees + a `ttk::scrollbar`,
+and a `ttk::combobox`) renders end-to-end under `wm/wm`. The ~20-app migration
+in §11 is the remaining effort; the tree, both containers, and the combobox are
+done. Migration order and the golden baselines are in §11;
 a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (107/107) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (122/122) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -719,8 +732,11 @@ through the shared core, `-style`, `disabled` state), `ttk::scale`
 set/get, `-style`, `state`), and `ttk::treeview` (class, `heading`/`column`
 get, `insert` id allocation + `-id`, `exists`, `children`/`parent`/`index`,
 `item -text`/`-values`/`-open` get/set, `selection` set/add/remove, `focus`,
-`move` reparent, `delete` subtree, `state`).
+`move` reparent, `delete` subtree, `state`), and `ttk::combobox` (class,
+`-style`, `-values` cget, `current` get/set, text-follows-current, `set`
+known/unknown value, `current` tracks/clears, editable insert, `readonly`
+state gating, `tkComboPick` sets value + `current`).
 
-**Next session, in order:** `ttk::combobox` → `ttk::spinbox`
+**Next session, in order:** `ttk::spinbox`
 → megawidget shims → migrate apps from §11 top-down, diffing classic regions
 each time.

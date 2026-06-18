@@ -58,6 +58,7 @@ enum
 	TKttknotebook,
 	TKttkpanedwindow,
 	TKttktreeview,
+	TKttkcombobox,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -732,6 +733,7 @@ extern	char*	tkttksizegrip(TkTop*, char*, char**);
 extern	char*	tkttknotebook(TkTop*, char*, char**);
 extern	char*	tkttkpanedwindow(TkTop*, char*, char**);
 extern	char*	tkttktreeview(TkTop*, char*, char**);
+extern	char*	tkttkcombobox(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -749,6 +751,7 @@ extern	TkMethod	ttksizegripmethod;
 extern	TkMethod	ttknotebookmethod;
 extern	TkMethod	ttkpanedwindowmethod;
 extern	TkMethod	ttktreeviewmethod;
+extern	TkMethod	ttkcomboboxmethod;
 
 extern	TkMethod	*tkmethod[];
 
@@ -838,6 +841,7 @@ extern	int		tkplacer(Tk*);
 extern	int		tkhasmanagedslave(Tk*);
 extern	char*		tkvirtbind(TkTop*, Tk*, char*, char*, int);
 extern	void		tkvirtgen(TkTop*, Tk*, char*);
+extern	char*		tkpostlist(Tk*, char**, int, int, char*);
 extern	void		tkfreevirt(Tk*);
 extern	void		tksetslavereq(Tk*, TkGeom);
 extern	int		tkisslave(Tk*, Tk*);

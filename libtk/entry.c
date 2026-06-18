@@ -107,7 +107,14 @@ struct TkEntry
 	/* ttk (ttk::entry) extension; zero/nil for the classic entry */
 	int		ttk;		/* 1 => themed chrome + state subcommands */
 	ulong		tstate;		/* ttk S* state bits */
-	char*		tstyle;		/* explicit -style, nil => "TEntry" */
+	char*		tstyle;		/* explicit -style, nil => "TEntry"/"TCombobox" */
+
+	/* ttk::combobox extension; zero/nil unless combo */
+	int		combo;		/* 1 => ttk::combobox (entry + dropdown) */
+	char*		values;		/* raw -values list */
+	char**		valv;		/* parsed -values */
+	int		valc;
+	int		curidx;		/* selected index in valv, -1 if none */
 };
 
 static void blinkreset(Tk*);
@@ -132,9 +139,23 @@ TkOption ttkopts[] =
 	nil
 };
 
+/* ttk::combobox shares the editing core; adds -values to the ttk set */
+static
+TkOption comboopts[] =
+{
+	"xscrollcommand",	OPTtext,	O(TkEntry, xscroll),	nil,
+	"justify",		OPTstab,	O(TkEntry, flag),	tkjust,
+	"show",			OPTtext,	O(TkEntry, show),	nil,
+	"style",		OPTtext,	O(TkEntry, tstyle),	nil,
+	"values",		OPTtext,	O(TkEntry, values),	nil,
+	nil
+};
+
 static TkOption*
 entryopts(TkEntry *tke)
 {
+	if(tke->combo)
+		return comboopts;
 	return tke->ttk ? ttkopts : opts;
 }
 
@@ -144,7 +165,7 @@ ttkentrystylename(TkEntry *tke)
 {
 	if(tke->tstyle != nil && tke->tstyle[0] != '\0')
 		return tke->tstyle;
-	return "TEntry";
+	return tke->combo ? "TCombobox" : "TEntry";
 }
 
 /* live ttk state: stored bits plus focus/disabled derived from Tk.flag */
@@ -187,11 +208,29 @@ yinset(Tk *tk)
 	return Entrypady + tk->highlightwidth;
 }
 
+/* width of the dropdown-arrow column (0 unless this is a combobox) */
+static int
+arrowwidth(Tk *tk)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+
+	if(!tke->combo)
+		return 0;
+	return tk->env->font->height + 4;
+}
+
+/* width available for text, after both insets and the arrow column */
+static int
+textavail(Tk *tk)
+{
+	return tk->act.width - 2*xinset(tk) - arrowwidth(tk);
+}
+
 static void
 tksizeentry(Tk *tk)
 {
 	if((tk->flag & Tksetwidth) == 0)
-		tk->req.width = tk->env->wzero*25 + 2*xinset(tk) + Inswidth;
+		tk->req.width = tk->env->wzero*25 + 2*xinset(tk) + Inswidth + arrowwidth(tk);
 	if((tk->flag & Tksetheight) == 0)
 		tk->req.height = tk->env->font->height+ 2*yinset(tk);
 }
@@ -252,7 +291,7 @@ recalcentry(Tk *tk)
 
 	tke->xlen = entrytextwidth(tk, tke->textlen) + Inswidth;
 
-	avail = tk->act.width - 2*xinset(tk);
+	avail = textavail(tk);
 	if (tke->xlen < avail) {
 		switch(tke->flag & Ejustify) {
 		default:
@@ -268,7 +307,7 @@ recalcentry(Tk *tk)
 	}
 
 	tke->v0 = x2index(tk, tke->x0, &tke->xv0);
-	tke->v1 = x2index(tk, tk->act.width + tke->x0, &x);
+	tke->v1 = x2index(tk, tk->act.width - arrowwidth(tk) + tke->x0, &x);
 	/* perhaps include partial last character */
 	if (tke->v1 < tke->textlen && x < avail + tke->x0)
 		tke->v1++;
@@ -280,22 +319,104 @@ recalcentry(Tk *tk)
 		unlockdisplay(tk->env->top->display);
 }
 
+/* (re)build tke->valv from the raw tke->values list */
+static void
+comboparsevalues(Tk *tk)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	TkTop *top = tk->env->top;
+	char *p, *val;
+	char **nv;
+	int n, cap;
+
+	for(n = 0; n < tke->valc; n++)
+		free(tke->valv[n]);
+	free(tke->valv);
+	tke->valv = nil;
+	tke->valc = 0;
+	if(tke->values == nil)
+		return;
+
+	val = mallocz(Tkmaxitem, 0);
+	if(val == nil)
+		return;
+	n = 0;
+	cap = 0;
+	nv = nil;
+	p = tke->values;
+	for(;;){
+		p = tkword(top, p, val, val+Tkmaxitem, nil);
+		if(val[0] == '\0')
+			break;
+		if(n >= cap){
+			cap = cap ? cap*2 : 4;
+			nv = realloc(nv, cap*sizeof(char*));
+			if(nv == nil){
+				free(val);
+				return;
+			}
+		}
+		nv[n++] = strdup(val);
+	}
+	free(val);
+	tke->valv = nv;
+	tke->valc = n;
+}
+
+/* replace the entry text with a UTF-8 string, bypassing the readonly gate */
+static void
+comboreplace(Tk *tk, char *s)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	Rune *rt;
+	int n, i, locked;
+	char *p;
+
+	n = utflen(s);
+	rt = mallocz((n+1)*sizeof(Rune), 0);
+	if(rt == nil)
+		return;
+	p = s;
+	for(i = 0; i < n; i++)
+		p += chartorune(rt+i, p);
+	free(tke->text);
+	tke->text = rt;
+	tke->textlen = n;
+	tke->sel0 = tke->sel1 = 0;
+	tke->icursor = n;
+	tke->anchor = 0;
+	tke->x0 = 0;
+	locked = lockdisplay(tk->env->top->display);
+	recalcentry(tk);
+	if(locked)
+		unlockdisplay(tk->env->top->display);
+	tk->dirty = tkrect(tk, 1);
+	tkdirty(tk);
+}
+
 static char*
-entrymake(TkTop *t, char *arg, char **ret, int ttk)
+entrymake(TkTop *t, char *arg, char **ret, int mode)
 {
 	Tk *tk;
 	char *e;
 	TkName *names;
 	TkEntry *tke;
 	TkOptab tko[3];
+	int ttk, combo, type;
 
-	tk = tknewobj(t, ttk ? TKttkentry : TKentry, sizeof(Tk)+sizeof(TkEntry));
+	ttk = (mode >= 1);
+	combo = (mode == 2);
+	type = combo ? TKttkcombobox : (ttk ? TKttkentry : TKentry);
+
+	tk = tknewobj(t, type, sizeof(Tk)+sizeof(TkEntry));
 	if(tk == nil)
 		return TkNomem;
 
 	tk->flag |= Tktakefocus;
 	tke = TKobj(TkEntry, tk);
 	tke->ttk = ttk;
+	tke->combo = combo;
+	tke->curidx = -1;
 	if(ttk){
 		/* themed chrome: flat border + focus ring, no 3D relief/highlight */
 		tk->relief = TKflat;
@@ -319,6 +440,8 @@ entrymake(TkTop *t, char *arg, char **ret, int ttk)
 		tkfreeobj(tk);
 		return e;
 	}
+	if(combo)
+		comboparsevalues(tk);
 	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
 	tksizeentry(tk);
 	e = tkbindings(t, tk, b, nelem(b));
@@ -347,6 +470,12 @@ tkentry(TkTop *t, char *arg, char **ret)
 }
 
 char*
+tkttkcombobox(TkTop *t, char *arg, char **ret)
+{
+	return entrymake(t, arg, ret, 2);
+}
+
+char*
 tkttkentry(TkTop *t, char *arg, char **ret)
 {
 	return entrymake(t, arg, ret, 1);
@@ -372,10 +501,16 @@ tkfreeentry(Tk *tk)
 {
 	TkEntry *tke = TKobj(TkEntry, tk);
 
+	int i;
+
 	free(tke->xscroll);
 	free(tke->text);
 	free(tke->show);
 	free(tke->tstyle);
+	free(tke->values);
+	for(i = 0; i < tke->valc; i++)
+		free(tke->valv[i]);
+	free(tke->valv);
 }
 
 static void
@@ -462,10 +597,36 @@ tkdrawentry(Tk *tk, Point orig)
 	yp = tk->borderwidth + yinset(tk);
 	s = r;
 	s.min.x += xp;
-	s.max.x -= xp;
+	s.max.x -= xp + arrowwidth(tk);
 	s.min.y += yp;
 	s.max.y -= yp;
 	tkentrytext(i, s, tk, env);
+
+	/* combobox dropdown arrow, in the reserved right-hand column */
+	if(tke->combo){
+		Rectangle ar;
+		Point a[3];
+		Image *col;
+		ulong st = ttkentrystate(tk);
+		int cx, cy, sz;
+
+		ar.min.x = r.max.x - tk->borderwidth - arrowwidth(tk);
+		ar.min.y = r.min.y + tk->borderwidth;
+		ar.max.x = r.max.x - tk->borderwidth;
+		ar.max.y = r.max.y - tk->borderwidth;
+		draw(i, ar, ttkentrycolor(tk, "-background", TkCbackgnd), nil, ZP);
+		tkbox(i, ar, 1, ttkentrycolor(tk, "-bordercolor", TkCbackgnddark));
+		col = (st & Sdisabled) ? tkgc(env, TkCdisablefgnd) : tkgc(env, TkCforegnd);
+		sz = env->font->height/3;
+		if(sz < 2)
+			sz = 2;
+		cx = (ar.min.x + ar.max.x)/2;
+		cy = (ar.min.y + ar.max.y)/2;
+		a[0] = Pt(cx - sz, cy - sz/2);
+		a[1] = Pt(cx + sz, cy - sz/2);
+		a[2] = Pt(cx, cy + sz/2 + 1);
+		fillpoly(i, a, 3, ~0, col, a[0]);
+	}
 
 	if(tke->ttk){
 		ulong st = ttkentrystate(tk);
@@ -503,7 +664,7 @@ tkentrysh(Tk *tk)
 	top = Tkfpscalar;
 
 	if(tke->text != 0 && tke->textlen != 0) {
-		dx = tk->act.width - 2*xinset(tk);
+		dx = textavail(tk);
 
 		if (tke->xlen > dx) {
 			bot = TKI2F(tke->x0) / tke->xlen;
@@ -561,6 +722,8 @@ tkentryconf(Tk *tk, char *arg, char **val)
 	bd = tk->borderwidth;
 	g = tk->req;
 	e = tkparse(tk->env->top, arg, tko, nil);
+	if(tke->combo)
+		comboparsevalues(tk);
 	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
 	tksizeentry(tk);
 	tkgeomchg(tk, &g, bd);
@@ -673,7 +836,7 @@ tkentrysee(Tk *tk, int index, int jump)
 	Rectangle r;
 
 	r = tkentrybbox(tk, index);
-	dx = tk->act.width - 2*xinset(tk);
+	dx = textavail(tk);
 	if (jump)
 		margin = dx / 4;
 	else
@@ -1233,7 +1396,7 @@ tkentryxview(Tk *tk, char *arg, char **val)
 
 	tke = TKobj(TkEntry, tk);
 	env = tk->env;
-	dx = tk->act.width - 2*xinset(tk);
+	dx = textavail(tk);
 
 	buf = mallocz(Tkmaxitem, 0);
 	if(buf == nil)
@@ -1337,6 +1500,13 @@ tkentryb1p(Tk *tk, char* arg, char **ret)
 
 	x = atoi(arg);
 	p = tkscrn2local(tk, Pt(x, 0));
+
+	/* a combobox click on the arrow column (or anywhere when readonly)
+	 * drops the value list instead of positioning the cursor */
+	if(tke->combo && !(tke->tstate & Sdisabled) &&
+	   (p.x >= tk->act.width - arrowwidth(tk) || (tke->tstate & Sreadonly)))
+		return tkpostlist(tk, tke->valv, tke->valc, tke->curidx, "tkComboPick");
+
 	sprint(buf, "@%d", p.x);
 	e = tkentryparseindex(tk, buf, &i);
 	if (e != nil)
@@ -1589,6 +1759,117 @@ TkCmdtab tkttkentrycmd[] =
 TkMethod ttkentrymethod = {
 	"TEntry",
 	tkttkentrycmd,
+	tkfreeentry,
+	tkdrawentry,
+	tkentrygeom
+};
+
+/* ---- ttk::combobox: the entry core + a -values dropdown ---- */
+
+/* `current ?index?': get/set the selected index into -values */
+static char*
+tkcombocurrent(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	TkTop *top = tk->env->top;
+	char *buf;
+	int idx;
+
+	buf = mallocz(Tkmaxitem, 0);
+	if(buf == nil)
+		return TkNomem;
+	tkword(top, arg, buf, buf+Tkmaxitem, nil);
+	if(buf[0] == '\0'){
+		free(buf);
+		if(tke->curidx < 0)
+			return tkvalue(ret, "");
+		return tkvalue(ret, "%d", tke->curidx);
+	}
+	idx = atoi(buf);
+	free(buf);
+	if(idx < 0 || idx >= tke->valc)
+		return TkBadix;
+	tke->curidx = idx;
+	comboreplace(tk, tke->valv[idx]);
+	return nil;
+}
+
+/* `set value': set the displayed text (and sync curidx if it's a -value) */
+static char*
+tkcomboset(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	TkTop *top = tk->env->top;
+	char *buf;
+	int i;
+
+	USED(ret);
+	buf = mallocz(Tkmaxitem, 0);
+	if(buf == nil)
+		return TkNomem;
+	tkword(top, arg, buf, buf+Tkmaxitem, nil);
+	tke->curidx = -1;
+	for(i = 0; i < tke->valc; i++)
+		if(strcmp(tke->valv[i], buf) == 0){
+			tke->curidx = i;
+			break;
+		}
+	comboreplace(tk, buf);
+	free(buf);
+	return nil;
+}
+
+/* internal: a dropdown item was chosen (command "<cb> tkComboPick <i>") */
+static char*
+tkcombopick(Tk *tk, char *arg, char **ret)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	int idx;
+
+	USED(ret);
+	idx = atoi(arg);
+	if(idx < 0 || idx >= tke->valc)
+		return nil;
+	tke->curidx = idx;
+	comboreplace(tk, tke->valv[idx]);
+	tkvirtgen(tk->env->top, tk, "ComboboxSelected");
+	return nil;
+}
+
+static
+TkCmdtab tkttkcombocmd[] =
+{
+	"cget",			tkentrycget,
+	"configure",		tkentryconf,
+	"current",		tkcombocurrent,
+	"delete",		tkentrydelete,
+	"get",			tkentryget,
+	"icursor",		tkentryicursor,
+	"identify",		ttkentryidentcmd,
+	"index",		tkentryindex,
+	"insert",		tkentryinsert,
+	"instate",		ttkentryinstatecmd,
+	"selection",		tkentryselect,
+	"set",			tkcomboset,
+	"state",		ttkentrystatecmd,
+	"style",		ttkentrystylecmd,
+	"xview",		tkentryxview,
+	"bbox",			tkentrybboxcmd,
+	"see",			tkentryseecmd,
+	"tkEntryBS",		tkentrybs,
+	"tkEntryBW",		tkentrybw,
+	"tkEntryB1P",		tkentryb1p,
+	"tkEntryB1M",		tkentryb1m,
+	"tkEntryB1R",		tkentryb1r,
+	"tkEntryB2P",		tkentryb2p,
+	"tkEntryFocus",		tkentryfocus,
+	"tkComboPick",		tkcombopick,
+	nil
+};
+
+TkMethod ttkcomboboxmethod = {
+	"TCombobox",
+	tkttkcombocmd,
 	tkfreeentry,
 	tkdrawentry,
 	tkentrygeom

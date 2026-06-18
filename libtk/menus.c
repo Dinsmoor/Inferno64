@@ -399,6 +399,86 @@ mkchoicemenu(Tk *tkb)
 	return menu;
 }
 
+/*
+ * Build and post a transient list popup of `n' string values directly below
+ * the widget `anchor' (a ttk::combobox).  Picking item i runs the Tk command
+ * "<anchor> <pickverb> i".  Reuses the TKmenu window machinery (grab, click
+ * dismiss) that backs the classic choicebutton dropdown.
+ */
+char*
+tkpostlist(Tk *anchor, char **values, int n, int cur, char *pickverb)
+{
+	Tk *menu, *tkc;
+	TkLabel *tkcl;
+	TkWin *tkw;
+	TkTop *t;
+	Point g;
+	char *e;
+	int i;
+
+	if(values == nil || n <= 0)
+		return nil;
+	t = anchor->env->top;
+
+	menu = tknewobj(t, TKmenu, sizeof(Tk)+sizeof(TkWin));
+	if(menu == nil)
+		return TkNomem;
+	menu->relief = TKraised;
+	menu->flag |= Tknograb;
+	menu->borderwidth = 1;
+	tkputenv(menu->env);
+	menu->env = anchor->env;
+	menu->env->ref++;
+	menu->flag |= Tkwindow;
+	menu->geom = tkmoveresize;
+	tkw = TKobj(TkWin, menu);
+	tkw->cbname = strdup(anchor->name->name);
+	tkw->di = (void*)-1;
+
+	for(i = n - 1; i >= 0; i--){
+		tkc = tknewobj(t, TKlabel, sizeof(Tk)+sizeof(TkLabel));
+		if(tkc == nil)
+			break;
+		tkc->flag = Tkwest|Tkfillx|Tktop;
+		tkc->highlightwidth = 0;
+		tkc->borderwidth = 1;
+		tkc->relief = TKflat;
+		tkputenv(tkc->env);
+		tkc->env = anchor->env;
+		tkc->env->ref++;
+		tkcl = TKobj(TkLabel, tkc);
+		tkcl->anchor = Tkwest;
+		tkcl->ul = -1;
+		tkcl->justify = Tkleft;
+		tkcl->text = strdup(values[i]);
+		tkcl->command = smprint("%s %s %d", anchor->name->name, pickverb, i);
+		tksizelabel(tkc);
+		if(tkc->req.width < anchor->act.width)
+			tkc->req.width = anchor->act.width;
+		appenditem(menu, tkc, 0);
+	}
+	layout(menu);
+
+	tkw->next = t->windows;
+	tkw->freeonunmap = 1;
+	t->windows = menu;
+
+	g = tkposn(anchor);
+	e = tkmpost(menu, g.x, g.y, 0, anchor->act.height + 2*anchor->borderwidth, 1);
+	if(e != nil)
+		return e;
+
+	/* highlight the current value's row, like a choicebutton's check */
+	if(cur >= 0){
+		Tk *it;
+		int k;
+		for(it = tkw->slave, k = 0; it != nil && k < cur; it = it->next, k++)
+			;
+		activateitem(it);
+	}
+	return nil;
+}
+
 static char*
 tkMBpress(Tk *tk, char *arg, char **val)
 {
