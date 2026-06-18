@@ -365,6 +365,39 @@ tkbind(TkTop *t, char *arg, char **ret)
 	}
 
 	arg = tkword(t, arg, seq, seq+Tkmaxitem, nil);
+	if(seq[0] == '<' && seq[1] == '<') {
+		/* virtual event <<Name>>: a separate registry, not the bitmask */
+		char vname[Tkmaxitem], *ve;
+
+		strncpy(vname, seq+2, sizeof(vname)-1);
+		vname[sizeof(vname)-1] = '\0';
+		ve = vname;
+		while(*ve != '\0' && *ve != '>')
+			ve++;
+		*ve = '\0';
+		if(vname[0] == '\0') {
+			e = TkBadsq;
+			goto err;
+		}
+		tk = tklook(t, tag, 0);
+		if(tk == nil) {
+			e = TkBadwp;
+			tkerr(t, tag);
+			goto err;
+		}
+		arg = tkskip(arg, " \t");
+		mode = TkArepl;
+		if(*arg == '+') {
+			mode = TkAadd;
+			arg++;
+		}
+		tkword(t, arg, seq, seq+Tkmaxitem, nil);
+		/* an empty script removes the binding */
+		e = tkvirtbind(t, tk, vname, seq[0] ? seq : nil, mode == TkAadd);
+		free(tag);
+		free(seq);
+		return e;
+	}
 	if(seq[0] == '<') {
 		event = tkseqparse(seq+1);
 		if(event == -1) {

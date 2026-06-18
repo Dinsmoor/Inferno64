@@ -30,6 +30,7 @@ static struct Cmd cmdmain[] =
 	"cursor",	tkcursorcmd,
 	"destroy",	tkdestroy,
 	"entry",	tkentry,
+	"event",	tkevent,
 	"focus",	tkfocus,
 	"frame",	tkframe,
 	"grab",		tkgrab,
@@ -646,6 +647,7 @@ tkfreeobj(Tk *tk)
 		free(tk->place);
 		tk->place = nil;
 	}
+	tkfreevirt(tk);
 	tkextnfreeobj(tk);
 	tkmethod[tk->type]->free(tk);
 	tkputenv(tk->env);

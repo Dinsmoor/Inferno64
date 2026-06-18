@@ -169,6 +169,7 @@ typedef struct TkGrid TkGrid;
 typedef struct TkGridbeam TkGridbeam;
 typedef struct TkGridcell TkGridcell;
 typedef struct TkPlace TkPlace;
+typedef struct TkVirt TkVirt;
 
 #pragma incomplete TkCol
 
@@ -508,6 +509,14 @@ struct TkPlace			/* one placed slave's parameters (mirrors `grid' as per-widget 
 	int		bordermode;
 };
 
+struct TkVirt			/* one virtual-event binding/registration on a widget (event.c) */
+{
+	Tk*		tk;		/* widget the binding is attached to */
+	char*		name;		/* virtual event name, without the <<>> */
+	char*		cmd;		/* script to run when the event fires */
+	TkVirt*		link;		/* next on the owning top's list */
+};
+
 struct Tk
 {
 	int		type;		/* Widget type */
@@ -639,6 +648,7 @@ struct TkTop
 	TkVar*		vars;
 	TkImg*		imgs;
 	TkPanelimage*	panelimages;
+	TkVirt*		virts;			/* virtual-event bindings (event.c) */
 	TkAction*	binds[TKwidgets];
 	int		debug;
 	int		execdepth;
@@ -664,6 +674,7 @@ extern	char*	tkchoicebutton(TkTop*, char*, char**);
 extern	char*	tkcursorcmd(TkTop*, char*, char**);
 extern	char*	tkdestroy(TkTop*, char*, char**);
 extern	char*	tkentry(TkTop*, char*, char**);
+extern	char*	tkevent(TkTop*, char*, char**);
 extern	char*	tkfocus(TkTop*, char*, char**);
 extern	char*	tkframe(TkTop*, char*, char**);
 extern	char*	tkgrab(TkTop*, char*, char**);
@@ -774,6 +785,9 @@ extern	void		tkrunpack(TkTop*);
 extern	void		tkdelplace(Tk*);
 extern	int		tkplacer(Tk*);
 extern	int		tkhasmanagedslave(Tk*);
+extern	char*		tkvirtbind(TkTop*, Tk*, char*, char*, int);
+extern	void		tkvirtgen(TkTop*, Tk*, char*);
+extern	void		tkfreevirt(Tk*);
 extern	void		tksetslavereq(Tk*, TkGeom);
 extern	int		tkisslave(Tk*, Tk*);
 
