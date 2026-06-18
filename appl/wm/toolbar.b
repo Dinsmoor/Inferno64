@@ -16,6 +16,9 @@ include "string.m";
 include "arg.m";
 include "daytime.m";
 	daytime: Daytime;
+include "tkwidgets.m";
+	tkwidgets: Tkwidgets;
+	Combobox: import tkwidgets;
 
 myselfbuiltin: Shellbuiltin;
 
@@ -58,6 +61,8 @@ curworkspace := 0;
 nworkspaces := Nws;
 pagerbuilt := 0;
 wmcmd: chan of string;		# desktop/pager menu actions -> wm verbs
+runreq: chan of string;		# "Run..." menu item -> open the run dialog
+powerreq: chan of string;	# Power menu item -> open the halt/reboot dialog
 
 badmodule(p: string)
 {
@@ -163,6 +168,10 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		updateclock();
 	dc := <-wmcmd =>
 		wmaction(dc);
+	<-runreq =>
+		spawn rundialog(ctxt, exec);
+	act := <-powerreq =>
+		spawn powerdialog(ctxt, act);
 	k := <-tbtop.ctxt.kbd =>
 		tk->keyboard(tbtop, k);
 	m := <-tbtop.ctxt.ptr =>
@@ -207,7 +216,7 @@ init(ctxt: ref Draw->Context, argv: list of string)
 			e = len snarf;
 		rc <-= (snarf[off:e], "");	# XXX alt
 	donesetup = <-setupfinished =>
-		;	
+		addlaunchermenu();
 	}
 }
 
@@ -394,8 +403,398 @@ postdesktopmenu(x, y: int)
 			"} -label " + tk->quote("Workspace " + string (i+1)));
 	cmd(tbtop, ".dm add cascade -menu .dm.ws -label Workspace");
 	cmd(tbtop, ".dm add separator");
+	cmd(tbtop, ".dm add command -command {send runreq show} -label " + tk->quote("Run..."));
+	cmd(tbtop, "menu .dm.pwr");
+	cmd(tbtop, ".dm.pwr add command -command {send powerreq reboot} -label Restart");
+	cmd(tbtop, ".dm.pwr add command -command {send powerreq halt} -label " + tk->quote("Shut down"));
+	cmd(tbtop, ".dm add cascade -menu .dm.pwr -label Power");
+	cmd(tbtop, ".dm add separator");
 	cmd(tbtop, ".dm add command -command {.m post " + string x + " " + string y + "} -label Apps");
 	cmd(tbtop, ".dm post " + string x + " " + string y);
+}
+
+# Append the launcher extras (Run, Power) to the bottom of the Apps start menu
+# once wmsetup has populated it.  wmsetup's `menu` builtin can only wire items to
+# `send exec`, so these — which drive the run/power dialogs over their own
+# channels — are added here in code rather than from the boot script.
+addlaunchermenu()
+{
+	cmd(tbtop, ".m add separator");
+	cmd(tbtop, ".m add command -command {send runreq show} -label " + tk->quote("Run..."));
+	cmd(tbtop, "menu .m.pwr");
+	cmd(tbtop, ".m.pwr add command -command {send powerreq reboot} -label Restart");
+	cmd(tbtop, ".m.pwr add command -command {send powerreq halt} -label " + tk->quote("Shut down"));
+	cmd(tbtop, ".m add cascade -menu .m.pwr -label Power");
+}
+
+# A one-shot "Run a program" dialog.  Built on the Tkwidgets Combobox: type a
+# command and an autocomplete dropdown of matching $path programs / files tracks
+# what you type (Up/Down to pick, Tab to fill, click to choose).  On Enter (or
+# Run) — if the program resolves against $path — the line is handed to the
+# toolbar's shell context as `wmrun <line>` and the dialog closes.  Routing
+# through `wmrun` (defined by wmsetup) is the same launch path every desktop app
+# uses: the child gets its own process group (`pctl newpgrp`) and a copied shell
+# environment, and its stdout/stderr land in the Log window.  A command that does
+# not resolve leaves the dialog open with an error, so a typo never silently does
+# nothing.
+rundialog(ctxt: ref Draw->Context, exec: chan of string)
+{
+	if(tkwidgets == nil){
+		tkwidgets = load Tkwidgets Tkwidgets->PATH;
+		if(tkwidgets == nil){
+			sys->fprint(stderr(), "wm: Run needs %s: %r\n", Tkwidgets->PATH);
+			return;
+		}
+		tkwidgets->init();
+	}
+
+	(top, titlectl) := tkclient->toplevel(ctxt, "", "Run", tkclient->Appl);
+	runc := chan of string;
+	tk->namechan(top, runc, "runc");
+	cmd(top, "frame .f");
+	cmd(top, "label .f.l -text {Run: }");
+	cmd(top, "pack .f.l -side left");
+	cb := Combobox.new(top, ".f.cb", 40);
+	cmd(top, "pack .f.cb -side left -fill x -expand 1");
+	cmd(top, "label .msg -text {}");
+	cmd(top, "frame .bb");
+	cmd(top, "button .bb.run -text Run -command {send runc run}");
+	cmd(top, "button .bb.cancel -text Cancel -command {send runc cancel}");
+	cmd(top, "pack .bb.cancel -side right");
+	cmd(top, "pack .bb.run -side right");
+	cmd(top, "pack .f -fill x");
+	cmd(top, "pack .msg -fill x");
+	cmd(top, "pack .bb -fill x");
+	cmd(top, "update");
+	r := tk->rect(top, ".", Tk->Border|Tk->Required);
+	cmd(top, ". configure -x " + string ((top.screenr.dx() - r.dx())/2 + top.screenr.min.x) +
+		" -y " + string ((top.screenr.dy() - r.dy())/3 + top.screenr.min.y));
+	tkclient->startinput(top, "ptr"::"kbd"::nil);
+	tkclient->onscreen(top, "onscreen");
+	cb.focus();
+	cmd(top, "update");
+	for(;;) alt {
+	c := <-titlectl or
+	c = <-top.wreq or
+	c = <-top.ctxt.ctl =>
+		if(c == "exit")
+			return;
+		tkclient->wmctl(top, c);
+	k := <-top.ctxt.kbd =>
+		tk->keyboard(top, k);
+	p := <-top.ctxt.ptr =>
+		tk->pointer(top, *p);
+	ce := <-cb.ev =>
+		case cb.event(ce) {
+		"changed" =>
+			(disp, val) := runsuggest(cb.text());
+			cb.suggest(disp, val);
+		"select" =>
+			if(runcommit(top, exec, cb.text()))
+				return;
+		}
+	m := <-runc =>
+		case m {
+		"cancel" =>
+			return;
+		"run" =>
+			if(runcommit(top, exec, cb.text()))
+				return;
+		}
+	}
+}
+
+# Validate `line` and, if it names a runnable program, launch it (return 1 so
+# the caller closes the dialog).  Otherwise show the error and return 0 (stay
+# open).  The brace makes the shell re-lex the line into wmrun + args (a bare
+# word would be taken as one program name).
+runcommit(top: ref Tk->Toplevel, exec: chan of string, line: string): int
+{
+	line = strip(line);
+	if(line == "")
+		return 0;
+	err := badcommand(line);
+	if(err != nil){
+		cmd(top, ".msg configure -text " + tk->quote(err) + "; update");
+		return 0;
+	}
+	exec <-= "{wmrun " + line + "}";
+	return 1;
+}
+
+# Suggestions for the Run combobox: complete the final word of `line` against
+# $path (when it is the command word) or the filesystem (an argument).  Returns
+# (display, value): display = bare candidate names for the dropdown, value = the
+# whole line with the final word replaced, ready to drop into the entry.
+runsuggest(line: string): (array of string, array of string)
+{
+	i := len line;
+	while(i > 0 && !iswhite(line[i-1]))
+		i--;
+	tok := line[i:];
+	if(tok == "")			# nothing typed in this word: don't dump all of /dis
+		return (nil, nil);
+
+	cmdpos := 1;
+	for(j := 0; j < i; j++)
+		if(!iswhite(line[j])){
+			cmdpos = 0;
+			break;
+		}
+	(dir, base) := splitp(tok);
+	m := listdir(dir, base);
+	# the command word: also complete program names along $path
+	if(cmdpos && !isabsolute(tok))
+		for(pl := pathdirs(); pl != nil; pl = tl pl){
+			pd := hd pl;
+			if(dir != ".")
+				pd = pd + "/" + dir;
+			m = concatarr(m, listdir(pd, base));
+		}
+	m = dedup(m);
+	if(len m == 0)
+		return (nil, nil);
+
+	pre := tok[0:len tok - len base];
+	disp := array[len m] of string;
+	val := array[len m] of string;
+	for(k := 0; k < len m; k++){
+		disp[k] = m[k];
+		repl := m[k];
+		if(len repl == 0 || repl[len repl-1] != '/')
+			repl += " ";		# a file/program: leave room for args
+		val[k] = line[0:i] + pre + repl;
+	}
+	# present the dropdown in name order
+	for(a := 1; a < len disp; a++){
+		db := disp[a];
+		vb := val[a];
+		b := a - 1;
+		while(b >= 0 && disp[b] > db){
+			disp[b+1] = disp[b];
+			val[b+1] = val[b];
+			b--;
+		}
+		disp[b+1] = db;
+		val[b+1] = vb;
+	}
+	return (disp, val);
+}
+
+dedup(m: array of string): array of string
+{
+	seen: list of string;
+	n := 0;
+	for(i := 0; i < len m; i++)
+		if(!inlist(m[i], seen)){
+			seen = m[i] :: seen;
+			n++;
+		}
+	r := array[n] of string;
+	seen = nil;
+	k := 0;
+	for(i = 0; i < len m; i++)
+		if(!inlist(m[i], seen)){
+			seen = m[i] :: seen;
+			r[k++] = m[i];
+		}
+	return r;
+}
+
+# Return an error string if `line` does not name a runnable program, else nil.
+# A brace block or other shell construct is passed straight to the shell.
+badcommand(line: string): string
+{
+	if(line[0] == '{')
+		return nil;
+	(n, toks) := sys->tokenize(line, " \t");
+	if(n == 0)
+		return nil;
+	prog := hd toks;
+	if(resolveprog(prog) == nil)
+		return "not found: " + prog;
+	return nil;
+}
+
+# Resolve `prog` the way the shell's runexternal does: an absolute name is
+# taken as-is; any other name (even one with an interior '/', e.g. wm/clock) is
+# searched along $path.  `.dis` is appended if absent.
+resolveprog(prog: string): string
+{
+	pathlist: list of string;
+	if(isabsolute(prog))
+		pathlist = "" :: nil;
+	else
+		pathlist = pathdirs();
+	for(; pathlist != nil; pathlist = tl pathlist){
+		cand := prog;
+		if(hd pathlist != "")
+			cand = hd pathlist + "/" + prog;
+		if(existsfile(cand))
+			return cand;
+		if(!hassuffix(prog, ".dis") && existsfile(cand + ".dis"))
+			return cand + ".dis";
+	}
+	return nil;
+}
+
+# mirrors sh's absolute(): rooted at /, # (a device), ./ or ../
+isabsolute(p: string): int
+{
+	if(len p >= 1 && (p[0] == '/' || p[0] == '#'))
+		return 1;
+	if(len p >= 2 && p[0] == '.' && p[1] == '/')
+		return 1;
+	if(len p >= 3 && p[0] == '.' && p[1] == '.' && p[2] == '/')
+		return 1;
+	return 0;
+}
+
+existsfile(path: string): int
+{
+	(ok, d) := sys->stat(path);
+	return ok >= 0 && (d.mode & Sys->DMDIR) == 0;
+}
+
+hassuffix(s, suf: string): int
+{
+	return len s >= len suf && s[len s - len suf:] == suf;
+}
+
+# the command search path ($path), defaulting to the shell's ("/dis" ".").
+pathdirs(): list of string
+{
+	s := getenvval("path");
+	if(s == nil)
+		return "/dis" :: "." :: nil;
+	# $path is exported shell-quoted and space-separated (quoted(val,1)).
+	toks := str->unquoted(s);
+	if(toks == nil)
+		return "/dis" :: "." :: nil;
+	return toks;
+}
+
+strip(s: string): string
+{
+	i := 0;
+	while(i < len s && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'))
+		i++;
+	j := len s;
+	while(j > i && (s[j-1] == ' ' || s[j-1] == '\t' || s[j-1] == '\n'))
+		j--;
+	return s[i:j];
+}
+
+iswhite(c: int): int
+{
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+splitp(tok: string): (string, string)
+{
+	k := -1;
+	for(j := 0; j < len tok; j++)
+		if(tok[j] == '/')
+			k = j;
+	if(k < 0)
+		return (".", tok);
+	return (tok[0:k+1], tok[k+1:]);
+}
+
+listdir(dir, base: string): array of string
+{
+	fd := sys->open(dir, Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	res: list of string;
+	nres := 0;
+	for(;;){
+		(n, d) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(j := 0; j < n; j++){
+			nm := d[j].name;
+			if(len nm >= len base && nm[0:len base] == base){
+				if(d[j].mode & Sys->DMDIR)
+					nm += "/";
+				res = nm :: res;
+				nres++;
+			}
+		}
+	}
+	a := array[nres] of string;
+	k := 0;
+	for(; res != nil; res = tl res)
+		a[k++] = hd res;
+	return a;
+}
+
+concatarr(a, b: array of string): array of string
+{
+	c := array[len a + len b] of string;
+	k := 0;
+	for(i := 0; i < len a; i++)
+		c[k++] = a[i];
+	for(j := 0; j < len b; j++)
+		c[k++] = b[j];
+	return c;
+}
+
+# A confirm dialog for halt/reboot; on confirm it writes the verb to
+# /dev/sysctl (the #c console control), which the kernel turns into a clean
+# emu/OS shutdown ("halt" -> cleanexit) or restart ("reboot" -> re-exec).
+powerdialog(ctxt: ref Draw->Context, action: string)
+{
+	verb := "Shut down";
+	if(action == "reboot")
+		verb = "Restart";
+	(top, titlectl) := tkclient->toplevel(ctxt, "", verb, tkclient->Appl);
+	pc := chan of string;
+	tk->namechan(top, pc, "pc");
+	cmd(top, "label .l -text " + tk->quote(verb + " Inferno?"));
+	cmd(top, "frame .b");
+	cmd(top, "button .b.ok -text " + tk->quote(verb) + " -command {send pc ok}");
+	cmd(top, "button .b.cancel -text Cancel -command {send pc cancel}");
+	cmd(top, "pack .b.cancel -side right");
+	cmd(top, "pack .b.ok -side right");
+	cmd(top, "pack .l -fill x -padx 8 -pady 6");
+	cmd(top, "pack .b -fill x");
+	cmd(top, "update");
+	r := tk->rect(top, ".", Tk->Border|Tk->Required);
+	cmd(top, ". configure -x " + string ((top.screenr.dx() - r.dx())/2 + top.screenr.min.x) +
+		" -y " + string ((top.screenr.dy() - r.dy())/3 + top.screenr.min.y));
+	tkclient->startinput(top, "ptr"::"kbd"::nil);
+	tkclient->onscreen(top, "onscreen");
+	for(;;) alt {
+	c := <-titlectl or
+	c = <-top.wreq or
+	c = <-top.ctxt.ctl =>
+		if(c == "exit")
+			return;
+		tkclient->wmctl(top, c);
+	k := <-top.ctxt.kbd =>
+		tk->keyboard(top, k);
+	p := <-top.ctxt.ptr =>
+		tk->pointer(top, *p);
+	m := <-pc =>
+		case m {
+		"cancel" =>
+			return;
+		"ok" =>
+			powerctl(action);
+			return;
+		}
+	}
+}
+
+powerctl(action: string)
+{
+	fd := sys->open("/dev/sysctl", Sys->OWRITE);
+	if(fd == nil){
+		sys->fprint(stderr(), "wm: cannot open /dev/sysctl: %r\n");
+		return;
+	}
+	sys->fprint(fd, "%s", action);
 }
 
 # turn a desktop/pager menu action into a wm control request.
@@ -492,6 +891,10 @@ toolbar(ctxt: ref Draw->Context, startmenu: int,
 	tk->namechan(tbtop, task, "task");
 	wmcmd = chan of string;
 	tk->namechan(tbtop, wmcmd, "wmcmd");
+	runreq = chan of string;
+	tk->namechan(tbtop, runreq, "runreq");
+	powerreq = chan of string;
+	tk->namechan(tbtop, powerreq, "powerreq");
 	cmd(tbtop, "frame .toolbar");
 	if (startmenu) {
 		cmd(tbtop, "menubutton .toolbar.start -menu .m -borderwidth 0 -bitmap vitasmall.bit");

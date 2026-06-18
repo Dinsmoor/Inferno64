@@ -625,3 +625,171 @@ Progressbar.set(pb: self ref Progressbar, frac: real)
 	tk->cmd(pb.top, sys->sprint("%s.c coords pbbar 0 0 %d %d", pb.fr, x, pb.h));
 	tk->cmd(pb.top, "update");
 }
+
+# ------------------------------------------------------------------ Combobox
+
+# arrow/escape arrive as runes (include/keyboard.h): Up/Down in the View block
+# of the Unicode private-use area, Escape = 0x1b.  bind matches on the rune.
+CBUP:	con 16re012;	# View|2  (Up arrow rune)
+CBDOWN:	con 16re013;	# View|3  (Down arrow rune)
+CBESC:	con 16r1b;	# Esc
+
+Combobox.new(top: ref Toplevel, path: string, cols: int): ref Combobox
+{
+	cb := ref Combobox;
+	cb.top = top;
+	cb.fr = path;
+	cb.ent = path + ".e";
+	cb.ev = chan of string;
+	cb.evname = uniq("tkwcb");
+	tk->namechan(top, cb.ev, cb.evname);
+	cb.n = 0;
+	cb.sel = -1;
+	cb.shown = 0;
+	cb.last = "";
+	cb.rowpx = 17;
+	cb.maxrows = 8;
+	cb.dropw = cols * 7;
+
+	tk->cmd(top, "frame " + path);
+	tk->cmd(top, "entry " + cb.ent + " -width " + string cols);
+	tk->cmd(top, "pack " + cb.ent + " -fill x");
+
+	# the dropdown: a sized Scrolledlist, created but not packed (hidden until
+	# there is something to suggest).
+	cb.dl = Scrolledlist.new(top, path + ".lb", cb.dropw, cb.maxrows * cb.rowpx, "-selectmode browse");
+
+	e := cb.evname;
+	up := sys->sprint("%c", CBUP);
+	down := sys->sprint("%c", CBDOWN);
+	esc := sys->sprint("%c", CBESC);
+	# The event spec is wrapped in braces so tkword reads it as one token:
+	# the bind for Tab carries a literal tab (0x09), which tkword otherwise
+	# treats as an argument separator, splitting the command and clobbering the
+	# entry's own <Key> insert binding.  Braces preserve any whitespace rune.
+	# `+` on <Key> keeps the entry's built-in insert running alongside our hook.
+	tk->cmd(top, "bind " + cb.ent + " {<Key>} +{send " + e + " changed}");
+	tk->cmd(top, "bind " + cb.ent + " {<Key-" + down + ">} {send " + e + " down}");
+	tk->cmd(top, "bind " + cb.ent + " {<Key-" + up + ">} {send " + e + " up}");
+	tk->cmd(top, "bind " + cb.ent + " {<Key-\n>} {send " + e + " enter}");
+	tk->cmd(top, "bind " + cb.ent + " {<Key-\t>} {send " + e + " tab}");
+	tk->cmd(top, "bind " + cb.ent + " {<Key-" + esc + ">} {send " + e + " escape}");
+	# a click on a suggestion picks it
+	tk->cmd(top, "bind " + cb.dl.lb + " <ButtonRelease-1> {send " + e + " pick}");
+	tk->cmd(top, "bind " + cb.dl.lb + " <Double-Button-1> {send " + e + " pick}");
+	return cb;
+}
+
+Combobox.text(cb: self ref Combobox): string
+{
+	return tk->cmd(cb.top, cb.ent + " get");
+}
+
+Combobox.settext(cb: self ref Combobox, s: string)
+{
+	tk->cmd(cb.top, cb.ent + " delete 0 end");
+	tk->cmd(cb.top, cb.ent + " insert 0 " + tk->quote(s));
+	tk->cmd(cb.top, cb.ent + " icursor end");
+	tk->cmd(cb.top, "update");
+}
+
+Combobox.focus(cb: self ref Combobox)
+{
+	tk->cmd(cb.top, "focus " + cb.ent);
+}
+
+Combobox.suggest(cb: self ref Combobox, display, value: array of string)
+{
+	cb.n = len display;
+	if(value == nil)
+		value = display;
+	cb.vals = value;
+	cb.sel = -1;
+	if(cb.n == 0){
+		cb.hide();
+		return;
+	}
+	cb.dl.setitems(display);
+	rows := cb.n;
+	if(rows > cb.maxrows)
+		rows = cb.maxrows;
+	tk->cmd(cb.top, cb.dl.fr + " configure -height " + string (rows * cb.rowpx + 4));
+	if(!cb.shown){
+		tk->cmd(cb.top, "pack " + cb.dl.fr + " -after " + cb.ent + " -fill x");
+		cb.shown = 1;
+	}
+	tk->cmd(cb.top, "update");
+}
+
+Combobox.hide(cb: self ref Combobox)
+{
+	if(cb.shown){
+		tk->cmd(cb.top, "pack forget " + cb.dl.fr);
+		cb.shown = 0;
+		tk->cmd(cb.top, "update");
+	}
+	cb.sel = -1;
+}
+
+# Process one ev keyword, updating the widget; tell the owner the gist:
+# "changed" (recompute + suggest), "select" (committed), or "" (handled here).
+Combobox.event(cb: self ref Combobox, e: string): string
+{
+	case e {
+	"changed" =>
+		t := cb.text();
+		if(t == cb.last)		# a nav key that also matched <Key>: no edit
+			return "";
+		cb.last = t;
+		return "changed";
+	"down" =>
+		cbmove(cb, 1);
+		return "";
+	"up" =>
+		cbmove(cb, -1);
+		return "";
+	"escape" =>
+		cb.hide();
+		return "";
+	"tab" =>
+		if(cb.n == 0)
+			return "";
+		k := cb.sel;
+		if(k < 0)
+			k = 0;
+		cb.settext(cb.vals[k]);
+		cb.last = cb.text();
+		return "changed";		# re-suggest for the filled-in text
+	"enter" =>
+		if(cb.sel >= 0 && cb.sel < cb.n){
+			cb.settext(cb.vals[cb.sel]);
+			cb.last = cb.text();
+		}
+		cb.hide();
+		return "select";
+	"pick" =>
+		i := cb.dl.cursel();
+		if(i >= 0 && i < cb.n){
+			cb.settext(cb.vals[i]);
+			cb.last = cb.text();
+		}
+		cb.hide();
+		cb.focus();
+		return "select";
+	}
+	return "";
+}
+
+cbmove(cb: ref Combobox, dir: int)
+{
+	if(cb.n == 0)
+		return;
+	if(cb.sel < 0){
+		if(dir > 0)
+			cb.sel = 0;
+		else
+			cb.sel = cb.n - 1;
+	} else
+		cb.sel = (cb.sel + dir + cb.n) % cb.n;
+	cb.dl.select(cb.sel);
+}

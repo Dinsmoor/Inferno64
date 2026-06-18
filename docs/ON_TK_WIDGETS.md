@@ -214,6 +214,45 @@ tk->cmd(win, "pack .pb -side top -pady 8");
 pb.set(0.4);
 ```
 
+## Combobox — an entry with a live autocomplete dropdown
+
+An `entry` with a suggestion `listbox` that opens under it as you type. The
+widget is **content-agnostic**: it does not know what to suggest, so the owner
+supplies candidates on every edit. Feed each `ev` keyword to `event()`, which
+updates the widget (moves the highlight, fills/hides the list) and returns the
+gist — `"changed"` (recompute and call `suggest`), `"select"` (the user
+committed), or `""` (handled internally).
+
+```limbo
+cb := Combobox.new(win, ".cb", 40);     # 40-column entry
+tk->cmd(win, "pack .cb -fill x");
+cb.focus();
+...
+e := <-cb.ev =>
+    case cb.event(e) {
+    "changed" => cb.suggest(matchesfor(cb.text()), nil);
+    "select"  => run(cb.text());
+    }
+```
+
+- **`suggest(display, value)`** populates the dropdown: `display` is shown,
+  `value` (`nil` ⇒ same as `display`) is what lands in the entry when a row is
+  picked. So a launcher can list bare names yet commit a full path/line. An empty
+  `display` array hides the list.
+- **Keys**: Up/Down move the highlight, Return or a click pick the highlight
+  (`ev` → `"select"`), Tab fills the highlight and re-suggests, Escape closes the
+  list. Printable keys fire `"changed"`.
+- **Why the key specs are braced** (`{<Key-\t>}` etc.): the Tab spec carries a
+  literal tab (`0x09`), which `tkword` treats as an argument separator —
+  unbraced, the `bind` command splits and the stray remnant clobbers the entry's
+  own insert binding. Braces make `tkword` read the spec as one token; this is
+  the general rule for binding any whitespace key (Tab) — newline and the
+  private-use arrow runes (Up `0xE012` / Down `0xE013`, from `keyboard.h`) survive unbraced, but bracing all
+  of them is uniform and safe.
+
+The Run dialog (`appl/wm/toolbar.b`) is the live user: it suggests `$path`
+programs and files, so typing `wm/c` lists the matching `/dis/wm` commands.
+
 ## Adding a widget to the suite
 
 Keep the contract uniform: a constructor `new(top, path, …)` that creates a
@@ -228,7 +267,7 @@ dependency line on `module/tkwidgets.m`.
 
 | File | Purpose |
 |------|---------|
-| `module/tkwidgets.m` | the API: Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar |
+| `module/tkwidgets.m` | the API: Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar, Combobox |
 | `appl/lib/tkwidgets.b` | implementation |
 | `appl/wm/tkwdemo.b` | demo + `-test` headless self-check |
 | `docs/DEV_TK_EXTENSIONS.md` | running log of remaining Tk gaps |

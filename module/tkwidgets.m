@@ -180,4 +180,47 @@ Tkwidgets: module
 		new:	fn(top: ref Tk->Toplevel, path: string, w, h: int): ref Progressbar;
 		set:	fn(pb: self ref Progressbar, frac: real);
 	};
+
+	# Combobox: an entry with a live autocomplete dropdown.  As the user types
+	# the owner is asked (ev "changed") to supply suggestions, which appear in a
+	# listbox under the entry; Up/Down move the highlight, Return or a click pick
+	# one (ev "select"), Tab fills the highlight, Escape closes the list.  The
+	# widget is content-agnostic: the owner decides what to suggest.
+	#
+	#   cb := Combobox.new(win, ".cb", 40);
+	#   tk->cmd(win, "pack .cb"); cb.focus();
+	#   for(;;) alt {
+	#   ...
+	#   e := <-cb.ev =>
+	#       case cb.event(e) {           # widget updates itself, returns the gist
+	#       "changed" => cb.suggest(matchesfor(cb.text()), nil);
+	#       "select"  => run(cb.text());
+	#       }
+	#   }
+	#
+	# suggest(display, value): `display` is shown in the list; `value` (nil =>
+	# same as display) is what lands in the entry when a row is picked, so a
+	# launcher can list bare names yet commit a full path/line.
+	Combobox: adt {
+		top:	ref Tk->Toplevel;
+		fr:	string;			# container frame (you pack/grid this)
+		ent:	string;			# the entry widget path
+		dl:	ref Scrolledlist;	# the dropdown list
+		ev:	chan of string;		# raw action keywords; feed to event()
+		evname:	string;
+		vals:	array of string;	# value committed per visible row
+		n:	int;			# visible suggestion count
+		sel:	int;			# highlighted row, -1 = none
+		shown:	int;			# dropdown currently mapped?
+		last:	string;			# last entry text (keystroke debounce)
+		rowpx, maxrows, dropw: int;	# dropdown sizing
+
+		new:		fn(top: ref Tk->Toplevel, path: string, cols: int): ref Combobox;
+		text:		fn(cb: self ref Combobox): string;
+		settext:	fn(cb: self ref Combobox, s: string);
+		suggest:	fn(cb: self ref Combobox, display, value: array of string);
+		hide:		fn(cb: self ref Combobox);
+		focus:		fn(cb: self ref Combobox);
+		event:		fn(cb: self ref Combobox, e: string): string;	# "" | "changed" | "select"
+	};
 };

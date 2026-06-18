@@ -2,8 +2,9 @@ implement Tkwdemo;
 
 #
 # tkwdemo - exercises the Tkwidgets megawidget suite: a Notebook whose pages
-# show a Paned (Scrolledlist | text), a collapsible Tree, and a Progressbar,
-# with a Statusbar along the bottom.  Also a self-test mode (-test) that builds
+# show a Paned (Scrolledlist | text), a collapsible Tree, a Progressbar, and an
+# autocomplete Combobox, with a Statusbar along the bottom.  Also a self-test
+# mode (-test) that builds
 # everything headless, drives a few operations, prints "tkwdemo: ok", and exits
 # - used by the build's smoke check.
 #
@@ -18,7 +19,7 @@ include "tkclient.m";
 	tkclient: Tkclient;
 include "tkwidgets.m";
 	tkw: Tkwidgets;
-	Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar: import tkw;
+	Scrolledlist, Scrolledtext, Notebook, Paned, Tree, Statusbar, Progressbar, Combobox: import tkw;
 
 Tkwdemo: module
 {
@@ -33,7 +34,18 @@ sl: ref Scrolledlist;
 st: ref Scrolledtext;
 sb: ref Statusbar;
 pb: ref Progressbar;
+cb: ref Combobox;
 prog := 0.0;
+
+# the demo Combobox suggests from this fixed word list (a real launcher would
+# suggest $path programs / files instead)
+COMBOWORDS := array[] of {
+	"amber", "aqua", "azure", "black", "blue", "brown", "coral", "crimson",
+	"cyan", "gold", "gray", "green", "indigo", "ivory", "lavender", "lime",
+	"magenta", "maroon", "navy", "olive", "orange", "orchid", "pink", "plum",
+	"purple", "red", "salmon", "silver", "teal", "turquoise", "violet",
+	"white", "yellow",
+};
 
 init(ctxt: ref Draw->Context, argv: list of string)
 {
@@ -101,6 +113,13 @@ init(ctxt: ref Draw->Context, argv: list of string)
 			sb.msg("list row " + string i + ": " + sl.get(i));
 	<-st.ev =>		# text-pane click: nothing to do in the demo
 		;
+	e := <-cb.ev =>
+		case cb.event(e) {
+		"changed" =>
+			cb.suggest(combomatches(cb.text()), nil);
+		"select" =>
+			sb.set("info", "chose: " + cb.text());
+		}
 	cmd := <-demo =>
 		case cmd {
 		"step" =>
@@ -157,7 +176,34 @@ build(demo: chan of string)
 	tk->cmd(window, "button " + p3 + ".step -text {Step} -command {send demo step}");
 	tk->cmd(window, "pack " + p3 + ".step -side top");
 
+	# page 4: an autocomplete Combobox
+	p4 := nb.add("combo", "Combo");
+	tk->cmd(window, "label " + p4 + ".l -text {Type a colour name; suggestions track as you type (Up/Down, Tab, Enter):}");
+	tk->cmd(window, "pack " + p4 + ".l -side top -anchor w -padx 6 -pady 6");
+	cb = Combobox.new(window, p4 + ".cb", 30);
+	tk->cmd(window, "pack " + cb.fr + " -side top -anchor w -padx 6");
+
 	sb.msg("ready");
+}
+
+# colour names matching the typed prefix, in order (the demo's suggestion source)
+combomatches(p: string): array of string
+{
+	n := 0;
+	for(i := 0; i < len COMBOWORDS; i++)
+		if(hasprefix(COMBOWORDS[i], p))
+			n++;
+	a := array[n] of string;
+	k := 0;
+	for(i = 0; i < len COMBOWORDS; i++)
+		if(hasprefix(COMBOWORDS[i], p))
+			a[k++] = COMBOWORDS[i];
+	return a;
+}
+
+hasprefix(s, p: string): int
+{
+	return len s >= len p && s[0:len p] == p;
 }
 
 # headless drive: switch pages, toggle a branch, advance the bar, resize a pane
@@ -175,6 +221,12 @@ selftest()
 	st.insert("hello", "");
 	if(st.get() != "hello")
 		sys->fprint(sys->fildes(2), "tkwdemo: scrolledtext get got %q\n", st.get());
+	nb.select("combo");
+	cb.settext("a");
+	m := combomatches("a");		# amber, aqua, azure
+	cb.suggest(m, nil);
+	if(len m != 3)
+		sys->fprint(sys->fildes(2), "tkwdemo: combo match count %d\n", len m);
 }
 
 # build a minimal display context so -test works without a window manager
