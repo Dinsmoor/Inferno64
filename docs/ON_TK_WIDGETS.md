@@ -206,13 +206,31 @@ sb.set("pos", "12,40");              # update a named cell
 
 ## Progressbar — determinate bar
 
-A bar drawn on a canvas; `set(frac)` with `frac` in `0.0 .. 1.0`.
+A determinate bar; `set(frac)` with `frac` in `0.0 .. 1.0`.
 
 ```limbo
 pb := Progressbar.new(win, ".pb", 300, 20);
 tk->cmd(win, "pack .pb -side top -pady 8");
 pb.set(0.4);
 ```
+
+This is a thin shim over the native `ttk::progressbar` (class `TProgressbar`):
+the container `fr` is still a plain frame the caller packs, with a determinate
+progressbar filling it, so the API and the `fr` path are unchanged. Because the
+fill is now themed by `ttk::style`, the bar follows `theme` like the rest of the
+ttk widget set.
+
+> **Why the other megawidgets are *not* shimmed onto ttk.** The native ttk set
+> (`ttk::notebook`/`ttk::panedwindow`/`ttk::treeview`/`ttk::combobox`) handles
+> tab-switching, sash-dragging, selection and the dropdown **inside C**, and
+> does not deliver the page/sash/row identity back to a Limbo `ev` channel — the
+> exact contract `Notebook`/`Paned`/`Tree` are built around (`name := <-nb.ev =>
+> nb.select(name)`). Re-backing them would need both a new C-side event path and
+> rewrites of every consumer (`tkwdemo`, `bible`, `toolbar`), with no
+> user-visible gain. And `Combobox` here is a *typeahead* — the owner computes
+> matches on every edit via `suggest()` — which is a different widget from
+> ttk's fixed-list picker. So these stay as megawidgets; reach for the native
+> `ttk::*` widgets directly in new code that wants the themed look.
 
 ## Combobox — an entry with a live autocomplete dropdown
 

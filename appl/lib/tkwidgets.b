@@ -24,7 +24,6 @@ seq := 0;
 SASH:	con 6;		# sash thickness, pixels
 MINPANE: con 16;	# smallest a dragged pane may become
 SASHCOL: con "#9c9c9c";
-PBCOL:	con "#3a6ea5";	# progress-bar fill
 
 init()
 {
@@ -600,6 +599,10 @@ Statusbar.set(sb: self ref Statusbar, name, s: string)
 
 # ---------------------------------------------------------------- Progressbar
 
+# A thin shim over the native ttk::progressbar (class TProgressbar).  The
+# container `fr' is still a plain frame the caller packs/grids, with a
+# determinate progressbar filling it, so the public API (new + set) and the
+# `fr' path are unchanged from the old canvas-bar implementation.
 Progressbar.new(top: ref Toplevel, path: string, w, h: int): ref Progressbar
 {
 	pb := ref Progressbar;
@@ -608,10 +611,9 @@ Progressbar.new(top: ref Toplevel, path: string, w, h: int): ref Progressbar
 	pb.w = w;
 	pb.h = h;
 	tk->cmd(top, "frame " + path);
-	cv := path + ".c";
-	tk->cmd(top, sys->sprint("canvas %s -width %d -height %d -bg white -highlightthickness 0", cv, w, h));
-	tk->cmd(top, "pack " + cv + " -fill both -expand 1");
-	tk->cmd(top, sys->sprint("%s create rectangle 0 0 0 %d -fill %s -tags {pbbar}", cv, h, PBCOL));
+	bar := path + ".pb";
+	tk->cmd(top, sys->sprint("ttk::progressbar %s -orient horizontal -length %d -maximum 100 -value 0", bar, w));
+	tk->cmd(top, "pack " + bar + " -fill both -expand 1");
 	return pb;
 }
 
@@ -621,8 +623,7 @@ Progressbar.set(pb: self ref Progressbar, frac: real)
 		frac = 0.0;
 	if(frac > 1.0)
 		frac = 1.0;
-	x := int (frac * real pb.w);
-	tk->cmd(pb.top, sys->sprint("%s.c coords pbbar 0 0 %d %d", pb.fr, x, pb.h));
+	tk->cmd(pb.top, sys->sprint("%s.pb configure -value %d", pb.fr, int (frac * 100.0)));
 	tk->cmd(pb.top, "update");
 }
 

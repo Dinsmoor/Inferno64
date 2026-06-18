@@ -792,7 +792,19 @@ step, `-values` cycle forward/back), and `ttk::menubutton` (class, `-style`,
 no-op; the live post is verified visually under `wm/wm`, like the combobox
 dropdown).
 
-**Remaining (optional polish, not gating):** the megawidget→thin-wrapper shims
-(Phase 3/4 leftovers); a clean `wm/rt` `ttk::*` sweep; classic
-`spinbox`/`-validate`/text-undo (Phase 4). The core modernization — ttk engine,
-the full ttk widget set, and a verified-rendering app suite — is complete.
+**Megawidget shims.** `Tkwidgets`'s `Progressbar` is now a thin shim over the
+native `ttk::progressbar` (themed fill, same API/path). The other megawidgets
+are deliberately **kept**: `Notebook`/`Paned`/`Tree` are built around a Limbo
+`ev`-channel contract (`name := <-nb.ev => nb.select(name)`) that the native
+ttk containers cannot honour — they switch tabs / drag sashes / track selection
+inside C and never hand the page/sash/row identity back to Limbo — so a swap
+would need a new C event path *and* rewrites of every consumer (`tkwdemo`,
+`bible`, `toolbar`) for no user-visible gain; and `Combobox` here is a typeahead
+(owner-computed `suggest()`), a different widget from ttk's fixed-list picker.
+New code wanting the themed look uses the native `ttk::*` widgets directly. See
+`ON_TK_WIDGETS.md`.
+
+**Remaining (optional polish, not gating):** a clean `wm/rt` `ttk::*` sweep;
+classic `spinbox`/`-validate`/text-undo (Phase 4). The core modernization — ttk
+engine, the full ttk widget set, and a verified-rendering app suite — is
+complete.
