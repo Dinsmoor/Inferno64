@@ -676,6 +676,7 @@ extern	char*	tkdestroy(TkTop*, char*, char**);
 extern	char*	tkentry(TkTop*, char*, char**);
 extern	char*	tkevent(TkTop*, char*, char**);
 extern	char*	tkfocus(TkTop*, char*, char**);
+extern	char*	tkfontcmd(TkTop*, char*, char**);
 extern	char*	tkframe(TkTop*, char*, char**);
 extern	char*	tkgrab(TkTop*, char*, char**);
 extern	char*	tkgrid(TkTop*, char*, char**);

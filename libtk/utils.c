@@ -32,6 +32,7 @@ static struct Cmd cmdmain[] =
 	"entry",	tkentry,
 	"event",	tkevent,
 	"focus",	tkfocus,
+	"font",		tkfontcmd,
 	"frame",	tkframe,
 	"grab",		tkgrab,
 	"grid",	tkgrid,

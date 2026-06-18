@@ -6,6 +6,7 @@ OFILES=\
 	after.$O\
 	ebind.$O\
 	event.$O\
+	font.$O\
 	grids.$O\
 	image.$O\
 	packr.$O\
