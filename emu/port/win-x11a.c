@@ -78,6 +78,7 @@ extern void XRenderFreePicture(Display*, Picture);
 
 static int displaydepth;
 extern ulong displaychan;
+extern int scale;	/* HiDPI integer scale: window is scale*Xsize by scale*Ysize */
 
 enum
 {
@@ -189,8 +190,8 @@ makesharedfb(void)
 	if(old_io_handler != shm_ehandler)
 		old_io_handler = XSetErrorHandler(shm_ehandler);
 
-	img = XShmCreateImage(xdisplay, xvis, xscreendepth, ZPixmap, 
-			      NULL, shminfo, Xsize, Ysize);
+	img = XShmCreateImage(xdisplay, xvis, xscreendepth, ZPixmap,
+			      NULL, shminfo, Xsize*scale, Ysize*scale);
 	XSync(xdisplay, 0);
 
 	/* did we get an X11 error? if so then try without shm */
@@ -240,8 +241,20 @@ makesharedfb(void)
 		fprint(2, "emu: cannot allocate screen buffer (%dx%dx%d)\n", Xsize, Ysize, displaydepth);
 		cleanexit(0);
 	}
-	xscreendata = (uchar*)img->data;
-	
+	/*
+	 * When scaling, copy* writes logical pixels into xscreendata and
+	 * scalerect() expands them into the (larger) shared XImage.  At 1x
+	 * the two are the same buffer, so the copy goes straight to the image.
+	 */
+	if(scale > 1){
+		xscreendata = malloc(Xsize * Ysize * (img->bits_per_pixel >> 3));
+		if(xscreendata == nil) {
+			fprint(2, "emu: cannot allocate screen buffer (%dx%dx%d)\n", Xsize, Ysize, img->bits_per_pixel);
+			cleanexit(0);
+		}
+	} else
+		xscreendata = (uchar*)img->data;
+
 	clean_errhandlers();
 	return 1;
 }
@@ -284,20 +297,30 @@ attachscreen(Rectangle *r, ulong *chan, int *d, int *width, int *softscreen)
 		if(depth == 24)
 			depth = 32;
 
-		/* allocate virtual screen */	
+		/* allocate virtual screen */
 		gscreendata = malloc(Xsize * Ysize * (displaydepth >> 3));
 		xscreendata = malloc(Xsize * Ysize * (depth >> 3));
 		if(gscreendata == nil || xscreendata == nil) {
 			fprint(2, "emu: can not allocate virtual screen buffer (%dx%dx%d[%d])\n", Xsize, Ysize, displaydepth, depth);
 			return 0;
 		}
-		img = XCreateImage(xdisplay, xvis, xscreendepth, ZPixmap, 0, 
-				   (char*)xscreendata, Xsize, Ysize, 8, Xsize * (depth >> 3));
+		if(scale > 1){
+			/* the XImage holds the upscaled pixels; copy* still fills xscreendata */
+			uchar *ximgdata = malloc(Xsize*scale * Ysize*scale * (depth >> 3));
+			if(ximgdata == nil) {
+				fprint(2, "emu: can not allocate virtual screen buffer (%dx%dx%d[%d])\n", Xsize*scale, Ysize*scale, displaydepth, depth);
+				return 0;
+			}
+			img = XCreateImage(xdisplay, xvis, xscreendepth, ZPixmap, 0,
+					   (char*)ximgdata, Xsize*scale, Ysize*scale, 8, Xsize*scale * (depth >> 3));
+		} else
+			img = XCreateImage(xdisplay, xvis, xscreendepth, ZPixmap, 0,
+					   (char*)xscreendata, Xsize, Ysize, 8, Xsize * (depth >> 3));
 		if(img == nil) {
 			fprint(2, "emu: can not allocate virtual screen buffer (%dx%dx%d)\n", Xsize, Ysize, depth);
 			return 0;
 		}
-		
+
 	}
 
 	if(!triedscreen){
@@ -463,6 +486,37 @@ copy8topixel(Rectangle r)
 	}
 }
 
+/*
+ * Expand the logical rectangle r (in xscreendata, one pixel per cell) into the
+ * scale-times-larger XImage, replicating each pixel into a scale x scale block.
+ * Pixel size is taken from the image so this works for every supported depth.
+ */
+static void
+scalerect(Rectangle r)
+{
+	int x, y, sx, sy, bypp, stride, runbytes;
+	uchar *src, *row, *dp;
+
+	bypp = img->bits_per_pixel >> 3;
+	stride = img->bytes_per_line;
+	runbytes = Dx(r) * scale * bypp;
+	for(y = r.min.y; y < r.max.y; y++){
+		src = xscreendata + (y*Xsize + r.min.x) * bypp;
+		row = (uchar*)img->data + (y*scale)*stride + (r.min.x*scale)*bypp;
+		dp = row;
+		for(x = r.min.x; x < r.max.x; x++){
+			for(sx = 0; sx < scale; sx++){
+				memmove(dp, src, bypp);
+				dp += bypp;
+			}
+			src += bypp;
+		}
+		/* duplicate the row just built into the remaining scale-1 rows */
+		for(sy = 1; sy < scale; sy++)
+			memmove(row + sy*stride, row, runbytes);
+	}
+}
+
 void
 flushmemscreen(Rectangle r)
 {
@@ -520,12 +574,15 @@ flushmemscreen(Rectangle r)
 		cleanexit(0);
 	}
 
+	if(scale > 1)
+		scalerect(r);
+
 	XLockDisplay(xdisplay);
-	/* Display image on X11 */
+	/* Display image on X11 (coordinates and extent are in physical pixels) */
 	if(is_shm)
-		XShmPutImage(xdisplay, xdrawable, xgc, img, r.min.x, r.min.y, r.min.x, r.min.y, Dx(r), Dy(r), 0);
+		XShmPutImage(xdisplay, xdrawable, xgc, img, r.min.x*scale, r.min.y*scale, r.min.x*scale, r.min.y*scale, Dx(r)*scale, Dy(r)*scale, 0);
 	else
-		XPutImage(xdisplay, xdrawable, xgc, img, r.min.x, r.min.y, r.min.x, r.min.y, Dx(r), Dy(r));
+		XPutImage(xdisplay, xdrawable, xgc, img, r.min.x*scale, r.min.y*scale, r.min.x*scale, r.min.y*scale, Dx(r)*scale, Dy(r)*scale);
 	XSync(xdisplay, 0);
 	XUnlockDisplay(xdisplay);
 }
@@ -552,7 +609,7 @@ setpointer(int x, int y)
 {
 	drawqlock();
 	XLockDisplay(xdisplay);
-	XWarpPointer(xdisplay, None, xdrawable, 0, 0, 0, 0, x, y);
+	XWarpPointer(xdisplay, None, xdrawable, 0, 0, 0, 0, x*scale, y*scale);
 	XFlush(xdisplay);
 	XUnlockDisplay(xdisplay);
 	drawqunlock();
@@ -1106,12 +1163,16 @@ xinitscreen(int xsize, int ysize, ulong reqchan, ulong *chan, int *d)
 		initxcmap(rootwin);
 	}
 
+	/* the host window is the upscaled size; Inferno still renders at xsize x ysize */
+	xsize *= scale;
+	ysize *= scale;
+
 	memset(&attrs, 0, sizeof(attrs));
 	attrs.colormap = xcmap;
 	attrs.background_pixel = 0;
 	attrs.border_pixel = 0;
 	/* attrs.override_redirect = 1;*/ /* WM leave me alone! |CWOverrideRedirect */
-	xdrawable = XCreateWindow(xdisplay, rootwin, 0, 0, xsize, ysize, 0, xscreendepth, 
+	xdrawable = XCreateWindow(xdisplay, rootwin, 0, 0, xsize, ysize, 0, xscreendepth,
 				  InputOutput, xvis, CWBackPixel|CWBorderPixel|CWColormap, &attrs);
 
 	/*
@@ -1362,10 +1423,11 @@ xexpose(XEvent *e)
 	if(e->type != Expose)
 		return;
 	xe = (XExposeEvent*)e;
-	r.min.x = xe->x;
-	r.min.y = xe->y;
-	r.max.x = xe->x + xe->width;
-	r.max.y = xe->y + xe->height;
+	/* event is in physical pixels; flushmemscreen works in logical ones */
+	r.min.x = xe->x / scale;
+	r.min.y = xe->y / scale;
+	r.max.x = (xe->x + xe->width + scale-1) / scale;
+	r.max.y = (xe->y + xe->height + scale-1) / scale;
 	drawqlock();
 	flushmemscreen(r);
 	drawqunlock();
@@ -1633,7 +1695,8 @@ xmouse(XEvent *e)
 	if(dbl)
 		b |= 1<<8;
 
-	mousetrack(b, x, y, 0);
+	/* X reports physical pixels; Inferno wants logical ones */
+	mousetrack(b, x/scale, y/scale, 0);
 }
 
 #include "x11-keysym2ucs.c"

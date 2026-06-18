@@ -23,6 +23,7 @@ emu \- Inferno emulator (hosted Inferno)
 .BI \-r " rootpath"
 ]
 .RB [ \-7 ]
+.RB [ \-H \fIscale\fP ]
 [
 .RB \-C " channel"
 ]
@@ -157,6 +158,20 @@ the Dis virtual machine heap
 .B image
 image storage for the display
 .RE
+.TP
+.B \-H[\fIscale\fP]
+When host graphics is provided by X11, magnify the window by an integer
+.I scale
+factor (pixel-doubling): Inferno still renders at the
+.B \-g
+size, but each pixel is drawn as a
+.IR scale x scale
+block, so the window is physically larger.
+This makes the display usable on high-DPI screens where the native pixels are
+tiny.
+.I scale
+defaults to 2 if omitted, and is clamped to the range 1\-8.
+Mouse coordinates are mapped back to logical pixels automatically.
 .TP
 .B \-7
 When host graphics is provided by X11, request a 7-bit colour map;

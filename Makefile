@@ -238,8 +238,10 @@ router:
 # tree, and it honestly is the
 # RUNPROFILE it claims (the old "only build if the binary is missing" launched a
 # stale, mislabeled binary).  Override profile/size: make run RUNPROFILE=debug
-# RUNGEOM=1920x1080.
+# RUNGEOM=1920x1080.  On a high-DPI screen, HIGHDPI=2 (or 3) magnifies the
+# window by that integer factor so it isn't a tiny postage stamp.
 RUNGEOM    ?= 1280x800
+HIGHDPI    ?=
 RUNPROFILE ?= bleedingedge
 run:
 	@if [ -z "$$DISPLAY" ]; then \
@@ -262,8 +264,8 @@ run:
 		tail -20 /tmp/inferno-build.log >&2; \
 		exit 1; \
 	fi
-	@echo "Starting the Inferno desktop ($(RUNGEOM)) ..."
-	@$(ROOT)/$(OBJDIR)/bin/emu -r"$(ROOT)" -g$(RUNGEOM) wm/wm
+	@echo "Starting the Inferno desktop ($(RUNGEOM)$(if $(HIGHDPI), @ $(HIGHDPI)x)) ..."
+	@$(ROOT)/$(OBJDIR)/bin/emu -r"$(ROOT)" -g$(RUNGEOM) $(if $(HIGHDPI),-H$(HIGHDPI)) wm/wm
 
 # Half builds are GATED.  `make emu` (C side only) and `make dis` (Dis tree
 # only) each leave the two halves out of sync -- a stale .dis against a freshly
