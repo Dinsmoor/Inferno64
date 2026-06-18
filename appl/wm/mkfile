@@ -65,6 +65,7 @@ TARG=\
 	tetris.dis\
 	theme.dis\
 	tkwdemo.dis\
+	ttkdemo.dis\
 	toolbar.dis\
 	unibrowse.dis\
 	view.dis\
