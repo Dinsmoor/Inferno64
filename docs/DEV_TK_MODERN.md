@@ -3,9 +3,12 @@
 > **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
 > ttk widgets, now including `ttk::menubutton`), Phase 3 (complex widgets:
 > notebook, panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration
-> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 176/176 and
-> `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
-> polish (megawidget shims, Phase 4 classic completeness).
+> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 197/197 and
+> `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Phase 4 classic
+> completeness is essentially done too (entry `-validate`, classic `spinbox`,
+> text `-undo`, text embedded images, listbox `-activestyle`); only the
+> megawidget→thin-wrapper shims beyond `Progressbar` remain, and those are
+> deliberately kept (see §12 / `ON_TK_WIDGETS.md`).
 > See §12 for the live state. This document is the cold-start briefing; it
 > captures how `libtk` actually works (with `file:line` anchors), the gap to
 > modern Tk/ttk, and a phased plan. Read it top to bottom once before touching
@@ -729,7 +732,7 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   stepping (numeric clamp/wrap, list cycle) under `wm/wm`.
 - **Not yet:** the megawidget shims (§4).
 
-**Phase 4 — classic completeness: started.**
+**Phase 4 — classic completeness: essentially complete.**
 - **entry `-validate` (done, in `entry.c`).** The full classic validation model:
   `-validate none|key|focus|focusin|focusout|all`, `-validatecommand`,
   `-invalidcommand`, with Tk's `%`-substitutions (`%d` type, `%i` index, `%P`
@@ -765,7 +768,24 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   with braces round-trips). Strictly additive: inert unless `-undo` is on, and
   the record gate is checked before any work. Independent of acme/edit's own
   app-level undo (they drive the widget through their own buffers).
-- **Not yet:** text embedded images, listbox `extended`/`activestyle`.
+- **text embedded images (done, in new `timag.c` + `textw.c`/`textu.c`).** A
+  real `TkTimage` item kind (parallel to the `TkTwin` embedded-window kind),
+  backed by a held `TkImg` ref and drawn straight from `tki->img` — the same
+  image-rendering path label/canvas use. The `image` subcommand
+  (`create`/`cget`/`configure`/`names`) mirrors `window`; `-image`/`-align`/
+  `-padx`/`-pady`/`-name`, occupies one index position, participates in line
+  layout/wrap/bbox and is freed (releasing the image ref) with the text. New
+  `timag.c` holds the subcommand; the ~10 layout/draw/free/width/bbox sites in
+  `textw.c`/`textu.c` gain a `TkTimage` case beside the existing `TkTwin` one.
+- **listbox `-activestyle` (done, in `listb.c`).** `dotbox` (default, the box
+  around the active element) / `none` / `underline`. Self-contained: a new
+  `activestyle` field + option + a branch in the active-element draw.
+- **listbox `extended` selection** is as complete as the platform allows —
+  range select by drag (`selectto`) and arrow, plus `selection
+  set`/`clear`/`includes`/`anchor`. Tk's Shift-click/Ctrl-click are **not**
+  reachable: Inferno's `TkMouse` carries only `{x,y,button}` — mouse events have
+  no Shift/Control modifier state, and arrow keys arrive as plain runes. That's
+  an input-model limit, not a listbox gap.
 
 **Phase 5 — app migration + render verification: DONE.** `wm/ttkdemo` is the
 gallery app proving the whole set (a `ttk::entry`, a `ttk::scale`-driven
@@ -803,7 +823,7 @@ rendering or rely on classic-only idioms:
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
 
-Combined ttk test: `tests/dis/tkttk.b` (176/176) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (197/197) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -829,9 +849,13 @@ dropdown), classic **entry `-validate`** (key accept/reject on insert and
 delete, `%P`/`%S` substitution, `-invalidcommand` firing, `-validate none`
 bypass, non-boolean result disabling validation), classic **`spinbox`** (class,
 `-from` cget, `set`/`get`, `tkSpinStep` by increment, clamp at `-to`, `-values`
-cycle), and the **text widget `-undo`/`edit`** (insert+delete recorded,
+cycle), the **text widget `-undo`/`edit`** (insert+delete recorded,
 `edit undo`/`redo` by group, `separator` grouping, `canundo`/`canredo`,
-`modified` flag, `-undo` off discarding history).
+`modified` flag, `-undo` off discarding history), **text embedded images**
+(`image create`/`cget`/`configure`/`names`, one index position, `-align`
+default center, deleted with the text), and **listbox `-activestyle`**
+(dotbox/none/underline) + extended range selection (`selection
+set`/`clear`/`includes`).
 
 **Megawidget shims.** `Tkwidgets`'s `Progressbar` is now a thin shim over the
 native `ttk::progressbar` (themed fill, same API/path). The other megawidgets
@@ -846,7 +870,9 @@ New code wanting the themed look uses the native `ttk::*` widgets directly. See
 `ON_TK_WIDGETS.md`.
 
 **Remaining (optional polish, not gating):** a clean `wm/rt` `ttk::*` sweep;
-the rest of Phase 4 (classic `spinbox` — already covered by `ttk::spinbox`;
-entry text undo + embedded images; listbox `extended`/`activestyle`). The core
-modernization — ttk engine, the full ttk widget set, a verified-rendering app
-suite, and now entry `-validate` — is complete.
+the megawidget shims beyond `Progressbar` (deliberately kept, see above). Tk's
+Shift/Ctrl-click listbox selection is out of reach on Inferno's input model
+(mouse events carry no modifier state). The core modernization — ttk engine, the
+full ttk widget set, a verified-rendering app suite, and Phase 4 classic
+completeness (entry `-validate`, classic `spinbox`, text `-undo`, text embedded
+images, listbox `-activestyle`) — is complete.

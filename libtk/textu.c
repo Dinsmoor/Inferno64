@@ -7,6 +7,7 @@
 #define iwin u.win
 #define imark u.mark
 #define iline u.line
+#define iimag u.imag
 
 /* debugging */
 int tktdbg;
@@ -102,6 +103,9 @@ tktfreeitems(TkText *tkt, TkTitem *i, int freewins)
 					free(i->iwin->create);
 				free(i->iwin);
 			}
+			break;
+		case TkTimage:
+			tktimgfree(i->iimag);
 			break;
 		case TkTmark:
 			break;
@@ -287,6 +291,12 @@ tktdispwidth(Tk *tk, TkTtabstop *tb, TkTitem *i, Font *f, int x, int pos, int nc
 			w = 0;
 		else
 			w = i->iwin->sub->act.width + 2*i->iwin->padx + 2*i->iwin->sub->borderwidth;
+		break;
+	case TkTimage:
+		if(i->iimag->tki == nil)
+			w = 0;
+		else
+			w = i->iimag->tki->w + 2*i->iimag->padx;
 		break;
 	default:
 		w = 0;
@@ -601,6 +611,16 @@ tktbbox(Tk *tk, TkTindex *ix)
 				r.min.y += sub->act.y;
 				r.max.x = r.min.x + sub->act.width + 2*sub->borderwidth;
 				r.max.y = r.min.y + sub->act.height + 2*sub->borderwidth;
+				break;
+			case TkTimage:
+				if(i->iimag->tki == nil){
+					r.max.x = r.min.x;
+					r.max.y = r.min.y;
+					break;
+				}
+				r.max.x = r.min.x + i->iimag->tki->w + 2*i->iimag->padx;
+				r.min.y -= l->ascent;
+				r.max.y = r.min.y + l->height;
 				break;
 			case TkTnewline:
 				r.max.x = r.min.x;

@@ -541,6 +541,50 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	cmd(".tx configure -undo 0");
 	ok("text undo off: canundo false", cmd(".tx edit canundo") == "0");
 
+	# ---- 25. listbox -activestyle + extended selection (Phase 4) ----
+	cmd("listbox .lb");
+	cmd("pack .lb");
+	cmd(".lb insert end a b c d e");
+	ok("listbox activestyle default dotbox", cmd(".lb cget -activestyle") == "dotbox");
+	cmd(".lb configure -activestyle underline");
+	ok("listbox activestyle underline", cmd(".lb cget -activestyle") == "underline");
+	cmd(".lb configure -activestyle none");
+	ok("listbox activestyle none", cmd(".lb cget -activestyle") == "none");
+	cmd(".lb configure -activestyle dotbox");
+	ok("listbox activestyle back to dotbox", cmd(".lb cget -activestyle") == "dotbox");
+	# extended-mode range selection (selection set/clear/includes/anchor)
+	cmd(".lb configure -selectmode extended");
+	ok("listbox selectmode extended", cmd(".lb cget -selectmode") == "extended");
+	cmd(".lb selection set 1 3");
+	ok("listbox range selected lo", cmd(".lb selection includes 1") == "1");
+	ok("listbox range selected hi", cmd(".lb selection includes 3") == "1");
+	ok("listbox outside range clear", cmd(".lb selection includes 0") == "0");
+	ok("listbox above range clear", cmd(".lb selection includes 4") == "0");
+	cmd(".lb selection clear 2 2");
+	ok("listbox cleared one in range", cmd(".lb selection includes 2") == "0");
+	ok("listbox neighbour still set", cmd(".lb selection includes 1") == "1");
+
+	# ---- 26. text widget embedded images (Phase 4) ----
+	img := cmd("image create bitmap -file clock.bit");
+	ok("test image created", len img > 0 && img[0] != '!');
+	cmd("text .ti");
+	cmd("pack .ti");
+	cmd(".ti insert 1.0 hello");
+	ok("no embedded images yet", cmd(".ti image names") == "");
+	nm := cmd(".ti image create 1.2 -image " + img);
+	ok("image create returns a name", len nm > 0 && nm[0] != '!');
+	ok("image names lists it", cmd(".ti image names") == nm);
+	ok("image cget -image", cmd(".ti image cget 1.2 -image") == img);
+	ok("image align defaults to center", cmd(".ti image cget 1.2 -align") == "center");
+	# the image occupies exactly one index position (he<img>llo -> lineend 1.6)
+	ok("embedded image is one position", cmd(".ti index {1.0 lineend}") == "1.6");
+	cmd(".ti image configure 1.2 -align top");
+	ok("image configure -align", cmd(".ti image cget 1.2 -align") == "top");
+	# deleting the image position removes it from the line
+	cmd(".ti delete 1.2 1.3");
+	ok("deleted embedded image", cmd(".ti image names") == "");
+	ok("line back to 5 positions", cmd(".ti index {1.0 lineend}") == "1.5");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

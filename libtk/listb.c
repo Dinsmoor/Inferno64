@@ -22,6 +22,13 @@ struct TkLentry
 	char		text[TKSTRUCTALIGN];
 };
 
+enum				/* -activestyle: how the active element is marked */
+{
+	Ldotbox	= 0,		/* a box around it (Tk default) */
+	Lnone,			/* nothing */
+	Lunderline,		/* underline its text */
+};
+
 struct TkListbox
 {
 	TkLentry*	head;
@@ -32,6 +39,7 @@ struct TkListbox
 	int		nitem;
 	int		nwidth;
 	int		selmode;
+	int		activestyle;	/* L* above */
 	int		sborderwidth;
 	char*		xscroll;
 	char*		yscroll;
@@ -46,12 +54,21 @@ TkStab tkselmode[] =
 	nil
 };
 
+static TkStab tkactivestyle[] =
+{
+	"dotbox",	Ldotbox,
+	"none",		Lnone,
+	"underline",	Lunderline,
+	nil
+};
+
 static
 TkOption opts[] =
 {
 	"xscrollcommand",	OPTtext,	O(TkListbox, xscroll),	nil,
 	"yscrollcommand",	OPTtext,	O(TkListbox, yscroll),	nil,
 	"selectmode",		OPTstab,	O(TkListbox, selmode),	tkselmode,
+	"activestyle",		OPTstab,	O(TkListbox, activestyle),	tkactivestyle,
 	"selectborderwidth",	OPTnndist,	O(TkListbox, sborderwidth),	nil,
 	nil
 };
@@ -89,6 +106,7 @@ tklistbox(TkTop *t, char *arg, char **ret)
 
 	tkl = TKobj(TkListbox, tk);
 	tkl->sborderwidth = 1;
+	tkl->activestyle = Ldotbox;
 	tk->relief = TKsunken;
 	tk->borderwidth = 1;
 	tk->highlightwidth = 1;
@@ -203,11 +221,20 @@ tkdrawlistb(Tk *tk, Point orig)
 		else
 			fg = tkgc(env, TkCforegnd);
 		string(i, p, fg, p, env->font, e->text);
-		if((e->flag & Tkactive) && tkhaskeyfocus(tk)) {
-			a.min.x = tk->borderwidth-l->xdelta;
-			a.max.x = a.min.x+w;
-			a = insetrect(a, l->sborderwidth);
-			tkbox(i, a, tk->highlightwidth, fg);
+		if((e->flag & Tkactive) && tkhaskeyfocus(tk) && l->activestyle != Lnone) {
+			if(l->activestyle == Lunderline) {
+				Rectangle u;
+				u.min.x = p.x;
+				u.min.y = p.y + env->font->height - 1;
+				u.max.x = p.x + stringwidth(env->font, e->text);
+				u.max.y = u.min.y + 1;
+				draw(i, u, fg, nil, ZP);
+			} else {	/* Ldotbox */
+				a.min.x = tk->borderwidth-l->xdelta;
+				a.max.x = a.min.x+w;
+				a = insetrect(a, l->sborderwidth);
+				tkbox(i, a, tk->highlightwidth, fg);
+			}
 		}
 		ly += lh;
 		p.y += lh;

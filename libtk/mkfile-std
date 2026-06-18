@@ -18,6 +18,7 @@ LABELFILES=\
 TEXTWFILES=\
 	textu.$O\
 	textw.$O\
+	timag.$O\
 	tindx.$O\
 	tmark.$O\
 	ttags.$O\

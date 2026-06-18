@@ -14,6 +14,7 @@
 #define iwin u.win
 #define imark u.mark
 #define iline u.line
+#define iimag u.imag
 
 #define FLUSH() flushimage(tk->env->top->display, 1)
 
@@ -656,6 +657,27 @@ tktdrawline(Image *i, Tk *tk, TkTline *l, Point deltait)
 				}
 			}
 			break;
+		case TkTimage:
+			{
+				TkTimg *w = it->iimag;
+				Rectangle ir;
+				int iy, ih;
+				if(w->tki != nil && w->tki->img != nil){
+					ih = w->tki->h;
+					switch(w->align){
+					case Tktop:	iy = p.y - la + w->pady; break;
+					case Tkbottom:	iy = p.y - la + lh - ih - w->pady; break;
+					case Tkbaseline:	iy = p.y - ih; break;
+					default:	iy = p.y - la + (lh - ih)/2; break;	/* center */
+					}
+					ir.min.x = p.x + w->padx;
+					ir.min.y = iy;
+					ir.max.x = ir.min.x + w->tki->w;
+					ir.max.y = iy + ih;
+					draw(i, ir, w->tki->img, nil, ZP);
+				}
+			}
+			break;
 		}
 		p.x += it->width;
 	}
@@ -1118,7 +1140,7 @@ tktfixgeom(Tk *tk, TkTline *l1, TkTline *l2, int finalwidth)
 				tkttagopts(tk, i, opts, env, nil, 1);
 				o = opts[TkToffset];
 			}
-			if((o != 0 || env->font != f) && i->kind != TkTwin) {
+			if((o != 0 || env->font != f) && i->kind != TkTwin && i->kind != TkTimage) {
 				/* check ascent of current item */
 				n = o+env->font->ascent;
 				if(n > a) {
@@ -1152,6 +1174,28 @@ tktfixgeom(Tk *tk, TkTline *l1, TkTline *l2, int finalwidth)
 						wa = n;
 					h = maximum(a, wa) + maximum(h - a, n - wa);
 					a = maximum(a, wa);
+					break;
+				}
+			}
+			if(i->kind == TkTimage && i->iimag->tki != nil) {
+				n = 2 * i->iimag->pady + i->iimag->tki->h;
+				switch(i->iimag->align) {
+				case Tktop:
+				case Tkbottom:
+					if(n > h)
+						h = n;
+					break;
+				case Tkbaseline:
+					if(n > a) {
+						h += n - a;
+						a = n;
+					}
+					break;
+				default:	/* center */
+					if(n/2 > a)
+						a = n/2;
+					if(n/2 > h-a)
+						h = a + n/2;
 					break;
 				}
 			}
@@ -1984,7 +2028,7 @@ tagendsbefore(TkText *tkt, TkTindex *ix, int m1, int m2)
 	ix1 = *ix;
 	while(tktadjustind(tkt, TkTbyitem, &ix1)) {
 		i = ix1.item;
-		if(i->kind == TkTwin || i->kind == TkTcontline || i->kind == TkTmark)
+		if(i->kind == TkTwin || i->kind == TkTcontline || i->kind == TkTmark || i->kind == TkTimage)
 			continue;
 		s1 = tkttagset(i, m1);
 		s2 = tkttagset(i, m2);
@@ -3955,6 +3999,20 @@ tktextwindow(Tk *tk, char *arg, char **val)
 }
 
 static char*
+tktextimage(Tk *tk, char *arg, char **val)
+{
+	char buf[Tkmaxitem];
+	TkCmdtab *cmd;
+
+	arg = tkword(tk->env->top, arg, buf, buf+sizeof(buf), nil);
+	for(cmd = tktimgcmd; cmd->name != nil; cmd++) {
+		if(strcmp(cmd->name, buf) == 0)
+			return cmd->fn(tk, arg, val);
+	}
+	return TkBadcm;
+}
+
+static char*
 tktextxview(Tk *tk, char *arg, char **val)
 {
 	int ntot, vw;
@@ -3982,7 +4040,7 @@ istext(TkTline *l)
 	TkTitem *i;
 
 	for(i = l->items; i != nil; i = i->next)
-		if(i->kind == TkTwin || i->kind == TkTmark)
+		if(i->kind == TkTwin || i->kind == TkTmark || i->kind == TkTimage)
 			return 0;
 	return 1;
 }
@@ -4080,6 +4138,7 @@ TkCmdtab tktextcmd[] =
 	"dump",			tktextdump,
 	"edit",			tktextedit,
 	"get",			tktextget,
+	"image",		tktextimage,
 	"index",		tktextindex,
 	"insert",		tktextinsert,
 	"mark",			tktextmark,

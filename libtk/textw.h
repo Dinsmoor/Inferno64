@@ -1,6 +1,7 @@
 typedef struct TkText TkText;
 typedef struct TkTedit TkTedit;
 typedef struct TkTcomp TkTcomp;
+typedef struct TkTimg TkTimg;
 typedef struct TkTitem TkTitem;
 typedef struct TkTline TkTline;
 typedef struct TkTindex TkTindex;
@@ -18,6 +19,7 @@ enum
 	TkTcontline,	/* end of non-newline line; line field as with TkTnewline */
 	TkTwin,
 	TkTmark,
+	TkTimage,	/* embedded image (one printing position) */
 
 	TkTbyitem = 0,	/* adjustment units */
 	TkTbyitemback,
@@ -140,6 +142,16 @@ struct TkTcomp			/* a group of ops undone/redone as one unit */
 	TkTcomp*	next;		/* stack link, head = newest */
 };
 
+struct TkTimg			/* an embedded image (TkTimage item) */
+{
+	TkImg*		tki;		/* resolved image, ref held */
+	char*		imgname;	/* -image name */
+	char*		name;		/* embedded-image instance name */
+	int		align;		/* Tktop/Tkbottom/Tkcenter/Tkbaseline */
+	int		padx;
+	int		pady;
+};
+
 struct TkTwind
 {
 	Tk*		sub;		/* Subwindow of canvas */
@@ -166,6 +178,7 @@ struct TkTitem
 		TkTwind*	win;
 		TkTmarkinfo*	mark;
 		TkTline*	line;
+		TkTimg*		imag;
 	} u;
 	ulong		tags[1];
 	/* TkTitem length extends tagextra ulongs beyond */
@@ -200,6 +213,8 @@ struct TkTindex
 extern	TkCmdtab	tkttagcmd[];
 extern	TkCmdtab	tktmarkcmd[];
 extern	TkCmdtab	tktwincmd[];
+extern	TkCmdtab	tktimgcmd[];
+extern	void		tktimgfree(TkTimg*);
 
 extern	void		tkfreetext(Tk*);
 extern	void		tktundoclear(TkText*);
