@@ -54,6 +54,7 @@ enum
 	TKttkentry,
 	TKttkscrollbar,
 	TKttkscale,
+	TKttksizegrip,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -724,6 +725,7 @@ extern	char*	tkttklabelframe(TkTop*, char*, char**);
 extern	char*	tkttkentry(TkTop*, char*, char**);
 extern	char*	tkttkscrollbar(TkTop*, char*, char**);
 extern	char*	tkttkscale(TkTop*, char*, char**);
+extern	char*	tkttksizegrip(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -737,6 +739,7 @@ extern	TkMethod	ttklabelframemethod;
 extern	TkMethod	ttkentrymethod;
 extern	TkMethod	ttkscrollbarmethod;
 extern	TkMethod	ttkscalemethod;
+extern	TkMethod	ttksizegripmethod;
 
 extern	TkMethod	*tkmethod[];
 

@@ -214,6 +214,16 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("scale instate disabled", cmd(".f.sc instate disabled") == "1");
 	cmd(".f.sc state {!disabled}");
 
+	# 15. ttk::sizegrip - a themed resize-handle decoration
+	cmd("ttk::sizegrip .f.sg");
+	cmd("pack .f.sg");
+	cmd("update");
+	ok("sizegrip class TSizegrip", cmd("winfo class .f.sg") == "TSizegrip");
+	ok("sizegrip style default TSizegrip", cmd(".f.sg style") == "TSizegrip");
+	cmd(".f.sg configure -style Custom.TSizegrip");
+	ok("sizegrip -style honoured", cmd(".f.sg style") == "Custom.TSizegrip");
+	ok("sizegrip instate !disabled", cmd(".f.sg instate disabled") == "0");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

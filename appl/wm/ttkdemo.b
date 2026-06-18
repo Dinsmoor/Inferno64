@@ -71,6 +71,10 @@ cfg := array[] of {
 
 	"pack .classic .modern .lf -side left -padx 8 -pady 8 -anchor n",
 
+	# a sizegrip in the bottom-right corner
+	"ttk::sizegrip .sg",
+	"pack .sg -side right -anchor se",
+
 	# a restyled (red) button via the style engine
 	"ttk::style configure Danger.TButton -foreground #ffffff",
 	"ttk::style map Danger.TButton -background {active #cc0000}",

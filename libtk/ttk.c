@@ -219,6 +219,7 @@ classstyle(int type)
 	case TKttkcheckbutton:	return "TCheckbutton";
 	case TKttkradiobutton:	return "TRadiobutton";
 	case TKttkseparator:	return "TSeparator";
+	case TKttksizegrip:	return "TSizegrip";
 	}
 	return "TFrame";
 }

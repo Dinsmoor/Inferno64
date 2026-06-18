@@ -192,6 +192,7 @@ TkMethod *tkmethod[] =
 	&ttkentrymethod,	/* TKttkentry */
 	&ttkscrollbarmethod,	/* TKttkscrollbar */
 	&ttkscalemethod,	/* TKttkscale */
+	&ttksizegripmethod,	/* TKttksizegrip */
 };
 
 char TkNomem[]	= "!out of memory";

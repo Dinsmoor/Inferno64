@@ -21,7 +21,8 @@ enum
 	Indgap		= 5,	/* gap between indicator and text */
 	Btnpadx		= 8,	/* default button text padding */
 	Btnpady		= 4,
-	Lblpad		= 1
+	Lblpad		= 1,
+	Sizegripdim	= 18	/* natural size of a sizegrip corner */
 };
 
 extern TkStab tkanchor[];
@@ -92,6 +93,12 @@ static TkOption ttksepopts[] =
 {
 	"style",	OPTtext,	O(TkTtk, style),	nil,
 	"orient",	OPTstab,	O(TkTtk, orient),	tkorient,
+	nil
+};
+
+static TkOption ttksizegripopts[] =
+{
+	"style",	OPTtext,	O(TkTtk, style),	nil,
 	nil
 };
 
@@ -396,6 +403,53 @@ ttkdrawsep(Tk *tk, Point orig)
 	return nil;
 }
 
+/* ---- sizegrip ---- */
+
+char*
+ttkdrawsizegrip(Tk *tk, Point orig)
+{
+	TkTtk *d = TKobj(TkTtk, tk);
+	TkEnv *e = tk->env;
+	Image *dst, *i, *dk, *lt;
+	Rectangle r;
+	Point sz, a, c;
+	ulong st;
+	int k, off;
+
+	dst = tkimageof(tk);
+	if(dst == nil)
+		return nil;
+	sz.x = tk->act.width + 2*tk->borderwidth;
+	sz.y = tk->act.height + 2*tk->borderwidth;
+	r.min = ZP;
+	r.max = sz;
+	i = tkitmp(e, sz, TkCbackgnd);
+	if(i == nil)
+		return nil;
+
+	st = d->state;
+	if(tk->flag & Tkdisabled)
+		st |= Sdisabled;
+	ttkfillbg(tk, i, r, st);
+
+	/* three bevelled diagonal grip lines tucked into the bottom-right */
+	dk = ttkcolor(tk, "-foreground", TkCbackgnddark);
+	lt = tkgc(e, TkCbackgndlght);
+	for(k = 1; k <= 3; k++){
+		off = k*4;
+		a = Pt(sz.x-1-off, sz.y-2);
+		c = Pt(sz.x-2, sz.y-1-off);
+		line(i, Pt(a.x, a.y-1), Pt(c.x-1, c.y), 0, 0, 0, lt, ZP);
+		line(i, a, c, 0, 0, 0, dk, ZP);
+	}
+
+	a.x = tk->act.x + orig.x;
+	a.y = tk->act.y + orig.y;
+	r = rectaddpt(r, a);
+	draw(dst, r, i, nil, ZP);
+	return nil;
+}
+
 /* ---- variable / textvariable plumbing ---- */
 
 static void
@@ -579,6 +633,7 @@ WRAP(ttkchk, ttkcheckopts)
 WRAP(ttkrad, ttkradioopts)
 WRAP(ttkfrm, ttkframeopts)
 WRAP(ttksep, ttksepopts)
+WRAP(ttksg, ttksizegripopts)
 
 /* ---- interaction subcommands (button/check/radio) ---- */
 
@@ -781,6 +836,45 @@ tkttkseparator(TkTop *t, char *arg, char **ret)
 	return tkvalue(ret, "%s", tk->name->name);
 }
 
+char*
+tkttksizegrip(TkTop *t, char *arg, char **ret)
+{
+	Tk *tk;
+	char *e;
+	TkName *names;
+	TkOptab tko[3];
+	TkTtk *d;
+
+	tk = ttknewobj(t, TKttksizegrip, nil);
+	if(tk == nil)
+		return TkNomem;
+	d = TKobj(TkTtk, tk);
+	tko[0].ptr = tk;
+	tko[0].optab = tkgeneric;
+	tko[1].ptr = d;
+	tko[1].optab = ttksizegripopts;
+	tko[2].ptr = nil;
+	names = nil;
+	e = tkparse(t, arg, tko, &names);
+	if(e != nil){
+		tkfreeobj(tk);
+		return e;
+	}
+	if((tk->flag & Tksetwidth) == 0)
+		tk->req.width = Sizegripdim;
+	if((tk->flag & Tksetheight) == 0)
+		tk->req.height = Sizegripdim;
+	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
+	e = tkaddchild(t, tk, &names);
+	tkfreename(names);
+	if(e != nil){
+		tkfreeobj(tk);
+		return e;
+	}
+	tk->name->link = nil;
+	return tkvalue(ret, "%s", tk->name->name);
+}
+
 /* ---- command tables ---- */
 
 static TkCmdtab ttklabelcmd[] =
@@ -867,6 +961,17 @@ static TkCmdtab ttksepcmd[] =
 	nil
 };
 
+static TkCmdtab ttksizegripcmd[] =
+{
+	"cget",		ttksgcget,
+	"configure",	ttksgconf,
+	"instate",	ttkinstatecmd,
+	"state",	ttkstatecmd,
+	"style",	ttkstylecmd,
+	"identify",	ttkidentcmd,
+	nil
+};
+
 /* ---- method tables ---- */
 
 TkMethod ttkframemethod = {
@@ -896,5 +1001,10 @@ TkMethod ttkradiobuttonmethod = {
 
 TkMethod ttkseparatormethod = {
 	"TSeparator", ttksepcmd, ttkfree, ttkdrawsep,
+	nil, nil, nil
+};
+
+TkMethod ttksizegripmethod = {
+	"TSizegrip", ttksizegripcmd, ttkfree, ttkdrawsizegrip,
 	nil, nil, nil
 };

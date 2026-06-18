@@ -606,7 +606,14 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   `tstate`/`tstyle` fields, driven through the layout-agnostic engine helpers
   `ttkstateparse`/`ttkstatestr`/`ttkrestorespec`/`ttkresolve`), and `disabled`/
   `readonly` block edits. `state disabled` mirrors into `Tkdisabled`.
-- **Not yet: `ttk::menubutton`, `ttk::sizegrip`.**
+- `ttk::sizegrip` (in `ttkwidg.c`): a small themed resize-handle decoration —
+  a fresh `TkTtk`-backed widget (class `TSizegrip`, natural 18×18) that fills a
+  themed background and paints three bevelled diagonal grip lines in the
+  bottom-right corner. Carries `cget`/`configure`/`state`/`instate`/`style`/
+  `identify`. Draw-only for now (no drag-to-resize binding yet).
+- **Not yet: `ttk::menubutton`** (the classic core lives in the shared
+  `TkLabel` struct used by label/button/choicebutton, so it needs either a
+  careful shared-struct extension or a fresh menu-posting widget — deferred).
 
 **Phase 3 — complex widgets: started.**
 - Done: `ttk::progressbar` (`ttkprog.c`) — determinate (`-value/-maximum/
@@ -647,7 +654,7 @@ on `ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on
 trees, tabs and comboboxes. Migration order and the golden baselines are in §11;
 a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (58/58) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (62/62) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
