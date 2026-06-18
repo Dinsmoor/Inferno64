@@ -50,7 +50,14 @@ cfg := array[] of {
 	"ttk::separator .modern.s -orient horizontal",
 	"ttk::entry .modern.e",
 	".modern.e insert 0 {edit me}",
-	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s .modern.e -fill x",
+	# a themed listbox + ttk::scrollbar, wired the usual two-way
+	"frame .modern.lbf",
+	"listbox .modern.lbf.l -height 4 -width 12 -yscrollcommand {.modern.lbf.sb set}",
+	"ttk::scrollbar .modern.lbf.sb -orient vertical -command {.modern.lbf.l yview}",
+	".modern.lbf.l insert end one two three four five six",
+	"pack .modern.lbf.sb -side right -fill y",
+	"pack .modern.lbf.l -side left -fill both -expand 1",
+	"pack .modern.t .modern.l .modern.b .modern.c .modern.r1 .modern.r2 .modern.s .modern.e .modern.lbf -fill x",
 
 	# progress group
 	"ttk::labelframe .lf -text {Progress}",

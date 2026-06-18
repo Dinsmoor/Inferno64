@@ -1,6 +1,7 @@
 #include "lib9.h"
 #include "draw.h"
 #include "tk.h"
+#include "ttk.h"
 
 #define	O(t, e)		((long)(&((t*)0)->e))
 
@@ -29,6 +30,11 @@ struct TkScroll
 	int		t2;		/* Pixel top/left lower trough */
 	int		a2;		/* Pixel top/left arrow2 */
 	char*		cmd;
+
+	/* ttk (ttk::scrollbar) extension; zero/nil for the classic widget */
+	int		ttk;		/* 1 => flat themed trough/thumb/arrows */
+	ulong		tstate;		/* ttk S* state bits */
+	char*		tstyle;		/* explicit -style, nil => "TScrollbar" */
 };
 
 enum {
@@ -50,6 +56,45 @@ TkOption opts[] =
 	"orient",	OPTstab,	O(TkScroll, orient),	tkorient,
 	nil
 };
+
+/* ttk::scrollbar options: classic core minus the 3D-only -activerelief,
+ * plus -style.  -jump/-orient/-command keep their classic meaning. */
+static
+TkOption ttkopts[] =
+{
+	"command",	OPTtext,	O(TkScroll, cmd),	nil,
+	"jump",	OPTstab,	O(TkScroll, jump),	tkbool,
+	"orient",	OPTstab,	O(TkScroll, orient),	tkorient,
+	"style",	OPTtext,	O(TkScroll, tstyle),	nil,
+	nil
+};
+
+static TkOption*
+scrollopts(TkScroll *tks)
+{
+	return tks->ttk ? ttkopts : opts;
+}
+
+/* the resolved ttk style name for a themed scrollbar */
+static char*
+ttkscrollstylename(TkScroll *tks)
+{
+	if(tks->tstyle != nil && tks->tstyle[0] != '\0')
+		return tks->tstyle;
+	return "TScrollbar";
+}
+
+/* live ttk state: stored bits plus disabled derived from Tk.flag */
+static ulong
+ttkscrollstate(Tk *tk)
+{
+	TkScroll *tks = TKobj(TkScroll, tk);
+	ulong st = tks->tstate;
+
+	if(tk->flag & Tkdisabled)
+		st |= Sdisabled;
+	return st;
+}
 
 static
 TkEbind b[] = 
@@ -90,8 +135,13 @@ tkinitscroll(Tk *tk)
 	return tkbindings(tk->env->top, tk, b, nelem(b));
 }
 
-char*
-tkscrollbar(TkTop *t, char *arg, char **ret)
+/*
+ * Shared constructor for the classic scrollbar and ttk::scrollbar.  The two
+ * share the entire geometry/command core; ttk only swaps the chrome (flat
+ * themed trough/thumb/arrows in tkdrawscrlb) and adds the -style/state set.
+ */
+static char*
+scrollmake(TkTop *t, char *arg, char **ret, int ttk)
 {
 	Tk *tk;
 	char *e;
@@ -99,7 +149,7 @@ tkscrollbar(TkTop *t, char *arg, char **ret)
 	TkScroll *tks;
 	TkOptab tko[3];
 
-	tk = tknewobj(t, TKscrollbar, sizeof(Tk)+sizeof(TkScroll));
+	tk = tknewobj(t, ttk ? TKttkscrollbar : TKscrollbar, sizeof(Tk)+sizeof(TkScroll));
 	if(tk == nil)
 		return TkNomem;
 
@@ -109,11 +159,12 @@ tkscrollbar(TkTop *t, char *arg, char **ret)
 	tk->borderwidth = 1;
 	tks->activer = TKraised;
 	tks->orient = Tkvertical;
+	tks->ttk = ttk;
 
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scrollopts(tks);
 	tko[2].ptr = nil;
 
 	names = nil;
@@ -141,6 +192,18 @@ tkscrollbar(TkTop *t, char *arg, char **ret)
 	return tkvalue(ret, "%s", tk->name->name);
 }
 
+char*
+tkscrollbar(TkTop *t, char *arg, char **ret)
+{
+	return scrollmake(t, arg, ret, 0);
+}
+
+char*
+tkttkscrollbar(TkTop *t, char *arg, char **ret)
+{
+	return scrollmake(t, arg, ret, 1);
+}
+
 static char*
 tkscrollcget(Tk *tk, char *arg, char **val)
 {
@@ -150,7 +213,7 @@ tkscrollcget(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scrollopts(tks);
 	tko[2].ptr = nil;
 
 	return tkgencget(tko, arg, val, tk->env->top);
@@ -163,13 +226,27 @@ tkfreescrlb(Tk *tk)
 
 	if(tks->cmd != nil)
 		free(tks->cmd);
+	if(tks->tstyle != nil)
+		free(tks->tstyle);
 }
 
 static void
-drawarrow(TkScroll *tks, Image *i, Point p[3], TkEnv *e, int activef, int buttonf)
+drawarrow(Tk *tk, Image *i, Point p[3], int activef, int buttonf)
 {
+	TkScroll *tks = TKobj(TkScroll, tk);
+	TkEnv *e = tk->env;
 	Image *l, *d, *t;
 	int bgnd;
+
+	if(tks->ttk) {
+		ulong st = ttkscrollstate(tk);
+		if(tks->flag & (activef|buttonf))
+			st |= Spressed;
+		fillpoly(i, p, 3, ~0,
+			ttkcolorx(tk, ttkscrollstylename(tks), st, "-arrowcolor", TkCforegnd),
+			p[0]);
+		return;
+	}
 
 	bgnd = TkCbackgnd;
 	if(tks->flag & (activef|buttonf)) {
@@ -190,11 +267,26 @@ drawarrow(TkScroll *tks, Image *i, Point p[3], TkEnv *e, int activef, int button
 }
 
 static void
-drawslider(TkScroll *tks, Image *i, Point o, int w, int h, TkEnv *e)
+drawslider(Tk *tk, Image *i, Point o, int w, int h)
 {
+	TkScroll *tks = TKobj(TkScroll, tk);
+	TkEnv *e = tk->env;
 	Image *l, *d;
 	Rectangle r;
 	int bgnd;
+
+	if(tks->ttk) {
+		ulong st = ttkscrollstate(tk);
+		if(tks->flag & (ActiveB1|ButtonB1))
+			st |= Sactive;
+		r.min = o;
+		r.max.x = o.x + w + Elembw*2;
+		r.max.y = o.y + h + Elembw*2;
+		draw(i, r,
+			ttkcolorx(tk, ttkscrollstylename(tks), st, "-background", TkCbackgnd),
+			nil, ZP);
+		return;
+	}
 
 	bgnd = TkCbackgnd;
 	if(tks->flag & (ActiveB1|ButtonB1)) {
@@ -231,7 +323,7 @@ tkvscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	p[1].y = p[0].y + triangle;
 	p[2].x = p[0].x + triangle/2;
 	p[2].y = p[0].y + triangle;
-	drawarrow(tks, i, p, e, ActiveA1, ButtonA1);
+	drawarrow(tk, i, p, ActiveA1, ButtonA1);
 
 	tks->a1 = p[2].y;
 	h = p[2].y + Elembw;
@@ -239,7 +331,7 @@ tkvscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	p[0].y = size.y - bo - 1;
 	p[1].y = p[0].y - triangle;
 	p[2].y = p[0].y - triangle;
-	drawarrow(tks, i, p, e, ActiveA2, ButtonA2);
+	drawarrow(tk, i, p, ActiveA2, ButtonA2);
 
 	tks->a2 = p[2].y;
 
@@ -255,7 +347,7 @@ tkvscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	tks->t1 = o.y - Elembw;
 	tks->t2 = o.y + h + Elembw;
 
-	drawslider(tks, i, o, w, h, e);
+	drawslider(tk, i, o, w, h);
 }
 
 static void
@@ -276,7 +368,7 @@ tkhscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	p[1].y = p[0].y - triangle/2 + 1;
 	p[2].x = p[0].x + triangle;
 	p[2].y = p[0].y + triangle/2 - 2;
-	drawarrow(tks, i, p, e, ActiveA1, ButtonA1);
+	drawarrow(tk, i, p, ActiveA1, ButtonA1);
 
 	tks->a1 = p[2].x;
 	w = p[2].x + Elembw;
@@ -284,7 +376,7 @@ tkhscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	p[0].x = size.x - bo - 1;
 	p[1].x = p[0].x - triangle;
 	p[2].x = p[0].x - triangle;
-	drawarrow(tks, i, p, e, ActiveA2, ButtonA2);
+	drawarrow(tk, i, p, ActiveA2, ButtonA2);
 
 	tks->a2 = p[2].x;
 
@@ -300,7 +392,7 @@ tkhscroll(Tk *tk, TkScroll *tks, Image *i, Point size)
 	tks->t1 = o.x - Elembw;
 	tks->t2 = o.x + w + Elembw;
 
-	drawslider(tks, i, o, w, h, e);
+	drawslider(tk, i, o, w, h);
 }
 
 char*
@@ -326,12 +418,20 @@ tkdrawscrlb(Tk *tk, Point orig)
 	if(i == nil)
 		return nil;
 
+	/* ttk: flat recessed trough behind the arrows/thumb (no 3D bevel) */
+	if(tks->ttk)
+		draw(i, Rect(0, 0, r.max.x, r.max.y),
+			ttkcolorx(tk, ttkscrollstylename(tks), ttkscrollstate(tk),
+				"-troughcolor", TkCbackgnddark),
+			nil, ZP);
+
 	if(tks->orient == Tkvertical)
 		tkvscroll(tk, tks, i, r.max);
 	else
 		tkhscroll(tk, tks, i, r.max);
 
-	tkdrawrelief(i, tk, ZP, TkCbackgnd, tk->relief);
+	if(!tks->ttk)
+		tkdrawrelief(i, tk, ZP, TkCbackgnd, tk->relief);
 
 	p.x = tk->act.x + orig.x;
 	p.y = tk->act.y + orig.y;
@@ -364,7 +464,7 @@ tkscrollconf(Tk *tk, char *arg, char **val)
 	tko[0].ptr = tk;
 	tko[0].optab = tkgeneric;
 	tko[1].ptr = tks;
-	tko[1].optab = opts;
+	tko[1].optab = scrollopts(tks);
 	tko[2].ptr = nil;
 
 	if(*arg == '\0')
@@ -730,6 +830,55 @@ TkCmdtab tkscrlbcmd[] =
 TkMethod scrollbarmethod = {
 	"scrollbar",
 	tkscrlbcmd,
+	tkfreescrlb,
+	tkdrawscrlb
+};
+
+/* ttk::scrollbar state/instate/style subcommands (engine-backed) */
+static char*
+ttkscrollstatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkScroll *tks = TKobj(TkScroll, tk);
+
+	return ttkstateop(tk, &tks->tstate, arg, ret);
+}
+
+static char*
+ttkscrollinstatecmd(Tk *tk, char *arg, char **ret)
+{
+	return ttkinstateop(tk, ttkscrollstate(tk), arg, ret);
+}
+
+static char*
+ttkscrollstylecmd(Tk *tk, char *arg, char **ret)
+{
+	USED(arg);
+	return tkvalue(ret, "%s", ttkscrollstylename(TKobj(TkScroll, tk)));
+}
+
+TkCmdtab tkttkscrlbcmd[] =
+{
+	"activate",		tkscrollactivate,
+	"cget",			tkscrollcget,
+	"configure",		tkscrollconf,
+	"delta",		tkscrolldelta,
+	"fraction",		tkscrollfraction,
+	"get",			tkscrollget,
+	"identify",		tkscrollidentify,
+	"instate",		ttkscrollinstatecmd,
+	"set",			tkscrollset,
+	"state",		ttkscrollstatecmd,
+	"style",		ttkscrollstylecmd,
+	"tkScrollDrag",		tkScrollDrag,
+	"tkScrolBut1P",		tkScrolBut1P,
+	"tkScrolBut1R",		tkScrolBut1R,
+	"tkScrolBut2P",		tkScrolBut2P,
+	nil
+};
+
+TkMethod ttkscrollbarmethod = {
+	"TScrollbar",
+	tkttkscrlbcmd,
 	tkfreescrlb,
 	tkdrawscrlb
 };

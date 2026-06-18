@@ -249,17 +249,30 @@ ttkgetint(Tk *tk, char *opt, int dflt)
 	return atoi(s);
 }
 
-/* an Image* for a colour option, falling back to a themed env slot */
+/*
+ * an Image* for a colour option of an explicit style+state, falling back to a
+ * themed env slot.  Layout-agnostic: widgets that don't use the TkTtk struct
+ * (entry/scale/scrollbar, which reuse a classic editing core) call this with
+ * their own resolved style name and live state.
+ */
 Image*
-ttkcolor(Tk *tk, char *opt, int fallbackslot)
+ttkcolorx(Tk *tk, char *style, ulong state, char *opt, int fallbackslot)
 {
 	char *s;
 	ulong pix;
 
-	s = ttkget(tk, opt);
+	s = ttkresolve(tk->env->top, style, opt, state);
 	if(s != nil && s[0] != '\0' && tkparsecolor(s, &pix) == nil)
 		return tkcolor(tk->env->top->ctxt, pix);
 	return tkgc(tk->env, fallbackslot);
+}
+
+/* an Image* for a colour option, falling back to a themed env slot */
+Image*
+ttkcolor(Tk *tk, char *opt, int fallbackslot)
+{
+	TkTtk *d = TKobj(TkTtk, tk);
+	return ttkcolorx(tk, ttkstylename(tk), d->state, opt, fallbackslot);
 }
 
 /* ---- element painters ---- */
@@ -396,10 +409,14 @@ ttkrestorespec(ulong old, ulong new, char *buf, int len)
 	return buf;
 }
 
+/*
+ * The `state' subcommand, layout-agnostic: parse the spec in `arg', apply it
+ * to *statep, mirror disabled/active into Tk.flag, repaint, and return the
+ * spec that restores the previous state.  Empty arg => report current state.
+ */
 char*
-ttkstatecmd(Tk *tk, char *arg, char **ret)
+ttkstateop(Tk *tk, ulong *statep, char *arg, char **ret)
 {
-	TkTtk *d = TKobj(TkTtk, tk);
 	TkTop *t = tk->env->top;
 	char *spec, *e;
 	char buf[256];
@@ -411,7 +428,7 @@ ttkstatecmd(Tk *tk, char *arg, char **ret)
 	tkword(t, arg, spec, spec+Tkmaxitem, nil);
 
 	if(spec[0] == '\0'){
-		ttkstatestr(d->state, buf, sizeof(buf));
+		ttkstatestr(*statep, buf, sizeof(buf));
 		free(spec);
 		return tkvalue(ret, "%s", buf);
 	}
@@ -419,18 +436,28 @@ ttkstatecmd(Tk *tk, char *arg, char **ret)
 		free(spec);
 		return TkBadvl;
 	}
-	new = (d->state | on) & ~off;
-	ttkrestorespec(d->state, new, buf, sizeof(buf));
-	ttksetstate(tk, new);
+	new = (*statep | on) & ~off;
+	ttkrestorespec(*statep, new, buf, sizeof(buf));
+	*statep = new;
+	if(new & Sdisabled)
+		tk->flag |= Tkdisabled;
+	else
+		tk->flag &= ~Tkdisabled;
+	if(new & Sactive)
+		tk->flag |= Tkactive;
+	else
+		tk->flag &= ~Tkactive;
+	tk->dirty = tkrect(tk, 1);
+	tkdirty(tk);
 	e = tkvalue(ret, "%s", buf);
 	free(spec);
 	return e;
 }
 
+/* the `instate' subcommand, against an already-resolved live state */
 char*
-ttkinstatecmd(Tk *tk, char *arg, char **ret)
+ttkinstateop(Tk *tk, ulong state, char *arg, char **ret)
 {
-	TkTtk *d = TKobj(TkTtk, tk);
 	TkTop *t = tk->env->top;
 	char *spec, *script, *e;
 	ulong on, off;
@@ -449,7 +476,7 @@ ttkinstatecmd(Tk *tk, char *arg, char **ret)
 		free(spec); free(script);
 		return TkBadvl;
 	}
-	match = (d->state & on) == on && (d->state & off) == 0;
+	match = (state & on) == on && (state & off) == 0;
 	if(script[0] != '\0'){
 		e = nil;
 		if(match)
@@ -460,6 +487,20 @@ ttkinstatecmd(Tk *tk, char *arg, char **ret)
 	e = tkvalue(ret, "%d", match);
 	free(spec); free(script);
 	return e;
+}
+
+char*
+ttkstatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkTtk *d = TKobj(TkTtk, tk);
+	return ttkstateop(tk, &d->state, arg, ret);
+}
+
+char*
+ttkinstatecmd(Tk *tk, char *arg, char **ret)
+{
+	TkTtk *d = TKobj(TkTtk, tk);
+	return ttkinstateop(tk, d->state, arg, ret);
 }
 
 char*

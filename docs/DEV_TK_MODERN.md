@@ -612,9 +612,20 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
 - Done: `ttk::progressbar` (`ttkprog.c`) — determinate (`-value/-maximum/
   -variable`, `step`) and indeterminate (`start`/`stop` over `tkrepeat`);
   absorbs the `Progressbar` megawidget.
+- `ttk::scrollbar` (in `scrol.c`, not a new file): same classic-core-reuse
+  pattern as `ttk::entry`. The entire geometry/command core — `set`/`get`/
+  `delta`/`fraction`/`activate`/`identify`, the drag/`tkScrolBut*` bindings, and
+  the `-command`/`-jump`/`-orient` wiring — is shared through a
+  `scrollmake(...,ttk)` constructor. Only the chrome differs: `tkdrawscrlb`
+  fills a flat themed `-troughcolor` trough (no 3D bevel) and `drawarrow`/
+  `drawslider` paint solid `-arrowcolor` triangles and a flat `-background`
+  thumb instead of the bevelled classic look. Adds `state`/`instate`/`style`
+  (own `tstate`/`tstyle`, via the layout-agnostic `ttkstateop`/`ttkinstateop`/
+  `ttkcolorx` engine helpers); drops the 3D-only `-activerelief` from its option
+  table. Drives a classic `listbox` two-way in the gallery.
 - **Not yet: `ttk::notebook`, `ttk::treeview`, `ttk::combobox`,
-  `ttk::panedwindow`, `ttk::scale`, `ttk::scrollbar`, `ttk::spinbox`** and the
-  megawidget shims (§4). These are the bulk of the remaining work.
+  `ttk::panedwindow`, `ttk::scale`, `ttk::spinbox`** and the megawidget shims
+  (§4). These are the bulk of the remaining work.
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
@@ -626,12 +637,13 @@ on `ttk::treeview`/`ttk::notebook`/`ttk::combobox`, since those apps lean on
 trees, tabs and comboboxes. Migration order and the golden baselines are in §11;
 a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (44/44) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (51/51) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
-configure/map/lookup, dotted-style inheritance, progressbar, labelframe, and
+configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
-`readonly`/`disabled` state gating).
+`readonly`/`disabled` state gating), and `ttk::scrollbar` (class, `set`/`get`
+through the shared core, `-style`, `disabled` state).
 
-**Next session, in order:** `ttk::scrollbar`/`ttk::scale` → `ttk::notebook` →
-`ttk::combobox` → `ttk::treeview` → megawidget shims → migrate apps from §11
-top-down, diffing classic regions each time.
+**Next session, in order:** `ttk::scale` → `ttk::notebook` → `ttk::combobox` →
+`ttk::treeview` → megawidget shims → migrate apps from §11 top-down, diffing
+classic regions each time.

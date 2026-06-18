@@ -52,6 +52,7 @@ enum
 	TKttkprogressbar,
 	TKttklabelframe,
 	TKttkentry,
+	TKttkscrollbar,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -720,6 +721,7 @@ extern	char*	tkttkseparator(TkTop*, char*, char**);
 extern	char*	tkttkprogressbar(TkTop*, char*, char**);
 extern	char*	tkttklabelframe(TkTop*, char*, char**);
 extern	char*	tkttkentry(TkTop*, char*, char**);
+extern	char*	tkttkscrollbar(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -731,6 +733,7 @@ extern	TkMethod	ttkseparatormethod;
 extern	TkMethod	ttkprogressbarmethod;
 extern	TkMethod	ttklabelframemethod;
 extern	TkMethod	ttkentrymethod;
+extern	TkMethod	ttkscrollbarmethod;
 
 extern	TkMethod	*tkmethod[];
 

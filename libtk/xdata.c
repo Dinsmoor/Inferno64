@@ -190,6 +190,7 @@ TkMethod *tkmethod[] =
 	&ttkprogressbarmethod,	/* TKttkprogressbar */
 	&ttklabelframemethod,	/* TKttklabelframe */
 	&ttkentrymethod,	/* TKttkentry */
+	&ttkscrollbarmethod,	/* TKttkscrollbar */
 };
 
 char TkNomem[]	= "!out of memory";

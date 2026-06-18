@@ -182,6 +182,22 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("entry instate disabled", cmd(".f.e instate disabled") == "1");
 	cmd(".f.e state {!disabled}");
 
+	# 13. ttk::scrollbar - shares the classic core, flat themed chrome + state
+	cmd("ttk::scrollbar .f.sb -orient vertical -command {.f.e xview}");
+	cmd("pack .f.sb");
+	cmd("update");
+	ok("scrollbar class TScrollbar", cmd("winfo class .f.sb") == "TScrollbar");
+	cmd(".f.sb set 0.0 0.5");
+	ok("scrollbar set+get", cmd(".f.sb get") == "0 0.5");
+	ok("scrollbar style default TScrollbar", cmd(".f.sb style") == "TScrollbar");
+	cmd(".f.sb configure -style Vertical.TScrollbar");
+	ok("scrollbar -style honoured", cmd(".f.sb style") == "Vertical.TScrollbar");
+	ok("scrollbar starts !disabled", cmd(".f.sb instate disabled") == "0");
+	cmd(".f.sb state disabled");
+	ok("scrollbar instate disabled", cmd(".f.sb instate disabled") == "1");
+	cmd(".f.sb state {!disabled}");
+	ok("scrollbar instate !disabled", cmd(".f.sb instate disabled") == "0");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);
