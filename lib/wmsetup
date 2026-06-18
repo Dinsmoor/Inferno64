@@ -16,9 +16,14 @@ fn wmrun {
 	{
 		pctl newpgrp
 		fn wmrun
-		# report a `fail:` exit (which dies silently otherwise) into the Log
-		# window's `proc` stream; real breaks are caught by the toolbar's procmon
-		rescue '*' { echo wmrun: $args exited: $exception > /chan/proc >[2] /dev/null } { $args }
+		# drawcheck statically warns if the program grabs the raw screen (a
+		# /dev/draw stealer with no window); Cancel in its dialog fails the
+		# guard and the program is not run.  It is silent for ordinary apps.
+		if {wm/drawcheck $args} {
+			# report a `fail:` exit (which dies silently otherwise) into the Log
+			# window's `proc` stream; real breaks are caught by the toolbar's procmon
+			rescue '*' { echo wmrun: $args exited: $exception > /chan/proc >[2] /dev/null } { $args }
+		}
 	} > /chan/wmstdout >[2] /chan/wmstderr &
 }
 
@@ -62,29 +67,62 @@ if {ftest -f /dis/biblefs.dis} {if {ftest -d /lib/bible} {
 # $home/lib/warmup (else /lib/warmup) so they launch instantly later.
 wmrun wm/warmup
 
-menu Shell			{wmrun wm/sh}
-menu Acme			{wmrun acme}
-menu Edit				{wmrun wm/edit}
-menu Charon			{wmrun charon}
-menu Pleromussy		{wmrun wm/pleromussy}
-menu Bible			{wmrun wm/bible}
-menu Manual			{wmrun wm/man -f /man/1/0welcome}
-menu Files			{if {ftest -d $home} {wmrun wm/ftree $home} {wmrun wm/ftree /}}
+# The default Apps start menu.  The toolbar's `menu` builtin inserts each item at
+# the TOP of its menu (and of its cascade), so the lines below are written in
+# REVERSE of the on-screen order: the LAST line is what appears first.  Cascades
+# show up where their items sit.  Run / Power / "Customize menu..." are appended
+# automatically by the toolbar, so they are not listed here.
+
+# Demos (3D) -- bottom of the menu
+menu Demos		'Polyhedra'		{wmrun wm/polyhedra}
+menu Demos		'Z-buffer cubes'	{wmrun wm/raycube3}
+menu Demos		'Spinning cube'		{wmrun wm/raycube}
+menu Demos		'Teapot'		{wmrun wm/rayteapot}
+
+# Games
+menu Games		'Collide'		{wmrun wm/collide}
+menu Games		'Bounce'		{wmrun wm/bounce}
+menu Games		'Connect Four'		{wmrun wm/c4}
+menu Games		'Reversi'		{wmrun wm/reversi}
+menu Games		'Minesweeper'		{wmrun wm/sweeper}
+menu Games		'Snake'			{wmrun wm/snake}
+menu Games		'Tetris'		{wmrun wm/tetris}
+
+# System
+menu System		'About'			{wmrun wm/about}
+menu System		'Memory monitor'	{wmrun wm/memory}
+menu System		'Task manager'		{wmrun wm/task}
+menu System		'Module manager'	{wmrun wm/rt}
+menu System		'Debugger'		{wmrun wm/deb}
+
+# Accessories
+menu Accessories	'Coffee'		{wmrun wm/coffee}
+menu Accessories	'Colours'		{wmrun wm/colors}
+menu Accessories	'VT100 terminal'	{wmrun wm/vt}
+menu Accessories	'Clock'			{wmrun wm/date}
+menu Accessories	'Stopwatch'		{wmrun wm/stopwatch}
+menu Accessories	'Calendar'		{wmrun wm/calendar}
+
+# Media
+menu Media		'AVI video'		{wmrun wm/avi}
+menu Media		'Audio player'		{wmrun wm/wmplay}
+menu Media		'Image viewer'		{wmrun wm/view}
+
+# Editors
+menu Editors		'Brutus'		{wmrun wm/brutus}
+menu Editors		'Edit'			{wmrun wm/edit}
+menu Editors		'Acme'			{wmrun acme}
+
+# separator between the cascades and the top-level launchers
 menu ''	''
-menu System			'Debugger'		{wmrun wm/deb}
-menu System			'Module manager'	{wmrun wm/rt}
-menu System			'Task manager'		{wmrun wm/task}
-menu System			'Memory monitor'	{wmrun wm/memory}
-menu System			'About'			{wmrun wm/about}
-menu Misc			'Coffee'			{wmrun wm/coffee}
-menu Misc			'Colours'			{wmrun wm/colors}
-#menu Misc			'Winctl'			{wmrun wm/winctl}
-menu Misc			'Clock'			{wmrun wm/date}
-menu Games			'Tetris'			{wmrun wm/tetris}
-menu Games			'Bounce'			{wmrun wm/bounce}
-menu Games			'Teapot (3D)'		{wmrun wm/rayteapot}
-#menu Games			'Game client'		{wmrun games/gameclient >/dev/null >[2=1]}
-#menu Games			'Game client (local)'	{wmrun games/gameclient -l > /dev/null >[2=1]}
+
+# Top-level launchers -- top of the menu
+menu Manual		{wmrun wm/man -f /man/1/0welcome}
+menu Files		{if {ftest -d $home} {wmrun wm/ftree $home} {wmrun wm/ftree /}}
+menu Bible		{wmrun wm/bible}
+menu Pleromussy		{wmrun wm/pleromussy}
+menu Charon		{wmrun charon}
+menu Shell		{wmrun wm/sh}
 
 if {ftest -f $home/lib/wmsetup} {run $home/lib/wmsetup} {}
 

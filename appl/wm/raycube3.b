@@ -8,9 +8,14 @@ implement RayCube3;
 #
 # Vertex processing (transform, project, light) is Limbo via Raymath; the
 # inner per-pixel loop is the C kernel $Raster3, which rasterizes straight into
-# an off-screen Draw image (back buffer) that is then blitted to the screen.
+# an off-screen Draw image (back buffer) that is then blitted to the window.
 #
-#	emu -g640x480 /dis/wm/raycube3.dis [nframes]
+# Runs in a managed wm window (tkclient: titlebar, resize, hide) so it can be
+# closed normally.  Started straight from emu with no draw context (no wm) it
+# makes its own via tkclient->makedrawcontext(), so it still renders headlessly
+# under Xvfb for screenshots.
+#
+#	wm/raycube3 [nframes]   (nframes>0: auto-exit after that many frames)
 #
 
 include "sys.m";
@@ -18,6 +23,11 @@ include "sys.m";
 include "draw.m";
 	draw: Draw;
 	Display, Image, Rect: import draw;
+include "tk.m";
+	tk: Tk;
+	Toplevel: import tk;
+include "tkclient.m";
+	tkclient: Tkclient;
 include "raymath.m";
 	rm: Raymath;
 	Vector3, Matrix: import rm;
@@ -41,72 +51,155 @@ face := array[] of {
 	0,3,2,1,  4,5,6,7,  0,4,7,3,  1,2,6,5,  0,1,5,4,  3,7,6,2,
 };
 
+# render state, recreated whenever the window is resized
+mainwin: ref Toplevel;
+buf: ref Image;		# panel-bound back buffer the rasterizer writes into
+bg: ref Image;		# background fill colour
 W, H: int;
+zbuf: array of real;
+view, proj: Matrix;
+verts: array of Vtx;	# 2 cubes * 6 faces * 4 verts
+tris: array of int;
 light: Vector3;
 
-init(nil: ref Draw->Context, argv: list of string)
+win_config := array[] of {
+	"frame .pbd -bd 2",
+	"panel .pbd.p -width 512 -height 384",
+	"pack .pbd.p -fill both -expand 1",
+	"pack .pbd -side top -fill both -expand 1",
+	"update",
+};
+
+init(ctxt: ref Draw->Context, argv: list of string)
 {
 	sys = load Sys Sys->PATH;
 	draw = load Draw Draw->PATH;
+	tk = load Tk Tk->PATH;
+	tkclient = load Tkclient Tkclient->PATH;
 	rm = load Raymath Raymath->PATH;
-	rm->init();
 	raster = load Raster3 Raster3->PATH;
-	if(raster == nil){
-		sys->fprint(sys->fildes(2), "raycube3: cannot load $Raster3\n");
+	if(tk == nil || tkclient == nil || rm == nil || raster == nil){
+		sys->fprint(sys->fildes(2), "raycube3: cannot load modules\n");
 		return;
 	}
+	rm->init();
+	tkclient->init();
 
-	nframes := 0;
+	nframes := 0;				# 0 == run forever
 	if(tl argv != nil)
 		nframes = int hd tl argv;
 
-	disp := Display.allocate(nil);
-	if(disp == nil){
-		sys->fprint(sys->fildes(2), "raycube3: cannot open display\n");
-		return;
-	}
-	screen := disp.image;
-	W = screen.r.dx();
-	H = screen.r.dy();
+	if(ctxt == nil)
+		ctxt = tkclient->makedrawcontext();
+	(win, wmcmd) := tkclient->toplevel(ctxt, "", "Z-buffer cubes", Tkclient->Resize | Tkclient->Hide);
+	mainwin = win;
+	sys->pctl(Sys->NEWPGRP, nil);
 
-	back := disp.newimage(screen.r, screen.chans, 0, draw->Black);
-	bg := disp.rgb(12, 12, 18);
-	zbuf := array[W*H] of real;
-	verts := array[48] of Vtx;	# 2 cubes * 6 faces * 4 verts
-	tris := buildtris();
+	for(i := 0; i < len win_config; i++)
+		tk->cmd(win, win_config[i]);
+	tkclient->onscreen(win, nil);
+	tkclient->startinput(win, "kbd"::"ptr"::nil);
 
+	bg = win.image.display.rgb(12, 12, 18);
+	verts = array[48] of Vtx;
+	tris = buildtris();
 	light = Vector3(0.3, 0.5, 1.0).normalize();
-	view := Matrix.lookat(Vector3(0.0,0.0,6.0), Vector3(0.0,0.0,0.0), Vector3(0.0,1.0,0.0));
-	proj := Matrix.perspective(45.0*rm->DEG2RAD, real W/real H, 0.1, 100.0);
+	view = Matrix.lookat(Vector3(0.0,0.0,6.0), Vector3(0.0,0.0,0.0), Vector3(0.0,1.0,0.0));
+
+	if(setimage(win) <= 0)
+		return;
+
+	tick := chan of int;
+	tpidc := chan of int;
+	spawn ticker(tick, tpidc);
+	tpid := <-tpidc;
 
 	ang := 0.0;
 	frame := 0;
-	for(;;){
-		rotA := Matrix.rotatexyz(Vector3(ang*0.5, ang, 0.0));
-		modelA := rotA.mul(Matrix.translate(-0.7, 0.0, 0.0));
-		mvpA := modelA.mul(view).mul(proj);
-
-		rotB := Matrix.rotatexyz(Vector3(ang, ang*0.4, ang*0.7));
-		modelB := rotB.mul(Matrix.translate(0.7, 0.0, 0.0));
-		mvpB := modelB.mul(view).mul(proj);
-
-		buildcube(verts, 0, modelA, mvpA, Vector3(0.95, 0.30, 0.30));
-		buildcube(verts, 24, modelB, mvpB, Vector3(0.30, 0.55, 0.95));
-
-		back.draw(back.r, bg, nil, (0,0));
-		raster->cleardepth(zbuf, 1e30);
-		raster->drawmesh(back, zbuf, verts, tris, nil,
-			Raster3->FLAT, Raster3->CULLNONE);
-
-		screen.draw(screen.r, back, nil, back.r.min);
-		screen.flush(draw->Flushnow);
-
+	for(;;) alt {
+	<-tick =>
+		render(ang);
 		ang += 0.03;
 		frame++;
-		if(nframes != 0 && frame >= nframes)
-			break;
-		sys->sleep(16);
+		if(nframes != 0 && frame >= nframes){
+			killproc(tpid);
+			return;
+		}
+	k := <-win.ctxt.kbd =>
+		tk->keyboard(win, k);
+	p := <-win.ctxt.ptr =>
+		tk->pointer(win, *p);
+	c := <-win.ctxt.ctl or
+	c = <-win.wreq =>
+		tkclient->wmctl(win, c);
+	c := <-wmcmd =>
+		case c {
+		"exit" =>
+			killproc(tpid);
+			return;
+		* =>
+			tkclient->wmctl(win, c);
+			if(c != nil && c[0] == '!')
+				setimage(win);		# reshaped: rebuild buffers
+		}
 	}
+}
+
+ticker(c: chan of int, pidc: chan of int)
+{
+	pidc <-= sys->pctl(0, nil);
+	for(;;){
+		sys->sleep(16);
+		c <-= 1;
+	}
+}
+
+killproc(pid: int)
+{
+	fd := sys->open("/prog/" + string pid + "/ctl", Sys->OWRITE);
+	if(fd != nil)
+		sys->fprint(fd, "kill");
+}
+
+# (re)allocate the back buffer + depth buffer for the current panel size
+setimage(win: ref Toplevel): int
+{
+	W = int tk->cmd(win, ".pbd.p cget -actwidth");
+	H = int tk->cmd(win, ".pbd.p cget -actheight");
+	if(W < 3) W = 3;
+	if(H < 3) H = 3;
+	buf = win.image.display.newimage(Rect((0,0), (W,H)), win.image.chans, 0, draw->Black);
+	if(buf == nil){
+		sys->fprint(sys->fildes(2), "raycube3: not enough image memory\n");
+		return 0;
+	}
+	tk->putimage(win, ".pbd.p", buf, nil);
+	zbuf = array[W*H] of real;
+	proj = Matrix.perspective(45.0*rm->DEG2RAD, real W/real H, 0.1, 100.0);
+	return 1;
+}
+
+render(ang: real)
+{
+	rotA := Matrix.rotatexyz(Vector3(ang*0.5, ang, 0.0));
+	modelA := rotA.mul(Matrix.translate(-0.7, 0.0, 0.0));
+	mvpA := modelA.mul(view).mul(proj);
+
+	rotB := Matrix.rotatexyz(Vector3(ang, ang*0.4, ang*0.7));
+	modelB := rotB.mul(Matrix.translate(0.7, 0.0, 0.0));
+	mvpB := modelB.mul(view).mul(proj);
+
+	buildcube(verts, 0, modelA, mvpA, Vector3(0.95, 0.30, 0.30));
+	buildcube(verts, 24, modelB, mvpB, Vector3(0.30, 0.55, 0.95));
+
+	# clear, then rasterize straight into the panel image, then blit
+	buf.draw(buf.r, bg, nil, (0,0));
+	raster->cleardepth(zbuf, 1e30);
+	raster->drawmesh(buf, zbuf, verts, tris, nil,
+		Raster3->FLAT, Raster3->CULLNONE);
+
+	tk->cmd(mainwin, sys->sprint(".pbd.p dirty 0 0 %d %d", W, H));
+	tk->cmd(mainwin, "update");
 }
 
 # project a local-space point through mvp to a screen-space Vtx with colour

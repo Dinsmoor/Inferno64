@@ -40,6 +40,14 @@ ZR: con Rect((0, 0), (0, 0));
 Nws: con 4;		# number of virtual workspaces
 Allws: con -1;		# a client pinned to every workspace (the toolbar)
 
+# Panic key: the escape hatch for a program that has grabbed the raw screen (a
+# /dev/draw stealer with no window).  wm intercepts the keyboard before routing,
+# so it works even when such a program is covering everything.  F12 == KF|12 in
+# keyboard.m (Spec|16r40 | 12); three presses inside Panicwindow ms fire it.
+Panickey: con 16rE04C;		# Keyboard->KF | 12  (F12)
+Panicwindow: con 1000;		# ms: window for the triple-press
+Panicpresses: con 3;
+
 screen: ref Screen;
 display: ref Display;
 ptrfocus: ref Client;
@@ -50,6 +58,7 @@ allowcontrol := 1;
 fakekbd: chan of string;
 fakekbdin: chan of string;
 buttons := 0;
+panictimes: list of int;	# ms timestamps of recent panic-key presses
 
 # Pick-window (debugger): when armed via /chan/wmpick, the next button-press
 # anywhere is consumed (not routed to the app) and resolved to the owning pid
@@ -286,6 +295,14 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	if(wmpickIO == nil)
 		fatal(sys->sprint("cannot make /chan/wmpick: %r"));
 
+	# panic escape hatch: writing "kill" (or "") nukes the newest non-wm proc
+	# group, "all" nukes every proc that is not the wm or one of its windowed
+	# clients; either way the desktop is then repainted.  Same code as the
+	# triple-F12 keyboard chord, exposed as a file so tools/tests can trigger it.
+	wmpanicIO := sys->file2chan("/chan", "wmpanic");
+	if(wmpanicIO == nil)
+		fatal(sys->sprint("cannot make /chan/wmpanic: %r"));
+
 	applycursorpath(defcurpath);		# show the default cursor at login
 	curtheme = readline(themefile());	# saved theme, pushed to clients on join
 
@@ -313,7 +330,23 @@ init(ctxt: ref Draw->Context, argv: list of string)
 			reshaped(win);
 	c := <-wmctxt.kbd or
 	c = int <-fakekbd =>
-		if(kbdfocus != nil)
+		if(c == Panickey){
+			# count panic-key presses inside the sliding window; on the
+			# Panicpresses'th, fire.  Never forwarded to the focused app.
+			now := sys->millisec();
+			recent := now :: nil;
+			n := 1;
+			for(l := panictimes; l != nil; l = tl l)
+				if(now - hd l <= Panicwindow){
+					recent = hd l :: recent;
+					n++;
+				}
+			panictimes = recent;
+			if(n >= Panicpresses){
+				panictimes = nil;
+				dopanic(win, "kill");
+			}
+		}else if(kbdfocus != nil)
 			kbdfocus.kbd <-= c;
 	p := <-wmctxt.ptr =>
 		if(wmclient->win.pointer(*p))
@@ -487,6 +520,24 @@ init(ctxt: ref Draw->Context, argv: list of string)
 			alt{ pickrc <-= (nil, "superseded") =>; * =>; }
 		pickrc = rc;
 		pickarmed = 1;
+	(nil, data, nil, wc) := <-wmpanicIO.write =>
+		if(wc == nil)
+			break;
+		dopanic(win, string data);
+		alt{
+		wc <-= (len data, nil) =>;
+		* =>;
+		}
+	(off, nil, nil, rc) := <-wmpanicIO.read =>
+		if(rc == nil)
+			break;
+		d := array of byte "write 'kill' (newest app) or 'all' (every app)\n";
+		if(off > len d)
+			off = len d;
+		alt{
+		rc <-= (d[off:], nil) =>;
+		* =>;
+		}
 	}
 }
 
@@ -501,6 +552,93 @@ finishpick(pid: int)
 	* =>;
 	}
 	pickrc = nil;
+}
+
+# The panic action: reclaim the desktop from a program that has drawn straight
+# onto the screen (a raw /dev/draw grabber with no window and no way to close).
+# "kill" (or "") kills the newest such proc group -- re-trigger to peel off more;
+# "all" kills every proc that is not the wm or one of its windowed clients.  A
+# windowed app is never a target (it has a close box), so the screen-stealer,
+# which has no wm window, is what gets hit.  The screen is then repainted.
+dopanic(win: ref Wmclient->Window, what: string)
+{
+	while(len what > 0 && (what[len what-1]=='\n' || what[len what-1]==' ' || what[len what-1]=='\t'))
+		what = what[0:len what-1];
+	prot := protectedpids();
+	pids := progpids();
+	if(what == "all"){
+		for(l := pids; l != nil; l = tl l)
+			if(!inintlist(hd l, prot))
+				kill(hd l, "killgrp");
+	}else{
+		victim := -1;			# newest (highest pid) unprotected proc
+		for(l := pids; l != nil; l = tl l)
+			if(hd l > victim && !inintlist(hd l, prot))
+				victim = hd l;
+		if(victim >= 0)
+			kill(victim, "killgrp");
+	}
+	refreshscreen(win);
+}
+
+# pids the panic must never kill: the wm itself and every windowed client.
+protectedpids(): list of int
+{
+	pl := sys->pctl(0, nil) :: nil;
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		if(z.pid > 0)
+			pl = z.pid :: pl;
+	return pl;
+}
+
+# every live proc id under /prog.
+progpids(): list of int
+{
+	pl: list of int;
+	fd := sys->open("/prog", Sys->OREAD);
+	if(fd == nil)
+		return nil;
+	for(;;){
+		(n, dirs) := sys->dirread(fd);
+		if(n <= 0)
+			break;
+		for(i := 0; i < n; i++){
+			name := dirs[i].name;
+			isnum := name != nil;
+			for(j := 0; j < len name; j++)
+				if(name[j] < '0' || name[j] > '9')
+					isnum = 0;
+			if(isnum)
+				pl = int name :: pl;
+		}
+	}
+	return pl;
+}
+
+inintlist(x: int, l: list of int): int
+{
+	for(; l != nil; l = tl l)
+		if(hd l == x)
+			return 1;
+	return 0;
+}
+
+# Force a full repaint, reclaiming any pixels a rogue program drew straight onto
+# the screen.  Geometry is unchanged: rebuild the screen and each window image
+# (repainting the desktop fill) and ask every client to redraw -- the same
+# mechanism reshaped() relies on, minus the resize.
+refreshscreen(win: ref Wmclient->Window)
+{
+	r := screen.image.r;
+	screen = makescreen(win.image);		# also repaints the background fill
+	for(z := wmsrv->top(); z != nil; z = z.znext)
+		for(wl := z.wins; wl != nil; wl = tl wl){
+			w := hd wl;
+			w.img = screen.newwindow(w.r, Draw->Refbackup, Draw->Nofill);
+			z.ctl <-= sys->sprint("!reshape %q -1 %s", w.tag, r2s(w.r));
+			z.ctl <-= "rect " + r2s(r);
+		}
+	screen.image.flush(Draw->Flushnow);
 }
 
 handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, req: string): string
