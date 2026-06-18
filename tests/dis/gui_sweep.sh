@@ -33,9 +33,10 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT" || exit 2
 
-EMU_G="$ROOT/Linux/aarch64/bin/emu-g"      # headless build (compile checks)
-EMU="$ROOT/Linux/aarch64/bin/emu"          # graphical build (launch checks)
-LIMBO="$ROOT/Linux/aarch64/bin/limbo"
+case "$(uname -m)" in aarch64|arm64) ARCH=aarch64;; x86_64|amd64) ARCH=amd64;; *) ARCH=$(uname -m);; esac
+EMU_G="$ROOT/Linux/$ARCH/bin/emu-g"        # headless build (compile checks)
+EMU="$ROOT/Linux/$ARCH/bin/emu"            # graphical build (launch checks)
+LIMBO="$ROOT/Linux/$ARCH/bin/limbo"
 BUILD="$ROOT/tests/dis/_build/gui"
 DISP=":${DISPLAY_NUM:-99}"
 GEOM=${GEOM:-1024x768}

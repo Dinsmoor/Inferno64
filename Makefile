@@ -14,11 +14,19 @@
 ROOT    := $(realpath $(dir $(firstword $(MAKEFILE_LIST))))
 SYSHOST := Linux
 SYSTARG := Linux
-# Target architecture (LP64).  Override on a native x86-64 host with
+# Target architecture (LP64).  Defaults to the host arch (uname -m) so the same
+# `make all` works on an aarch64 board and on an x86-64 dev box; override with
 #   make OBJTYPE=amd64 all
 # Both aarch64 and amd64 are LP64, so they share the entire Dis ABI / .dis tree;
 # only the per-arch glue (mkfiles, Linux/$OBJTYPE/include, emu asm) differs.
+HOSTMACH := $(shell uname -m)
+ifeq ($(HOSTMACH),x86_64)
+OBJTYPE ?= amd64
+else ifneq ($(filter $(HOSTMACH),aarch64 arm64),)
 OBJTYPE ?= aarch64
+else
+OBJTYPE ?= aarch64
+endif
 # Host C runtime flavour for the mk bootstrap (lib9/mk select *-$(SYSTYPE).c).
 SYSTYPE := posix
 OBJDIR  := $(SYSTARG)/$(OBJTYPE)
@@ -135,7 +143,7 @@ endif
 # installs them under $(ROOT)/dis/.
 APPLDIR := appl
 
-.PHONY: all emu dis _emu _dis bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all sparse sparse-all sparse-update sparse-raw test_jitperf check debug release bleedingedge run help warn-running-emu headless router
+.PHONY: all emu dis _emu _dis ensure-mk bootstrap guard-half clean nuke test_all_unit lint lint-update lint-all sparse sparse-all sparse-update sparse-raw test_jitperf check debug release bleedingedge run help warn-running-emu headless router
 
 # Bare `make` builds the system.  Without this, GNU make's default goal would be
 # the first target in the file ($(MK), the mk-bootstrap path target), so `make`
@@ -143,17 +151,35 @@ APPLDIR := appl
 # built and then run a stale tree).  `make` == `make all`.
 .DEFAULT_GOAL := all
 
-# Bootstrap mk itself.  Chicken-and-egg: the whole build is driven by mk, but a
-# fresh tree or git worktree has no mk binary yet (it is build output, not
-# tracked).  makemk.sh compiles libregexp/libbio/lib9 and mk with the host
-# gcc and installs mk into $(OBJDIR)/bin.  This rule fires automatically as a
-# prerequisite of the build, but only when the mk binary is actually missing.
-$(MK):
-	@echo "=== bootstrapping mk (host gcc; no mk binary yet) ==="
+# Bootstrap/validate mk.  Chicken-and-egg: the whole build is driven by mk, but
+# a fresh tree or git worktree has no mk binary yet (it is build output, not
+# tracked).  makemk.sh compiles libregexp/libbio/lib9 and mk with the host gcc
+# and installs mk into $(OBJDIR)/bin.
+#
+# A plain "rebuild only if the file is missing" rule is NOT enough: a *wrong-arch*
+# mk can already sit in the slot -- e.g. an aarch64 binary copied in by a
+# cross-build -- and `make all` would then try to exec it on x86-64 and die with
+# "Exec format error" (make Error 126).  So ensure-mk probes whether the existing
+# binary actually runs on THIS host (a wrong-arch exec makes /bin/sh exit 126/127)
+# and re-bootstraps when it is missing or non-runnable.  The probe is a sub-second
+# exec, so this phony runs every build; that is cheaper than the footgun.
+.PHONY: ensure-mk
+ensure-mk:
+	@if [ -x "$(MK)" ]; then \
+		"$(MK)" -f /dev/null >/dev/null 2>&1; rc=$$?; \
+		if [ $$rc -ne 126 ] && [ $$rc -ne 127 ]; then \
+			exit 0; \
+		fi; \
+		echo "=== mk at $(MK) does not run on this host (wrong arch?); re-bootstrapping ==="; \
+		rm -f "$(MK)"; \
+	else \
+		echo "=== bootstrapping mk (host gcc; no mk binary yet) ==="; \
+	fi; \
 	cd $(ROOT) && env ROOT=$(ROOT) SYSTARG=$(SYSTARG) OBJTYPE=$(OBJTYPE) SYSTYPE=$(SYSTYPE) sh makemk.sh
 
-# Explicit entry point: `make bootstrap` (re)builds mk if it is missing.
-bootstrap: $(MK)
+# Explicit entry point: `make bootstrap` (re)builds mk if it is missing or the
+# binary in the slot cannot run on this host.
+bootstrap: ensure-mk
 	@echo "mk available: $(MK)"
 
 # C unit tests for the host libraries (tests/cunit/<section>/test_*.c).
@@ -257,7 +283,7 @@ guard-half:
 emu: guard-half _emu
 dis: guard-half _dis
 
-_emu: $(MK)
+_emu: ensure-mk
 	@set -e; \
 	cached=" $(CACHED_LIBS) "; \
 	for dir in $(EMUDIRS); do \
@@ -293,7 +319,7 @@ _emu: $(MK)
 # Requires the C side (the limbo binary) to be built first; `make all` ensures
 # that ordering.  nuke clears stale .dis (in both the source dirs and dis/) so
 # the tree is rebuilt clean from source.
-_dis: $(MK)
+_dis: ensure-mk
 	@echo; echo "=== appl (Dis tree -> $(ROOT)/dis) ==="
 	@set -e; \
 	(cd $(ROOT)/$(APPLDIR) && $(MK) $(MKARGS) nuke); \

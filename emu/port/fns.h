@@ -133,6 +133,7 @@ void		oslongjmp(void*, osjmpbuf, int);
 long		osmillisec(void);
 int		osmillisleep(ulong);
 void		osready(Proc*);
+int		nrand(int);		/* emu/port/devcons.c; used by devssl.c randfill */
 int		limbosleep(ulong);
 vlong	osusectime(void);
 Block*	packblock(Block*);
