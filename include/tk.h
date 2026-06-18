@@ -59,6 +59,7 @@ enum
 	TKttkpanedwindow,
 	TKttktreeview,
 	TKttkcombobox,
+	TKttkspinbox,
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -734,6 +735,7 @@ extern	char*	tkttknotebook(TkTop*, char*, char**);
 extern	char*	tkttkpanedwindow(TkTop*, char*, char**);
 extern	char*	tkttktreeview(TkTop*, char*, char**);
 extern	char*	tkttkcombobox(TkTop*, char*, char**);
+extern	char*	tkttkspinbox(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -752,6 +754,7 @@ extern	TkMethod	ttknotebookmethod;
 extern	TkMethod	ttkpanedwindowmethod;
 extern	TkMethod	ttktreeviewmethod;
 extern	TkMethod	ttkcomboboxmethod;
+extern	TkMethod	ttkspinboxmethod;
 
 extern	TkMethod	*tkmethod[];
 

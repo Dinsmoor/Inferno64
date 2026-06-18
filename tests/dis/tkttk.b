@@ -384,6 +384,49 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("combobox pick sets value", cmd(".cb get") == "red");
 	ok("combobox pick sets current", cmd(".cb current") == "0");
 
+	# ---- 20. ttk::spinbox ----
+	cmd("ttk::spinbox .sp -from 0 -to 10 -increment 2");
+	cmd("pack .sp");
+	ok("spinbox class TSpinbox", cmd("winfo class .sp") == "TSpinbox");
+	ok("spinbox style default", cmd(".sp style") == "TSpinbox");
+	ok("spinbox -from cget", cmd(".sp cget -from") == "0");
+	ok("spinbox -increment cget", cmd(".sp cget -increment") == "2");
+	cmd(".sp set 4");
+	ok("spinbox set/get", cmd(".sp get") == "4");
+	cmd(".sp tkSpinStep 1");
+	ok("spinbox step up by increment", cmd(".sp get") == "6");
+	cmd(".sp tkSpinStep -1");
+	ok("spinbox step down by increment", cmd(".sp get") == "4");
+	# clamp at the top of the range (no -wrap)
+	cmd(".sp set 10");
+	cmd(".sp tkSpinStep 1");
+	ok("spinbox clamps at -to", cmd(".sp get") == "10");
+	cmd(".sp set 0");
+	cmd(".sp tkSpinStep -1");
+	ok("spinbox clamps at -from", cmd(".sp get") == "0");
+	# -wrap wraps round the ends
+	cmd(".sp configure -wrap 1");
+	cmd(".sp set 10");
+	cmd(".sp tkSpinStep 1");
+	ok("spinbox wrap top to bottom", cmd(".sp get") == "0");
+	cmd(".sp tkSpinStep -1");
+	ok("spinbox wrap bottom to top", cmd(".sp get") == "10");
+	# disabled state blocks stepping
+	cmd(".sp configure -wrap 0");
+	cmd(".sp set 4");
+	cmd(".sp state disabled");
+	cmd(".sp tkSpinStep 1");
+	ok("spinbox disabled blocks step", cmd(".sp get") == "4");
+	cmd(".sp state {!disabled}");
+	# -values mode: stepping cycles the list
+	cmd("ttk::spinbox .sv -values {apple banana cherry}");
+	cmd("pack .sv");
+	cmd(".sv set banana");
+	cmd(".sv tkSpinStep 1");
+	ok("spinbox values step forward", cmd(".sv get") == "cherry");
+	cmd(".sv tkSpinStep -1");
+	ok("spinbox values step back", cmd(".sv get") == "banana");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

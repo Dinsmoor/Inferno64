@@ -705,7 +705,19 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   choicebutton redirect in `libinterp/tk.c` to `TKttkcombobox`. Verified
   rendering (drop-down list, highlighted current row) and live selection under
   `wm/wm`.
-- **Not yet: `ttk::spinbox`** and the megawidget shims (§4).
+- `ttk::spinbox` (class `TSpinbox`): an entry with up/down steppers, the second
+  user of the entry's `arrowwidth`/`textavail` chrome column (drawn as a stacked
+  up-triangle/down-triangle pair). Two modes: numeric (`-from`/`-to`/
+  `-increment`, fixed-point via `OPTfrac`, parsed/formatted with
+  `tkfrac`/`tkfprint`) and list (`-values`, sharing the combobox's
+  `valv`/`curidx`). Stepping (`spinstep`) clamps to `[-from,-to]` or cycles the
+  list, wrapping round the ends iff `-wrap`, and runs `-command` after each
+  step. A click in the arrow column steps — top half up, bottom half down (the
+  button binding gains `%Y`; classic/combobox ignore the extra arg) — and
+  keyboard Up/Down step via a spinbox-only `bspin[]` binding layered on in the
+  constructor. `set`/`get` reuse the combobox/entry core. Verified rendering and
+  stepping (numeric clamp/wrap, list cycle) under `wm/wm`.
+- **Not yet:** the megawidget shims (§4) and `ttk::menubutton`.
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
@@ -714,12 +726,12 @@ text undo + embedded images, listbox `extended`/`activestyle`).
 gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
 progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, a two-pane
 `ttk::panedwindow`, a `ttk::treeview` with nested subtrees + a `ttk::scrollbar`,
-and a `ttk::combobox`) renders end-to-end under `wm/wm`. The ~20-app migration
-in §11 is the remaining effort; the tree, both containers, and the combobox are
-done. Migration order and the golden baselines are in §11;
+a `ttk::combobox`, and a `ttk::spinbox`) renders end-to-end under `wm/wm`. The
+~20-app migration in §11 is the remaining effort; the tree, both containers, the
+combobox, and the spinbox are done. Migration order and the golden baselines are in §11;
 a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (122/122) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (136/136) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
@@ -735,8 +747,10 @@ get, `insert` id allocation + `-id`, `exists`, `children`/`parent`/`index`,
 `move` reparent, `delete` subtree, `state`), and `ttk::combobox` (class,
 `-style`, `-values` cget, `current` get/set, text-follows-current, `set`
 known/unknown value, `current` tracks/clears, editable insert, `readonly`
-state gating, `tkComboPick` sets value + `current`).
+state gating, `tkComboPick` sets value + `current`), and `ttk::spinbox` (class,
+`-style`, `-from`/`-increment` cget, `set`/`get`, `tkSpinStep` up/down by
+increment, clamp at `-from`/`-to`, `-wrap` round both ends, disabled blocks
+step, `-values` cycle forward/back).
 
-**Next session, in order:** `ttk::spinbox`
-→ megawidget shims → migrate apps from §11 top-down, diffing classic regions
-each time.
+**Next session, in order:** megawidget shims + `ttk::menubutton`
+→ migrate apps from §11 top-down, diffing classic regions each time.

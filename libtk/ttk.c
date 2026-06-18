@@ -224,6 +224,7 @@ classstyle(int type)
 	case TKttkpanedwindow:	return "TPanedwindow";
 	case TKttktreeview:	return "Treeview";
 	case TKttkcombobox:	return "TCombobox";
+	case TKttkspinbox:	return "TSpinbox";
 	}
 	return "TFrame";
 }

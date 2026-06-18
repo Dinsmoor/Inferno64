@@ -197,6 +197,7 @@ TkMethod *tkmethod[] =
 	&ttkpanedwindowmethod,	/* TKttkpanedwindow */
 	&ttktreeviewmethod,	/* TKttktreeview */
 	&ttkcomboboxmethod,	/* TKttkcombobox */
+	&ttkspinboxmethod,	/* TKttkspinbox */
 };
 
 char TkNomem[]	= "!out of memory";

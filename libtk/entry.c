@@ -65,16 +65,23 @@ TkEbind b[] =
 	{TkKey|CNTL('/'),	"%W selection range 0 end"},
 	{TkKey|Left,	"%W icursor insert-1;%W selection clear;%W selection from insert;%W see insert"},
 	{TkKey|Right,	"%W icursor insert+1;%W selection clear;%W selection from insert;%W see insert"},
-	{TkButton1P,		"focus %W; %W tkEntryB1P %X"},
+	{TkButton1P,		"focus %W; %W tkEntryB1P %X %Y"},
 	{TkButton1P|TkMotion, 	"%W tkEntryB1M %X"},
 	{TkButton1R,		"%W tkEntryB1R"},
-	{TkButton1P|TkDouble,	"%W tkEntryB1P %X;%W selection word @%x"},
+	{TkButton1P|TkDouble,	"%W tkEntryB1P %X %Y;%W selection word @%x"},
 	{TkButton2P,			"%W tkEntryB2P %x"},
 	{TkButton2P|TkMotion,	"%W xview scroll %x scr"},
 	{TkFocusin,		"%W tkEntryFocus in"},
 	{TkFocusout,		"%W tkEntryFocus out"},
 	{TkKey|APP|'\t',	""},
 	{TkKey|BackTab,		""},
+};
+
+/* extra bindings layered on for ttk::spinbox: Up/Down step the value */
+static TkEbind bspin[] =
+{
+	{TkKey|Up,	"%W tkSpinStep 1"},
+	{TkKey|Down,	"%W tkSpinStep -1"},
 };
 
 typedef struct TkEntry TkEntry;
@@ -115,6 +122,14 @@ struct TkEntry
 	char**		valv;		/* parsed -values */
 	int		valc;
 	int		curidx;		/* selected index in valv, -1 if none */
+
+	/* ttk::spinbox extension; zero/nil unless spin (shares values/valv/curidx) */
+	int		spin;		/* 1 => ttk::spinbox (entry + up/down spinners) */
+	int		spinfrom;	/* fixed-point -from */
+	int		spinto;		/* fixed-point -to */
+	int		spininc;	/* fixed-point -increment */
+	int		spinwrap;	/* -wrap: step past an end wraps round */
+	char*		spincmd;	/* -command, run after each step */
 };
 
 static void blinkreset(Tk*);
@@ -151,9 +166,28 @@ TkOption comboopts[] =
 	nil
 };
 
+/* ttk::spinbox shares the editing core; adds the spinner range/list options */
+static
+TkOption spinopts[] =
+{
+	"xscrollcommand",	OPTtext,	O(TkEntry, xscroll),	nil,
+	"justify",		OPTstab,	O(TkEntry, flag),	tkjust,
+	"show",			OPTtext,	O(TkEntry, show),	nil,
+	"style",		OPTtext,	O(TkEntry, tstyle),	nil,
+	"values",		OPTtext,	O(TkEntry, values),	nil,
+	"from",			OPTfrac,	O(TkEntry, spinfrom),	nil,
+	"to",			OPTfrac,	O(TkEntry, spinto),	nil,
+	"increment",		OPTfrac,	O(TkEntry, spininc),	nil,
+	"wrap",			OPTstab,	O(TkEntry, spinwrap),	tkbool,
+	"command",		OPTtext,	O(TkEntry, spincmd),	nil,
+	nil
+};
+
 static TkOption*
 entryopts(TkEntry *tke)
 {
+	if(tke->spin)
+		return spinopts;
 	if(tke->combo)
 		return comboopts;
 	return tke->ttk ? ttkopts : opts;
@@ -165,6 +199,8 @@ ttkentrystylename(TkEntry *tke)
 {
 	if(tke->tstyle != nil && tke->tstyle[0] != '\0')
 		return tke->tstyle;
+	if(tke->spin)
+		return "TSpinbox";
 	return tke->combo ? "TCombobox" : "TEntry";
 }
 
@@ -208,13 +244,13 @@ yinset(Tk *tk)
 	return Entrypady + tk->highlightwidth;
 }
 
-/* width of the dropdown-arrow column (0 unless this is a combobox) */
+/* width of the arrow column (0 unless this is a combobox or spinbox) */
 static int
 arrowwidth(Tk *tk)
 {
 	TkEntry *tke = TKobj(TkEntry, tk);
 
-	if(!tke->combo)
+	if(!tke->combo && !tke->spin)
 		return 0;
 	return tk->env->font->height + 4;
 }
@@ -394,6 +430,66 @@ comboreplace(Tk *tk, char *s)
 	tkdirty(tk);
 }
 
+/* run a spinbox -command after a step (if any) */
+static char*
+spinrun(Tk *tk)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+
+	if(tke->spincmd != nil && tke->spincmd[0] != '\0')
+		return tkexec(tk->env->top, tke->spincmd, nil);
+	return nil;
+}
+
+/*
+ * spinbox step: dir>0 increments, dir<0 decrements.  In -values mode it cycles
+ * the list (wrapping iff -wrap); otherwise it steps the numeric value by
+ * -increment, clamped to [-from,-to] (wrapping round iff -wrap).
+ */
+static char*
+spinstep(Tk *tk, int dir)
+{
+	TkEntry *tke = TKobj(TkEntry, tk);
+	char buf[64], *p;
+	int v, lo, hi, idx;
+
+	if(tke->tstate & Sdisabled)
+		return nil;
+
+	if(tke->valc > 0){
+		idx = tke->curidx;
+		if(idx < 0)
+			idx = (dir > 0) ? -1 : tke->valc;
+		idx += dir;
+		if(idx < 0)
+			idx = tke->spinwrap ? tke->valc - 1 : 0;
+		else if(idx >= tke->valc)
+			idx = tke->spinwrap ? 0 : tke->valc - 1;
+		tke->curidx = idx;
+		comboreplace(tk, tke->valv[idx]);
+		return spinrun(tk);
+	}
+
+	lo = tke->spinfrom;
+	hi = tke->spinto;
+	buf[0] = '\0';
+	if(tke->text != nil)
+		snprint(buf, sizeof(buf), "%.*S", tke->textlen, tke->text);
+	p = buf;
+	if(buf[0] == '\0' || tkfrac(&p, &v, nil) != nil)
+		v = lo;
+	v += dir * tke->spininc;
+	if(hi >= lo){
+		if(v < lo)
+			v = tke->spinwrap ? hi : lo;
+		else if(v > hi)
+			v = tke->spinwrap ? lo : hi;
+	}
+	tkfprint(buf, v);
+	comboreplace(tk, buf);
+	return spinrun(tk);
+}
+
 static char*
 entrymake(TkTop *t, char *arg, char **ret, int mode)
 {
@@ -402,11 +498,13 @@ entrymake(TkTop *t, char *arg, char **ret, int mode)
 	TkName *names;
 	TkEntry *tke;
 	TkOptab tko[3];
-	int ttk, combo, type;
+	int ttk, combo, spin, type;
 
 	ttk = (mode >= 1);
 	combo = (mode == 2);
-	type = combo ? TKttkcombobox : (ttk ? TKttkentry : TKentry);
+	spin = (mode == 3);
+	type = spin ? TKttkspinbox :
+		combo ? TKttkcombobox : (ttk ? TKttkentry : TKentry);
 
 	tk = tknewobj(t, type, sizeof(Tk)+sizeof(TkEntry));
 	if(tk == nil)
@@ -417,6 +515,9 @@ entrymake(TkTop *t, char *arg, char **ret, int mode)
 	tke->ttk = ttk;
 	tke->combo = combo;
 	tke->curidx = -1;
+	tke->spin = spin;
+	if(spin)
+		tke->spininc = TKI2F(1);	/* Tk default -increment */
 	if(ttk){
 		/* themed chrome: flat border + focus ring, no 3D relief/highlight */
 		tk->relief = TKflat;
@@ -440,11 +541,13 @@ entrymake(TkTop *t, char *arg, char **ret, int mode)
 		tkfreeobj(tk);
 		return e;
 	}
-	if(combo)
+	if(combo || spin)
 		comboparsevalues(tk);
 	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
 	tksizeentry(tk);
 	e = tkbindings(t, tk, b, nelem(b));
+	if(e == nil && spin)
+		e = tkbindings(t, tk, bspin, nelem(bspin));
 
 	if(e != nil) {
 		tkfreeobj(tk);
@@ -481,6 +584,12 @@ tkttkentry(TkTop *t, char *arg, char **ret)
 	return entrymake(t, arg, ret, 1);
 }
 
+char*
+tkttkspinbox(TkTop *t, char *arg, char **ret)
+{
+	return entrymake(t, arg, ret, 3);
+}
+
 static char*
 tkentrycget(Tk *tk, char *arg, char **val)
 {
@@ -508,6 +617,7 @@ tkfreeentry(Tk *tk)
 	free(tke->show);
 	free(tke->tstyle);
 	free(tke->values);
+	free(tke->spincmd);
 	for(i = 0; i < tke->valc; i++)
 		free(tke->valv[i]);
 	free(tke->valv);
@@ -602,8 +712,8 @@ tkdrawentry(Tk *tk, Point orig)
 	s.max.y -= yp;
 	tkentrytext(i, s, tk, env);
 
-	/* combobox dropdown arrow, in the reserved right-hand column */
-	if(tke->combo){
+	/* combobox dropdown arrow / spinbox up-down arrows, in the right column */
+	if(tke->combo || tke->spin){
 		Rectangle ar;
 		Point a[3];
 		Image *col;
@@ -621,11 +731,34 @@ tkdrawentry(Tk *tk, Point orig)
 		if(sz < 2)
 			sz = 2;
 		cx = (ar.min.x + ar.max.x)/2;
-		cy = (ar.min.y + ar.max.y)/2;
-		a[0] = Pt(cx - sz, cy - sz/2);
-		a[1] = Pt(cx + sz, cy - sz/2);
-		a[2] = Pt(cx, cy + sz/2 + 1);
-		fillpoly(i, a, 3, ~0, col, a[0]);
+		if(tke->combo){
+			cy = (ar.min.y + ar.max.y)/2;
+			a[0] = Pt(cx - sz, cy - sz/2);
+			a[1] = Pt(cx + sz, cy - sz/2);
+			a[2] = Pt(cx, cy + sz/2 + 1);
+			fillpoly(i, a, 3, ~0, col, a[0]);
+		}else{
+			/* spinbox: an up triangle in the top half, down in the bottom */
+			int qh = (ar.max.y - ar.min.y)/4;
+			cy = ar.min.y + qh + 1;
+			a[0] = Pt(cx, cy - sz/2);
+			a[1] = Pt(cx - sz, cy + sz/2 + 1);
+			a[2] = Pt(cx + sz, cy + sz/2 + 1);
+			fillpoly(i, a, 3, ~0, col, a[0]);
+			{	/* a 1px divider between the up and down halves */
+				Rectangle dv;
+				dv.min.x = ar.min.x;
+				dv.min.y = (ar.min.y + ar.max.y)/2;
+				dv.max.x = ar.max.x;
+				dv.max.y = dv.min.y + 1;
+				draw(i, dv, ttkentrycolor(tk, "-bordercolor", TkCbackgnddark), nil, ZP);
+			}
+			cy = ar.max.y - qh - 1;
+			a[0] = Pt(cx - sz, cy - sz/2);
+			a[1] = Pt(cx + sz, cy - sz/2);
+			a[2] = Pt(cx, cy + sz/2 + 1);
+			fillpoly(i, a, 3, ~0, col, a[0]);
+		}
 	}
 
 	if(tke->ttk){
@@ -722,7 +855,7 @@ tkentryconf(Tk *tk, char *arg, char **val)
 	bd = tk->borderwidth;
 	g = tk->req;
 	e = tkparse(tk->env->top, arg, tko, nil);
-	if(tke->combo)
+	if(tke->combo || tke->spin)
 		comboparsevalues(tk);
 	tksettransparent(tk, tkhasalpha(tk->env, TkCbackgnd));
 	tksizeentry(tk);
@@ -1494,18 +1627,24 @@ tkentryb1p(Tk *tk, char* arg, char **ret)
 {
 	TkEntry *tke = TKobj(TkEntry, tk);
 	Point p;
-	int i, locked, x;
+	int i, locked, x, y;
 	char buf[32], *e;
 	USED(ret);
 
-	x = atoi(arg);
-	p = tkscrn2local(tk, Pt(x, 0));
+	x = strtol(arg, &e, 10);
+	y = atoi(e);			/* second token, 0 for the classic %X-only callers */
+	p = tkscrn2local(tk, Pt(x, y));
 
 	/* a combobox click on the arrow column (or anywhere when readonly)
 	 * drops the value list instead of positioning the cursor */
 	if(tke->combo && !(tke->tstate & Sdisabled) &&
 	   (p.x >= tk->act.width - arrowwidth(tk) || (tke->tstate & Sreadonly)))
 		return tkpostlist(tk, tke->valv, tke->valc, tke->curidx, "tkComboPick");
+
+	/* a spinbox click in the arrow column steps: top half up, bottom down */
+	if(tke->spin && !(tke->tstate & Sdisabled) &&
+	   p.x >= tk->act.width - arrowwidth(tk))
+		return spinstep(tk, p.y < tk->act.height/2 ? +1 : -1);
 
 	sprint(buf, "@%d", p.x);
 	e = tkentryparseindex(tk, buf, &i);
@@ -1870,6 +2009,54 @@ TkCmdtab tkttkcombocmd[] =
 TkMethod ttkcomboboxmethod = {
 	"TCombobox",
 	tkttkcombocmd,
+	tkfreeentry,
+	tkdrawentry,
+	tkentrygeom
+};
+
+/* ---- ttk::spinbox: the entry core + up/down steppers ---- */
+
+/* `tkSpinStep dir': step up (dir>=0) or down (dir<0); also keyboard Up/Down */
+static char*
+tkspinstepcmd(Tk *tk, char *arg, char **ret)
+{
+	USED(ret);
+	return spinstep(tk, atoi(arg) < 0 ? -1 : +1);
+}
+
+static
+TkCmdtab tkttkspincmd[] =
+{
+	"cget",			tkentrycget,
+	"configure",		tkentryconf,
+	"delete",		tkentrydelete,
+	"get",			tkentryget,
+	"icursor",		tkentryicursor,
+	"identify",		ttkentryidentcmd,
+	"index",		tkentryindex,
+	"insert",		tkentryinsert,
+	"instate",		ttkentryinstatecmd,
+	"selection",		tkentryselect,
+	"set",			tkcomboset,
+	"state",		ttkentrystatecmd,
+	"style",		ttkentrystylecmd,
+	"xview",		tkentryxview,
+	"bbox",			tkentrybboxcmd,
+	"see",			tkentryseecmd,
+	"tkEntryBS",		tkentrybs,
+	"tkEntryBW",		tkentrybw,
+	"tkEntryB1P",		tkentryb1p,
+	"tkEntryB1M",		tkentryb1m,
+	"tkEntryB1R",		tkentryb1r,
+	"tkEntryB2P",		tkentryb2p,
+	"tkEntryFocus",		tkentryfocus,
+	"tkSpinStep",		tkspinstepcmd,
+	nil
+};
+
+TkMethod ttkspinboxmethod = {
+	"TSpinbox",
+	tkttkspincmd,
 	tkfreeentry,
 	tkdrawentry,
 	tkentrygeom
