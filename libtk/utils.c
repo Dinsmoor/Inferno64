@@ -52,6 +52,7 @@ static struct Cmd cmdmain[] =
 	"scrollbar",	tkscrollbar,
 	"see",	tkseecmd,
 	"send",		tksend,
+	"spinbox",	tkspinbox,
 	"text",		tktext,
 	"theme",	tkthemecmd,
 	"ttk::button",	tkttkbutton,

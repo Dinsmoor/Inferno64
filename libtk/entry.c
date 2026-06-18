@@ -539,10 +539,12 @@ entrymake(TkTop *t, char *arg, char **ret, int mode)
 	TkOptab tko[3];
 	int ttk, combo, spin, type;
 
-	ttk = (mode >= 1);
+	/* mode: 0 entry, 1 ttk::entry, 2 ttk::combobox, 3 ttk::spinbox,
+	 * 4 classic spinbox (the entry spin core, but classic chrome) */
+	ttk = (mode == 1 || mode == 2 || mode == 3);
 	combo = (mode == 2);
-	spin = (mode == 3);
-	type = spin ? TKttkspinbox :
+	spin = (mode == 3 || mode == 4);
+	type = spin ? (ttk ? TKttkspinbox : TKspinbox) :
 		combo ? TKttkcombobox : (ttk ? TKttkentry : TKentry);
 
 	tk = tknewobj(t, type, sizeof(Tk)+sizeof(TkEntry));
@@ -627,6 +629,12 @@ char*
 tkttkspinbox(TkTop *t, char *arg, char **ret)
 {
 	return entrymake(t, arg, ret, 3);
+}
+
+char*
+tkspinbox(TkTop *t, char *arg, char **ret)
+{
+	return entrymake(t, arg, ret, 4);
 }
 
 static char*
@@ -2302,6 +2310,42 @@ TkCmdtab tkttkspincmd[] =
 TkMethod ttkspinboxmethod = {
 	"TSpinbox",
 	tkttkspincmd,
+	tkfreeentry,
+	tkdrawentry,
+	tkentrygeom
+};
+
+/* ---- classic spinbox: the same spin core, classic chrome, no ttk state ---- */
+
+static
+TkCmdtab tkspincmd[] =
+{
+	"cget",			tkentrycget,
+	"configure",		tkentryconf,
+	"delete",		tkentrydelete,
+	"get",			tkentryget,
+	"icursor",		tkentryicursor,
+	"index",		tkentryindex,
+	"insert",		tkentryinsert,
+	"selection",		tkentryselect,
+	"set",			tkcomboset,
+	"xview",		tkentryxview,
+	"bbox",			tkentrybboxcmd,
+	"see",			tkentryseecmd,
+	"tkEntryBS",		tkentrybs,
+	"tkEntryBW",		tkentrybw,
+	"tkEntryB1P",		tkentryb1p,
+	"tkEntryB1M",		tkentryb1m,
+	"tkEntryB1R",		tkentryb1r,
+	"tkEntryB2P",		tkentryb2p,
+	"tkEntryFocus",		tkentryfocus,
+	"tkSpinStep",		tkspinstepcmd,
+	nil
+};
+
+TkMethod spinboxmethod = {
+	"spinbox",
+	tkspincmd,
 	tkfreeentry,
 	tkdrawentry,
 	tkentrygeom

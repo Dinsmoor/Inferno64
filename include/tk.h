@@ -61,6 +61,7 @@ enum
 	TKttkcombobox,
 	TKttkspinbox,
 	TKttkmenubutton,
+	TKspinbox,		/* classic spinbox (entry core, classic chrome) */
 	TKwidgets,
 
 	TKsingle	= 0,	/* Select mode */
@@ -738,6 +739,7 @@ extern	char*	tkttktreeview(TkTop*, char*, char**);
 extern	char*	tkttkcombobox(TkTop*, char*, char**);
 extern	char*	tkttkspinbox(TkTop*, char*, char**);
 extern	char*	tkttkmenubutton(TkTop*, char*, char**);
+extern	char*	tkspinbox(TkTop*, char*, char**);
 extern	char*	tkttkstyle(TkTop*, char*, char**);
 
 extern	TkMethod	ttkframemethod;
@@ -758,6 +760,7 @@ extern	TkMethod	ttktreeviewmethod;
 extern	TkMethod	ttkcomboboxmethod;
 extern	TkMethod	ttkspinboxmethod;
 extern	TkMethod	ttkmenubuttonmethod;
+extern	TkMethod	spinboxmethod;
 
 extern	TkMethod	*tkmethod[];
 

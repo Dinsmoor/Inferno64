@@ -3,7 +3,7 @@
 > **Status:** core complete. Phases 0–1 (substrate + ttk engine), Phase 2 (basic
 > ttk widgets, now including `ttk::menubutton`), Phase 3 (complex widgets:
 > notebook, panedwindow, treeview, combobox, spinbox) and Phase 5 (app migration
-> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 155/155 and
+> + a verified-rendering app suite) are done; `tests/dis/tkttk.b` is 162/162 and
 > `tests/dis/tk_render_check.sh` passes all 19 §11 apps. Remaining is optional
 > polish (megawidget shims, Phase 4 classic completeness).
 > See §12 for the live state. This document is the cold-start briefing; it
@@ -743,8 +743,15 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   *Inferno caveat:* the validatecommand is an ordinary Inferno-Tk script, which
   has no `expr`/`string` — compute the boolean elsewhere and return it via
   `variable` (or gate from Limbo), e.g. `-validatecommand {variable ok}`.
-- **Not yet:** classic `spinbox` (the themed `ttk::spinbox` already covers the
-  need), entry text undo + embedded images, listbox `extended`/`activestyle`.
+- **classic `spinbox` (done, in `entry.c`).** A net-new classic widget (class
+  `spinbox`) that reuses the same entry spin core as `ttk::spinbox` (mode 4 in
+  `entrymake`: `ttk=0, spin=1`), so it gets classic sunken chrome + the stacked
+  up/down arrow column, the `-from`/`-to`/`-increment`/`-wrap`/`-values`
+  options, `set`/`get`/`tkSpinStep`, click-to-step and keyboard Up/Down — with
+  none of the ttk state/style subcommands. No existing widget's code path
+  changes (the mode switch only adds a new branch).
+- **Not yet:** entry text undo + embedded images, listbox
+  `extended`/`activestyle`.
 
 **Phase 5 — app migration + render verification: DONE.** `wm/ttkdemo` is the
 gallery app proving the whole set (a `ttk::entry`, a `ttk::scale`-driven
@@ -782,7 +789,7 @@ rendering or rely on classic-only idioms:
 A pixel change in a *classic* widget remains a regression by definition; the
 harness is the standing guard.
 
-Combined ttk test: `tests/dis/tkttk.b` (155/155) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (162/162) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,

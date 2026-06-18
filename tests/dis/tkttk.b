@@ -486,6 +486,27 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("non-boolean result lets edit through", cmd(".ve get") == "bcXY!");
 	ok("non-boolean result turned validation off", cmd(".ve cget -validate") == "none");
 
+	# ---- 23. classic spinbox (Phase 4: entry spin core, classic chrome) ----
+	cmd("spinbox .cs -from 0 -to 10 -increment 2");
+	cmd("pack .cs");
+	ok("spinbox class spinbox", cmd("winfo class .cs") == "spinbox");
+	ok("spinbox -from cget", cmd(".cs cget -from") == "0");
+	cmd(".cs set 4");
+	ok("spinbox set/get", cmd(".cs get") == "4");
+	cmd(".cs tkSpinStep 1");
+	ok("spinbox step up by increment", cmd(".cs get") == "6");
+	cmd(".cs tkSpinStep -1");
+	ok("spinbox step down by increment", cmd(".cs get") == "4");
+	cmd(".cs set 10");
+	cmd(".cs tkSpinStep 1");
+	ok("spinbox clamps at -to", cmd(".cs get") == "10");
+	# -values list mode works on the classic spinbox too
+	cmd("spinbox .cv -values {alpha beta gamma}");
+	cmd("pack .cv");
+	cmd(".cv set beta");
+	cmd(".cv tkSpinStep 1");
+	ok("classic spinbox values step", cmd(".cv get") == "gamma");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);
