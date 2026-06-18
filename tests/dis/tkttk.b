@@ -264,6 +264,40 @@ init(ctxt: ref Draw->Context, nil: list of string)
 	ok("notebook instate disabled", cmd(".nb instate disabled") == "1");
 	cmd(".nb state {!disabled}");
 
+	# 17. ttk::panedwindow - a tiled container with draggable sashes
+	cmd("ttk::panedwindow .pw -orient horizontal -width 260 -height 120");
+	cmd("ttk::frame .pw.a");
+	cmd("ttk::label .pw.a.l -text left");
+	cmd("pack .pw.a.l");
+	cmd("ttk::frame .pw.b");
+	cmd("ttk::label .pw.b.l -text right");
+	cmd("pack .pw.b.l");
+	cmd("ttk::frame .pw.c");
+	cmd("pack .pw");
+	cmd("update");
+	ok("panedwindow class TPanedwindow", cmd("winfo class .pw") == "TPanedwindow");
+	ok("panedwindow style default", cmd(".pw style") == "TPanedwindow");
+	ok("panedwindow orient honoured", cmd(".pw cget -orient") == "horizontal");
+	# two wide panes: sash 0 has room to move to 80
+	cmd(".pw add .pw.a");
+	cmd(".pw add .pw.b");
+	cmd("update");
+	ok("panedwindow lists panes", cmd(".pw panes") == ".pw.a .pw.b");
+	cmd(".pw sashpos 0 80");
+	cmd("update");
+	ok("panedwindow sashpos set+get", cmd(".pw sashpos 0") == "80");
+	cmd(".pw add .pw.c");
+	cmd("update");
+	ok("panedwindow add a third pane", cmd(".pw panes") == ".pw.a .pw.b .pw.c");
+	cmd(".pw forget .pw.b");
+	cmd("update");
+	ok("panedwindow forget drops a pane", cmd(".pw panes") == ".pw.a .pw.c");
+	cmd(".pw configure -style Custom.TPanedwindow");
+	ok("panedwindow style honoured", cmd(".pw style") == "Custom.TPanedwindow");
+	cmd(".pw state disabled");
+	ok("panedwindow instate disabled", cmd(".pw instate disabled") == "1");
+	cmd(".pw state {!disabled}");
+
 	sys->print("1..%d\n", nok+nfail);
 	if(nfail == 0)
 		sys->print("# all %d ttk tests passed\n", nok);

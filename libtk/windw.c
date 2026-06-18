@@ -435,6 +435,7 @@ tkimageof(Tk *tk)
 			case TKtext:
 				return TKobj(TkText, tk)->image;
 			case TKttknotebook:
+			case TKttkpanedwindow:
 				continue;	/* pane shares the enclosing window image */
 			}
 			abort();

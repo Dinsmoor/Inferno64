@@ -86,7 +86,18 @@ cfg := array[] of {
 	".nb add .nb.f2 -text Two",
 	".nb add .nb.f3 -text Three",
 
-	"pack .classic .modern .lf .nb -side left -padx 8 -pady 8 -anchor n",
+	# a horizontal panedwindow with two draggable panes
+	"ttk::panedwindow .pw -orient horizontal -width 220 -height 150",
+	"ttk::labelframe .pw.left -text Left",
+	"ttk::label .pw.left.l -text {drag the sash ->}",
+	"pack .pw.left.l -padx 6 -pady 6",
+	"ttk::labelframe .pw.right -text Right",
+	"ttk::label .pw.right.l -text {... to resize}",
+	"pack .pw.right.l -padx 6 -pady 6",
+	".pw add .pw.left",
+	".pw add .pw.right",
+
+	"pack .classic .modern .lf .nb .pw -side left -padx 8 -pady 8 -anchor n",
 
 	# a sizegrip in the bottom-right corner
 	"ttk::sizegrip .sg",

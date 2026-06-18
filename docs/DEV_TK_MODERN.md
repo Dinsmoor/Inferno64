@@ -657,32 +657,49 @@ by the ttk widgets exercising real `pack`/`grid` mixing without disturbing it.
   `tkimageof` (windw.c) gained a `TKttknotebook` case so a pane resolves to the
   enclosing window image (it `continue`s up the master chain rather than
   `abort`ing). Verified rendering + live tab-switching under `wm/wm`.
-- **Not yet: `ttk::treeview`, `ttk::combobox`, `ttk::panedwindow`,
-  `ttk::spinbox`** and the megawidget shims (§4). `ttk::panedwindow` will reuse
-  the same parent-link container pattern just proven by the notebook.
+- `ttk::panedwindow` (in `ttkpane.c`, a fresh file — class `TPanedwindow`): the
+  second ttk container, reusing the notebook's parent-link infrastructure
+  verbatim. Tiles its panes along one axis (`-orient`) with a draggable sash
+  between each adjacent pair; unlike the notebook, every pane is visible at
+  once. Panes are parent-linked (not pack/place managed); the panedwindow owns
+  their geometry and draws them via `tkdrawslaves`. Pane sizes are derived from
+  each pane's natural `req` (scaled proportionally to fit) until the user
+  positions a sash (`userpos` flag), after which sizes are frozen and only the
+  last pane absorbs window-resize slack. Subcommands:
+  `add`(`-weight`)/`forget`/`panes`/`sashpos`(get/set)/`identify`/`instate`/
+  `state`/`style`/`cget`/`configure`; sash drag via `Button1P`/`Button1P|Motion`
+  /`Button1R` bindings (`sashat` hit-test + the same boundary math as
+  `sashpos`). Drag clamps to the immediate neighbours' minimums (cascading-push
+  is a future refinement). Shares the `tkimageof` `TKttkpanedwindow` case with
+  the notebook. Verified rendering + live sash-drag resize under `wm/wm`.
+- **Not yet: `ttk::treeview`, `ttk::combobox`, `ttk::spinbox`** and the
+  megawidget shims (§4). `ttk::combobox` needs a transient popup-window
+  mechanism (reuse the classic `choicebutton`/menu path in `menus.c`).
 
 **Phase 4 — classic completeness: not started** (`spinbox`, entry `-validate`,
 text undo + embedded images, listbox `extended`/`activestyle`).
 
 **Phase 5 — app migration: demonstrated, not swept.** `wm/ttkdemo` is a new
 gallery app proving the set (now including a `ttk::entry`, a `ttk::scale`-driven
-progressbar, a `ttk::sizegrip`, and a three-page `ttk::notebook`) renders
-end-to-end under `wm/wm`. The ~20-app migration in §11 is the remaining effort
-and is now gated only on `ttk::treeview`/`ttk::combobox` (the notebook is done),
-since those apps lean on trees and comboboxes. Migration order and the golden
-baselines are in §11; a pixel change in a *classic* widget remains a regression
-by definition.
+progressbar, a `ttk::sizegrip`, a three-page `ttk::notebook`, and a
+two-pane `ttk::panedwindow`) renders end-to-end under `wm/wm`. The ~20-app
+migration in §11 is the remaining effort and is now gated only on
+`ttk::treeview`/`ttk::combobox` (both containers are done), since those apps
+lean on trees and comboboxes. Migration order and the golden baselines are in
+§11; a pixel change in a *classic* widget remains a regression by definition.
 
-Combined ttk test: `tests/dis/tkttk.b` (76/76) — classes, invoke, state machine,
+Combined ttk test: `tests/dis/tkttk.b` (85/85) — classes, invoke, state machine,
 `instate` scripts, check/radio variable binding, `ttk::style`
 configure/map/lookup, dotted-style inheritance, progressbar, labelframe,
 `ttk::entry` (class, insert/get/delete via the shared core, `-style`,
 `readonly`/`disabled` state gating), `ttk::scrollbar` (class, `set`/`get`
 through the shared core, `-style`, `disabled` state), `ttk::scale`
-(class, `-value`/`set`/`get`, `-style`, `disabled` state), `ttk::sizegrip`, and
+(class, `-value`/`set`/`get`, `-style`, `disabled` state), `ttk::sizegrip`,
 `ttk::notebook` (class, `tabs`/`index`/`select` by path and index, auto-select,
-`tab -text` get/set, disabled-tab skipping, `forget`, `-style`, `state`).
+`tab -text` get/set, disabled-tab skipping, `forget`, `-style`, `state`), and
+`ttk::panedwindow` (class, `-orient`, `add`/`panes`/`forget`, `sashpos`
+set/get, `-style`, `state`).
 
-**Next session, in order:** `ttk::combobox` → `ttk::treeview` →
-`ttk::panedwindow`/`ttk::spinbox` → megawidget shims → migrate apps from §11
-top-down, diffing classic regions each time.
+**Next session, in order:** `ttk::combobox` → `ttk::treeview` → `ttk::spinbox`
+→ megawidget shims → migrate apps from §11 top-down, diffing classic regions
+each time.
