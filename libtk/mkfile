@@ -10,6 +10,7 @@ OFILES=\
 	packr.$O\
 	panel.$O\
 	parse.$O\
+	place.$O\
 	utils.$O\
 	varbl.$O\
 	windw.$O\

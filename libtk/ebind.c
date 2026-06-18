@@ -914,33 +914,120 @@ char*
 tkwinfo(TkTop *t, char *arg, char **ret)
 {
 	Tk *tk;
-	char *cmd, *arg1;
+	char *cmd, *arg1, *e;
 
+	tk = nil;
+	e = nil;
 	cmd = mallocz(Tkmaxitem, 0);
-	if(cmd == nil)
+	arg1 = mallocz(Tkmaxitem, 0);
+	if(cmd == nil || arg1 == nil){
+		free(cmd);
+		free(arg1);
 		return TkNomem;
+	}
 
 	arg = tkword(t, arg, cmd, cmd+Tkmaxitem, nil);
-	if(strcmp(cmd, "class") == 0) {
-		arg1 = mallocz(Tkmaxitem, 0);
-		if(arg1 == nil) {
-			free(cmd);
-			return TkNomem;
-		}
-		tkword(t, arg, arg1, arg1+Tkmaxitem, nil);
-		tk = tklook(t, arg1, 0);
-		if(tk == nil){
-			tkerr(t, arg1);
-			free(arg1);
-			free(cmd);
-			return TkBadwp;
-		}
-		free(arg1);
-		free(cmd);
-		return tkvalue(ret, "%s", tkmethod[tk->type]->name);
+	arg = tkword(t, arg, arg1, arg1+Tkmaxitem, nil);
+
+	/* queries that don't take a widget path */
+	if(strcmp(cmd, "screenwidth") == 0){
+		e = tkvalue(ret, "%d", t->screenr.max.x - t->screenr.min.x);
+		goto done;
 	}
+	if(strcmp(cmd, "screenheight") == 0){
+		e = tkvalue(ret, "%d", t->screenr.max.y - t->screenr.min.y);
+		goto done;
+	}
+	if(strcmp(cmd, "pointerx") == 0){
+		e = tkvalue(ret, "%d", t->ctxt != nil ? t->ctxt->mstate.x : -1);
+		goto done;
+	}
+	if(strcmp(cmd, "pointery") == 0){
+		e = tkvalue(ret, "%d", t->ctxt != nil ? t->ctxt->mstate.y : -1);
+		goto done;
+	}
+	if(strcmp(cmd, "pointerxy") == 0){
+		if(t->ctxt != nil)
+			e = tkvalue(ret, "%d %d", t->ctxt->mstate.x, t->ctxt->mstate.y);
+		else
+			e = tkvalue(ret, "-1 -1");
+		goto done;
+	}
+
+	tk = tklook(t, arg1, 0);
+
+	if(strcmp(cmd, "exists") == 0){
+		e = tkvalue(ret, "%d", tk != nil);
+		goto done;
+	}
+
+	if(tk == nil){
+		tkerr(t, arg1);
+		e = TkBadwp;
+		goto done;
+	}
+
+	if(strcmp(cmd, "class") == 0)
+		e = tkvalue(ret, "%s", tkmethod[tk->type]->name);
+	else if(strcmp(cmd, "ismapped") == 0)
+		/* a widget is effectively mapped if it is still managed (has a
+		 * master) or is a toplevel, and not pending destruction */
+		e = tkvalue(ret, "%d", (tk->master != nil || (tk->flag & Tkwindow)) &&
+			!(tk->flag & Tkdestroy));
+	else if(strcmp(cmd, "x") == 0)
+		e = tkvalue(ret, "%d", tk->act.x);
+	else if(strcmp(cmd, "y") == 0)
+		e = tkvalue(ret, "%d", tk->act.y);
+	else if(strcmp(cmd, "width") == 0)
+		e = tkvalue(ret, "%d", tk->act.width + 2*tk->borderwidth);
+	else if(strcmp(cmd, "height") == 0)
+		e = tkvalue(ret, "%d", tk->act.height + 2*tk->borderwidth);
+	else if(strcmp(cmd, "reqwidth") == 0)
+		e = tkvalue(ret, "%d", tk->req.width + 2*tk->borderwidth);
+	else if(strcmp(cmd, "reqheight") == 0)
+		e = tkvalue(ret, "%d", tk->req.height + 2*tk->borderwidth);
+	else if(strcmp(cmd, "rootx") == 0)
+		e = tkvalue(ret, "%d", tkposn(tk).x);
+	else if(strcmp(cmd, "rooty") == 0)
+		e = tkvalue(ret, "%d", tkposn(tk).y);
+	else if(strcmp(cmd, "geometry") == 0)
+		e = tkvalue(ret, "%dx%d+%d+%d", tk->act.width + 2*tk->borderwidth,
+			tk->act.height + 2*tk->borderwidth, tk->act.x, tk->act.y);
+	else if(strcmp(cmd, "parent") == 0){
+		Tk *par = tklook(t, arg1, 1);
+		if(par == nil || par == tk)
+			e = tkvalue(ret, "");
+		else if(par->name != nil)
+			e = tkvalue(ret, "%s", par->name->name);
+		else
+			e = tkvalue(ret, "");
+	}
+	else if(strcmp(cmd, "children") == 0){
+		Tk *c;
+		char *fmt = "%s";
+		int len = strlen(arg1);
+		for(c = t->root; c != nil; c = c->siblings){
+			if(c->name == nil || c == tk)
+				continue;
+			/* immediate child: name is "<arg1>.<single component>" */
+			if(strncmp(c->name->name, arg1, len) == 0 &&
+			   c->name->name[len] == '.' &&
+			   strchr(c->name->name + len + 1, '.') == nil){
+				e = tkvalue(ret, fmt, c->name->name);
+				if(e != nil)
+					goto done;
+				fmt = " %s";
+			}
+		}
+		e = nil;
+	}
+	else
+		e = TkBadvl;
+
+done:
 	free(cmd);
-	return TkBadvl;
+	free(arg1);
+	return e;
 }
 
 char*

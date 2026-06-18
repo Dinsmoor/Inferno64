@@ -168,6 +168,7 @@ typedef struct TkCursor TkCursor;
 typedef struct TkGrid TkGrid;
 typedef struct TkGridbeam TkGridbeam;
 typedef struct TkGridcell TkGridcell;
+typedef struct TkPlace TkPlace;
 
 #pragma incomplete TkCol
 
@@ -473,6 +474,40 @@ struct TkGrid
 	Point			origin;	/* top left point grid was rendered at */
 };
 
+enum				/* TkPlace.set: which placement options are active */
+{
+	TkPlacex	= (1<<0),
+	TkPlacey	= (1<<1),
+	TkPlacewidth	= (1<<2),
+	TkPlaceheight	= (1<<3),
+	TkPlacerelx	= (1<<4),
+	TkPlacerely	= (1<<5),
+	TkPlacerelwidth	= (1<<6),
+	TkPlacerelheight = (1<<7)
+};
+
+enum				/* TkPlace.bordermode */
+{
+	TkPlinside	= 0,
+	TkPloutside,
+	TkPlignore
+};
+
+struct TkPlace			/* one placed slave's parameters (mirrors `grid' as per-widget data) */
+{
+	int		set;		/* TkPlace* bitmask of active options */
+	int		x;
+	int		y;
+	int		width;
+	int		height;
+	double		relx;
+	double		rely;
+	double		relwidth;
+	double		relheight;
+	int		anchor;		/* Tknorth|Tkeast|Tksouth|Tkwest, 0 = center */
+	int		bordermode;
+};
+
 struct Tk
 {
 	int		type;		/* Widget type */
@@ -498,6 +533,7 @@ struct Tk
 	Point		ipad;		/* inside frame padding */
 	Rectangle	dirty;	/* dirty rectangle, relative to widget */
 	TkGrid*	grid;		/* children are packed in a grid */
+	TkPlace*	place;		/* non-nil if this widget is positioned by `place' */
 
 	/* followed by widget-dependent data */
 };
@@ -639,6 +675,7 @@ extern	char*	tklower(TkTop*, char*, char**);
 extern	char*	tkmenu(TkTop*, char*, char**);
 extern	char*	tkmenubutton(TkTop*, char*, char**);
 extern	char*	tkpack(TkTop*, char*, char**);
+extern	char*	tkplace(TkTop*, char*, char**);
 extern	char*	tkpanel(TkTop*, char*, char**);
 extern	char*	tkputs(TkTop*, char*, char**);
 extern	char*	tkradiobutton(TkTop*, char*, char**);
@@ -734,6 +771,9 @@ extern	void		tkdelpack(Tk*);
 extern	void		tkappendpack(Tk*, Tk*, int);
 extern	void		tkpackqit(Tk*);
 extern	void		tkrunpack(TkTop*);
+extern	void		tkdelplace(Tk*);
+extern	int		tkplacer(Tk*);
+extern	int		tkhasmanagedslave(Tk*);
 extern	void		tksetslavereq(Tk*, TkGeom);
 extern	int		tkisslave(Tk*, Tk*);
 

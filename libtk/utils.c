@@ -42,6 +42,7 @@ static struct Cmd cmdmain[] =
 	"menubutton",	tkmenubutton,
 	"pack",		tkpack,
 	"panel",		tkpanel,
+	"place",	tkplace,
 	"puts",		tkputs,
 	"radiobutton",	tkradiobutton,
 	"raise",	tkraise,
@@ -641,6 +642,10 @@ tkfreeobj(Tk *tk)
 	}
 	if (tk == blinkw)
 		blinkw = nil;
+	if(tk->place != nil){
+		free(tk->place);
+		tk->place = nil;
+	}
 	tkextnfreeobj(tk);
 	tkmethod[tk->type]->free(tk);
 	tkputenv(tk->env);

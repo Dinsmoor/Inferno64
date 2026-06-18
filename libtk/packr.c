@@ -175,10 +175,14 @@ tkrunpack(TkTop *t)
 		tk = packorder->t;
 		if (tk->grid != nil)
 			done = tkgridder(tk);
+		else if (tk->slave == nil || tkhasmanagedslave(tk))
+			done = tkpacker(tk);	/* empty or has pack-managed slaves: classic path */
 		else
-			done = tkpacker(tk);
-		if (done)
+			done = 1;		/* only placed slaves: leave master size alone */
+		if (done) {
+			tkplacer(tk);		/* position any placed slaves (no-op if none) */
 			tkpackqrm(tk);
+		}
 	}
 	tkenterleave(t);
 	tkdirtyfocusorder(t);
@@ -539,6 +543,8 @@ tkexpandx(Tk* slave, int cavityWidth)
 	minExpand = cavityWidth;
 	numExpand = 0;
 	for( ;slave != nil; slave = slave->next) {
+		if(slave->place != nil)
+			continue;
 		childWidth = slave->req.width + slave->borderwidth*2 +
 				slave->pad.x + slave->ipad.x;
 		if(slave->flag & (Tktop|Tkbottom)) {
@@ -567,6 +573,8 @@ tkexpandy(Tk *slave, int cavityHeight)
 	minExpand = cavityHeight;
 	numExpand = 0;
 	for ( ;slave != nil; slave = slave->next) {
+		if(slave->place != nil)
+			continue;
 		childHeight = slave->req.height + slave->borderwidth*2 +
 			+ slave->pad.y + slave->ipad.y;
 		if(slave->flag & (Tkleft|Tkright)) {
@@ -602,6 +610,8 @@ tkpacker(Tk *master)
 	master->flag |= Tkrefresh;
 
 	for (slave = master->slave; slave != nil; slave = slave->next) {
+		if(slave->place != nil)
+			continue;		/* placed slaves do not affect pack size */
 		slave2BW = slave->borderwidth*2;
 		if(slave->flag & (Tktop|Tkbottom)) {
 	    		tmp = slave->req.width + slave2BW +
@@ -646,6 +656,8 @@ tkpacker(Tk *master)
 	cavity.height = master->act.height;
 
 	for(slave = master->slave; slave != nil; slave = slave->next) {
+		if(slave->place != nil)
+			continue;		/* placed slaves are positioned by tkplacer */
 		slave2BW = slave->borderwidth*2;
 		if(slave->flag & (Tktop|Tkbottom)) {
 	    		frame.width = cavity.width;

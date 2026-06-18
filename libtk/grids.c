@@ -526,8 +526,8 @@ tkgridconfigure(TkTop *t, TkGridparam *p, TkName *names)
 		return TkNomaster;
 
 	grid = p->in->grid;
-	if(grid == nil && p->in->slave != nil)
-		return TkNotgrid;
+	if(grid == nil && tkhasmanagedslave(p->in))
+		return TkNotgrid;	/* placed slaves don't count (they aren't pack/grid managed) */
 
 	if(grid == nil){
 		grid = malloc(sizeof(TkGrid));
