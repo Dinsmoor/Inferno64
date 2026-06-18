@@ -49,14 +49,68 @@ is executed by the shell whenever the item is selected.
 An item with an empty command is displayed as a separator.
 .HP
 .B delmenu
+.RI [ title1
+.RI [ title2 ]]
 .br
-Forget all menu items.
+With no arguments, forget all menu items.
+Given
+.I title1
+alone, remove the top-level item or entire sub-menu of that name;
+given
+.I title1
+and
+.I title2,
+remove just that one sub-menu item.
+.PP
+The start menu is data-driven: every entry created by these built-ins is held
+in an in-memory model, and the menu widget is rebuilt from it.
+The same model is exposed for editing at run time in two ways.
+.PP
+.I Toolbar
+serves the control file
+.B /chan/wmmenu.
+Writing a
+.B menu
+or
+.B delmenu
+line to it (the same syntax accepted in the script) adds or removes an entry
+immediately, so any program can register itself in the start menu when it
+starts and unregister when it exits; for example
+.EX
+	echo 'menu Games Tetris {wmrun wm/tetris}' >/chan/wmmenu
+	echo 'delmenu Games Tetris'                >/chan/wmmenu
+.EE
+Only the
+.B menu
+and
+.B delmenu
+verbs are honoured.
+Reading
+.B /chan/wmmenu
+returns the current menu as a script that recreates it.
+.PP
+The start menu also offers a
+.B "Customize menu..."
+item that opens a graphical editor for adding, removing and reordering
+entries.
+Changes take effect immediately; its
+.B Save
+button writes the menu as a script to
+.BI /usr/ username /lib/menu ,
+which
+.B /lib/wmsetup
+replays at the next login (it begins with a
+.B delmenu,
+so when present it fully defines the menu).
 .PP
 The standard
 .B /lib/wmsetup
 script executes the script
 .BI /usr/ username /lib/wmsetup ,
-enabling each user to have their own window manager configuration.
+enabling each user to have their own window manager configuration,
+and then
+.BI /usr/ username /lib/menu
+if it exists.
 .PP
 Normally
 .I toolbar
@@ -89,6 +143,12 @@ applications running under the current instance of
 .TP
 .B /lib/wmsetup
 Initialisation shell-script.
+.TP
+.BI /usr/ username /lib/menu
+Per-user start menu saved by the graphical editor; replayed at login.
+.TP
+.B /chan/wmmenu
+Control file for run-time menu registration.
 .SH SOURCE
 .B /appl/wm/toolbar.b
 .SH "SEE ALSO"

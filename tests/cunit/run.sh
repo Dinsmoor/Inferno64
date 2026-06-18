@@ -25,7 +25,8 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=${ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}
-OBJDIR=${OBJDIR:-Linux/aarch64}
+case "$(uname -m)" in aarch64|arm64) _HOSTOBJ=aarch64;; x86_64|amd64) _HOSTOBJ=amd64;; *) _HOSTOBJ=$(uname -m);; esac
+OBJDIR=${OBJDIR:-Linux/$_HOSTOBJ}
 SYSTARG=${OBJDIR%/*}
 OBJTYPE=${OBJDIR##*/}
 LIBDIR=$ROOT/$OBJDIR/lib

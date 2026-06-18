@@ -155,8 +155,10 @@
 #define FT_COMPONENT  trace_io
 
   /* We use the macro STREAM_FD for convenience to extract the       */
-  /* fd from a given FreeType stream object */
-#define STREAM_FD( stream )  ( (int)stream->descriptor.pointer )
+  /* fd from a given FreeType stream object.  descriptor.pointer holds an int */
+  /* fd (see FT_Stream_Open); the uintptr bridge keeps the round-trip width-  */
+  /* safe on ILP32 and LP64.                                                  */
+#define STREAM_FD( stream )  ( (int)(uintptr)stream->descriptor.pointer )
 #define CLOSED_FD	(void*)-1
 
 
@@ -244,7 +246,7 @@ FT_Stream_Open( FT_Stream stream, const char*  filepathname)
 	stream->size = dir->length;
 	free(dir);
 
-	stream->descriptor.pointer = (void*)file;
+	stream->descriptor.pointer = (void*)(uintptr)file;	/* int fd; recovered by STREAM_FD */
 	stream->pathname.pointer = (char*)filepathname;
 	stream->pos = 0;
 

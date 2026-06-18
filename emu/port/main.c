@@ -19,6 +19,7 @@ extern	int	mflag;
 	char	*eve;
 	int	Xsize	= 640;
 	int	Ysize	= 480;
+	int	scale	= 1;	/* HiDPI integer scale for the host window (-H) */
 	int	bflag = 1;
 	int	sflag;
 	int	qflag;
@@ -39,6 +40,7 @@ usage(void)
 		"\t-f<fontpath>\n"
 		"\t-r<rootpath>\n"
 		"\t-7\n"
+		"\t-H[scale]\n"
 		"\t-B\n"
 		"\t-C<channel string>\n"
 		"\t-S\n");
@@ -166,6 +168,15 @@ option(int argc, char *argv[], void (*badusage)(void))
 		break;
 	case '7':		/* use 7 bit colormap in X */
 		xtblbit = 1;
+		break;
+	case 'H':		/* HiDPI: integer-scale the host window (default 2x) */
+		scale = 2;
+		if(*_args >= '1' && *_args <= '9')
+			scale = strtoul(_args, &_args, 10);
+		if(scale < 1)
+			scale = 1;
+		if(scale > 8)
+			scale = 8;
 		break;
 	case 'G':		/* allow global access to file system (obsolete) */
 		break;

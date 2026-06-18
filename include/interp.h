@@ -426,6 +426,7 @@ extern	void		iqunlock(ILock*);
 extern	void		loadermodinit(void);
 extern	void		error(char*);
 extern	void		errorf(char*, ...);
+extern	void		panic(char*, ...);	/* host (emu/kernel) fatal abort; see verifyctype */
 extern	void		extend(void);
 extern	void		freedyncode(Module*);
 extern	void		freedyndata(Modlink*);

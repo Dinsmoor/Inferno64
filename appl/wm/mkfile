@@ -27,6 +27,7 @@ TARG=\
 	deb.dis\
 	debdata.dis\
 	debsrc.dis\
+	drawcheck.dis\
 	dir.dis\
 	edit.dis\
 	filename.dis\
@@ -48,6 +49,7 @@ TARG=\
 	raycube.dis\
 	raycube3.dis\
 	rayteapot.dis\
+	screensteal.dis\
 ##	qt.dis\
 	readmail.dis\
 	remotelogon.dis\

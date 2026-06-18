@@ -63,6 +63,26 @@ pagerbuilt := 0;
 wmcmd: chan of string;		# desktop/pager menu actions -> wm verbs
 runreq: chan of string;		# "Run..." menu item -> open the run dialog
 powerreq: chan of string;	# Power menu item -> open the halt/reboot dialog
+cfgreq: chan of string;		# "Customize menu..." item -> open the launcher editor
+cfgdone: chan of int;		# launcher editor -> "I have closed" (clears cfgopen)
+cfgopen := 0;			# is a launcher editor window already up? (singleton)
+
+# The launcher-menu model: the in-memory source of truth for the Apps start
+# menu (.m).  It is populated at boot by the `menu` builtin (run from
+# /lib/wmsetup), mutated at run time by writes to /chan/wmmenu and by the
+# graphical editor, and serialised back to a script for persistence.  Every
+# path -- boot script, control file, GUI -- funnels through addentry/delentry +
+# rebuildmenu under menulock, so there is exactly one way the menu is built.
+# Entries are kept in display order, head = top of the menu.
+Mentry: adt {
+	menu:		string;	# top-level title (also the cascade name)
+	label:		string;	# submenu item label; "" => top-level item or separator
+	command:	string;	# shell command as the `menu` builtin saw it; "" => separator
+};
+mentries: list of ref Mentry;
+menulock: chan of int;		# 1-slot mutex guarding mentries and .m rebuilds
+extrasadded := 0;		# have the launcher extras (Run/Power/...) been appended to .m?
+shctxt: ref Context;		# the toolbar's shell context (menu/delmenu builtins live here)
 
 badmodule(p: string)
 {
@@ -136,8 +156,19 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	tkclient->startinput(tbtop, "ptr" :: "control" :: nil);
 	layout(tbtop);
 
-	shctxt := Context.new(ctxt);
+	shctxt = Context.new(ctxt);
 	shctxt.addmodule("wm", myselfbuiltin);
+	menulock = chan[1] of int;	# created free (empty buffer)
+	cfgdone = chan of int;
+
+	# the launcher control file: any program can register/unregister a menu
+	# entry at run time by writing a `menu`/`delmenu` line, and `cat` it to see
+	# the current menu as a script.  Same verbs, same parsing as /lib/wmsetup.
+	menuIO := sys->file2chan("/chan", "wmmenu");
+	if(menuIO == nil)
+		fatal(sys->sprint("cannot make /chan/wmmenu: %r"));
+	menubuf := "";			# accumulates a partial control-file line
+	pendmenu: list of string;	# lines that arrived before setup finished
 
 	snarfIO: ref Sys->FileIO;
 	if(ownsnarf){
@@ -172,6 +203,13 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		spawn rundialog(ctxt, exec);
 	act := <-powerreq =>
 		spawn powerdialog(ctxt, act);
+	<-cfgreq =>
+		if(!cfgopen){		# one editor at a time
+			cfgopen = 1;
+			spawn runconfig(ctxt);
+		}
+	<-cfgdone =>
+		cfgopen = 0;
 	k := <-tbtop.ctxt.kbd =>
 		tk->keyboard(tbtop, k);
 	m := <-tbtop.ctxt.ptr =>
@@ -215,8 +253,44 @@ init(ctxt: ref Draw->Context, argv: list of string)
 		if (e > len snarf)
 			e = len snarf;
 		rc <-= (snarf[off:e], "");	# XXX alt
+	(nil, data, nil, wc) := <-menuIO.write =>
+		if(wc == nil)
+			break;
+		menubuf += string data;
+		wc <-= (len data, "");
+		for(;;){
+			nl := strchr(menubuf, '\n');
+			if(nl < 0)
+				break;
+			line := menubuf[0:nl];
+			menubuf = menubuf[nl+1:];
+			# a write before setup finished would race the boot script's
+			# own use of shctxt; queue it and replay once setup is done.
+			if(donesetup)
+				runmenuline(line);
+			else
+				pendmenu = line :: pendmenu;
+		}
+	(off, nbytes, nil, rc) := <-menuIO.read =>
+		if(rc == nil)
+			break;
+		d := array of byte menudump();
+		if(off >= len d){
+			rc <-= (nil, "");
+			break;
+		}
+		e := off + nbytes;
+		if(e > len d)
+			e = len d;
+		rc <-= (d[off:e], "");
 	donesetup = <-setupfinished =>
+		lockmenu();
+		extrasadded = 1;
 		addlaunchermenu();
+		unlockmenu();
+		for(pl := revstrlist(pendmenu); pl != nil; pl = tl pl)
+			runmenuline(hd pl);
+		pendmenu = nil;
 	}
 }
 
@@ -425,6 +499,7 @@ addlaunchermenu()
 	cmd(tbtop, ".m.pwr add command -command {send powerreq reboot} -label Restart");
 	cmd(tbtop, ".m.pwr add command -command {send powerreq halt} -label " + tk->quote("Shut down"));
 	cmd(tbtop, ".m add cascade -menu .m.pwr -label Power");
+	cmd(tbtop, ".m add command -command {send cfgreq show} -label " + tk->quote("Customize menu..."));
 }
 
 # A one-shot "Run a program" dialog.  Built on the Tkwidgets Combobox: type a
@@ -714,6 +789,10 @@ listdir(dir, base: string): array of string
 			break;
 		for(j := 0; j < n; j++){
 			nm := d[j].name;
+			# .sbl files are limbo symbol-table build artifacts: never
+			# something to run, so keep them out of the dropdown.
+			if(len nm >= 4 && nm[len nm-4:] == ".sbl")
+				continue;
 			if(len nm >= len base && nm[0:len base] == base){
 				if(d[j].mode & Sys->DMDIR)
 					nm += "/";
@@ -795,6 +874,366 @@ powerctl(action: string)
 		return;
 	}
 	sys->fprint(fd, "%s", action);
+}
+
+# --- the graphical launcher editor ---
+#
+# A live view of the launcher model.  Every operation mutates the shared model
+# under menulock and rebuilds .m at once, so the menu it edits is the menu you
+# see.  "Save" serialises the model to $home/lib/menu, which /lib/wmsetup
+# replays at the next login (it does a `delmenu` first, so it fully defines the
+# menu when present).  The launcher extras (Run/Power/Customize) are added in
+# code after the model is built, so they are neither shown here nor persisted.
+mcfg := array[] of {
+	"frame .top",
+	"frame .top.lf",
+	"scrollbar .top.lf.s -command {.top.lf.l yview}",
+	"listbox .top.lf.l -width 40w -height 12w -yscrollcommand {.top.lf.s set}",
+	"bind .top.lf.l <ButtonRelease-1> {send mc sel}",
+	"pack .top.lf.s -side left -fill y",
+	"pack .top.lf.l -side left -fill both -expand 1",
+	"frame .top.rf",
+	"button .top.rf.up -text {Move Up} -command {send mc up} -width 10w",
+	"button .top.rf.dn -text {Move Down} -command {send mc down} -width 10w",
+	"button .top.rf.rm -text {Remove} -command {send mc remove} -width 10w",
+	"pack .top.rf.up .top.rf.dn .top.rf.rm -side top -fill x -pady 1",
+	"pack .top.lf -side left -fill both -expand 1",
+	"pack .top.rf -side left -fill y -padx 4",
+	"frame .f0",
+	"label .f0.l -text {Menu:} -width 9w -anchor w",
+	"entry .f0.e -width 32",
+	"pack .f0.l -side left",
+	"pack .f0.e -side left -fill x -expand 1",
+	"frame .f1",
+	"label .f1.l -text {Submenu:} -width 9w -anchor w",
+	"entry .f1.e -width 32",
+	"pack .f1.l -side left",
+	"pack .f1.e -side left -fill x -expand 1",
+	"frame .f2",
+	"label .f2.l -text {Command:} -width 9w -anchor w",
+	"entry .f2.e -width 32",
+	"pack .f2.l -side left",
+	"pack .f2.e -side left -fill x -expand 1",
+	"frame .ab",
+	"button .ab.add -text {Add} -command {send mc add}",
+	"button .ab.upd -text {Update} -command {send mc update}",
+	"button .ab.sep -text {Add Separator} -command {send mc addsep}",
+	"pack .ab.add .ab.upd .ab.sep -side left -padx 2",
+	"label .status -text {} -anchor w",
+	"frame .bb",
+	"button .bb.save -text {Save} -command {send mc save}",
+	"button .bb.close -text {Close} -command {send mc close}",
+	"pack .bb.close -side right -padx 2",
+	"pack .bb.save -side left -padx 2",
+	"pack .top -fill both -expand 1 -padx 4 -pady 2",
+	"pack .f0 -fill x -padx 4",
+	"pack .f1 -fill x -padx 4",
+	"pack .f2 -fill x -padx 4 -pady 1",
+	"pack .ab -fill x -padx 4 -pady 2",
+	"pack .status -fill x -padx 4",
+	"pack .bb -fill x -padx 4 -pady 2",
+	"pack propagate . 0",
+	"update",
+};
+
+# Run the editor and report when it closes, so init can keep at most one open.
+runconfig(ctxt: ref Draw->Context)
+{
+	menuconfig(ctxt);
+	cfgdone <-= 1;
+}
+
+menuconfig(ctxt: ref Draw->Context)
+{
+	(top, titlectl) := tkclient->toplevel(ctxt, "", "Customize Menu", tkclient->Appl);
+	mc := chan of string;
+	tk->namechan(top, mc, "mc");
+	for(i := 0; i < len mcfg; i++)
+		cmd(top, mcfg[i]);
+	refreshlist(top);
+	r := tk->rect(top, ".", Tk->Border|Tk->Required);
+	cmd(top, ". configure -x " + string ((top.screenr.dx() - r.dx())/2 + top.screenr.min.x) +
+		" -y " + string ((top.screenr.dy() - r.dy())/3 + top.screenr.min.y));
+	tkclient->startinput(top, "ptr"::"kbd"::nil);
+	tkclient->onscreen(top, "onscreen");
+	cmd(top, "update");
+	for(;;) alt {
+	c := <-titlectl or
+	c = <-top.wreq or
+	c = <-top.ctxt.ctl =>
+		if(c == "exit")
+			return;
+		tkclient->wmctl(top, c);
+	k := <-top.ctxt.kbd =>
+		tk->keyboard(top, k);
+	p := <-top.ctxt.ptr =>
+		tk->pointer(top, *p);
+	m := <-mc =>
+		if(m == "close")
+			return;
+		domenucmd(top, m);
+	}
+}
+
+domenucmd(top: ref Tk->Toplevel, m: string)
+{
+	case m {
+	"sel" =>
+		i := selindex(top);
+		if(i < 0)
+			return;
+		lockmenu();
+		e := nthentry(i);
+		unlockmenu();
+		if(e != nil){
+			setentry(top, ".f0.e", e.menu);
+			setentry(top, ".f1.e", e.label);
+			setentry(top, ".f2.e", unbrace(e.command));
+		}
+	"add" or
+	"addsep" =>
+		pri := strip(cmd(top, ".f0.e get"));
+		lab := strip(cmd(top, ".f1.e get"));
+		command := "";
+		if(m == "add"){
+			command = bracecmd(cmd(top, ".f2.e get"));
+			if(command == ""){
+				setstatus(top, "Command is empty (use Add Separator for a divider)");
+				return;
+			}
+		}
+		e := ref Mentry(pri, lab, command);
+		lockmenu();
+		a := modelarray();
+		a = insertat(a, e, selindex(top) + 1);	# after the selection, else at end
+		modelset(a);
+		canonicalize();
+		rebuildmenu();
+		unlockmenu();
+		refreshlist(top);
+	"update" =>
+		i := selindex(top);
+		if(i < 0){
+			setstatus(top, "Select an entry to update");
+			return;
+		}
+		pri := strip(cmd(top, ".f0.e get"));
+		lab := strip(cmd(top, ".f1.e get"));
+		command := bracecmd(cmd(top, ".f2.e get"));
+		lockmenu();
+		a := modelarray();
+		if(i < len a)
+			a[i] = ref Mentry(pri, lab, command);
+		modelset(a);
+		canonicalize();
+		rebuildmenu();
+		unlockmenu();
+		refreshlist(top);
+		selectrow(top, i);
+	"remove" =>
+		i := selindex(top);
+		if(i < 0)
+			return;
+		lockmenu();
+		a := modelarray();
+		if(i < len a)
+			a = removeat(a, i);
+		modelset(a);
+		canonicalize();
+		rebuildmenu();
+		unlockmenu();
+		refreshlist(top);
+	"up" or
+	"down" =>
+		i := selindex(top);
+		if(i < 0)
+			return;
+		j := i - 1;
+		if(m == "down")
+			j = i + 1;
+		lockmenu();
+		a := modelarray();
+		if(j >= 0 && j < len a){
+			t := a[i]; a[i] = a[j]; a[j] = t;
+			modelset(a);
+			canonicalize();
+			rebuildmenu();
+		}
+		unlockmenu();
+		if(j >= 0 && j < len a){
+			refreshlist(top);
+			selectrow(top, j);
+		}
+	"save" =>
+		lockmenu();
+		canonicalize();
+		rebuildmenu();
+		txt := menudump();
+		unlockmenu();
+		refreshlist(top);
+		err := writemenufile(txt);
+		if(err != nil)
+			setstatus(top, err);
+		else
+			setstatus(top, "Saved to " + menufilepath());
+	}
+}
+
+# the listbox row is index-for-index with the model, so a row number is a model
+# index directly.
+selindex(top: ref Tk->Toplevel): int
+{
+	s := cmd(top, ".top.lf.l curselection");
+	if(s == "" || s[0] == '!')
+		return -1;
+	return int s;
+}
+
+selectrow(top: ref Tk->Toplevel, i: int)
+{
+	cmd(top, ".top.lf.l selection clear 0 end");
+	cmd(top, ".top.lf.l selection set " + string i);
+	cmd(top, ".top.lf.l see " + string i);
+	cmd(top, "update");
+}
+
+setentry(top: ref Tk->Toplevel, w, s: string)
+{
+	cmd(top, w + " delete 0 end");
+	if(s != "")
+		cmd(top, w + " insert 0 " + tk->quote(s));
+}
+
+setstatus(top: ref Tk->Toplevel, s: string)
+{
+	cmd(top, ".status configure -text " + tk->quote(s) + "; update");
+}
+
+refreshlist(top: ref Tk->Toplevel)
+{
+	cmd(top, ".top.lf.l delete 0 end");
+	lockmenu();
+	for(l := mentries; l != nil; l = tl l)
+		cmd(top, ".top.lf.l insert end " + tk->quote(rowtext(hd l)));
+	unlockmenu();
+	cmd(top, "update");
+}
+
+rowtext(e: ref Mentry): string
+{
+	if(e.command == ""){
+		if(e.label == "")
+			return "--------";
+		return "    --------";
+	}
+	if(e.label == "")
+		return e.menu;
+	return "    " + e.menu + " > " + e.label;
+}
+
+nthentry(i: int): ref Mentry
+{
+	for(l := mentries; l != nil && i > 0; l = tl l)
+		i--;
+	if(l == nil)
+		return nil;
+	return hd l;
+}
+
+modelarray(): array of ref Mentry
+{
+	a := array[len mentries] of ref Mentry;
+	i := 0;
+	for(l := mentries; l != nil; l = tl l)
+		a[i++] = hd l;
+	return a;
+}
+
+modelset(a: array of ref Mentry)
+{
+	l: list of ref Mentry;
+	for(i := len a - 1; i >= 0; i--)
+		l = a[i] :: l;
+	mentries = l;
+}
+
+insertat(a: array of ref Mentry, e: ref Mentry, p: int): array of ref Mentry
+{
+	if(p < 0)
+		p = 0;
+	if(p > len a)
+		p = len a;
+	na := array[len a + 1] of ref Mentry;
+	na[0:] = a[0:p];
+	na[p] = e;
+	na[p+1:] = a[p:];
+	return na;
+}
+
+removeat(a: array of ref Mentry, p: int): array of ref Mentry
+{
+	na := array[len a - 1] of ref Mentry;
+	na[0:] = a[0:p];
+	na[p:] = a[p+1:];
+	return na;
+}
+
+bracecmd(s: string): string
+{
+	s = strip(s);
+	if(s == "")
+		return "";
+	if(s[0] == '{')
+		return s;
+	return "{" + s + "}";
+}
+
+unbrace(s: string): string
+{
+	if(len s >= 2 && s[0] == '{' && s[len s - 1] == '}')
+		return s[1:len s - 1];
+	return s;
+}
+
+menufilepath(): string
+{
+	home := gethome();
+	if(home == nil)
+		return nil;
+	return home + "/lib/menu";
+}
+
+gethome(): string
+{
+	h := getenvval("home");
+	if(h != nil)
+		return h;
+	u := getuser();
+	if(u != nil)
+		return "/usr/" + u;
+	return nil;
+}
+
+getuser(): string
+{
+	u := readfilesmall("/dev/user");
+	while(u != nil && (u[len u-1] == '\n' || u[len u-1] == ' ' || u[len u-1] == '\0'))
+		u = u[0:len u-1];
+	return u;
+}
+
+writemenufile(txt: string): string
+{
+	path := menufilepath();
+	if(path == nil)
+		return "cannot determine home directory";
+	fd := sys->create(path, Sys->OWRITE, 8r644);
+	if(fd == nil)
+		return sys->sprint("cannot create %s: %r", path);
+	b := array of byte txt;
+	if(sys->write(fd, b, len b) != len b)
+		return sys->sprint("cannot write %s: %r", path);
+	return nil;
 }
 
 # turn a desktop/pager menu action into a wm control request.
@@ -895,6 +1334,8 @@ toolbar(ctxt: ref Draw->Context, startmenu: int,
 	tk->namechan(tbtop, runreq, "runreq");
 	powerreq = chan of string;
 	tk->namechan(tbtop, powerreq, "powerreq");
+	cfgreq = chan of string;
+	tk->namechan(tbtop, cfgreq, "cfgreq");
 	cmd(tbtop, "frame .toolbar");
 	if (startmenu) {
 		cmd(tbtop, "menubutton .toolbar.start -menu .m -borderwidth 0 -bitmap vitasmall.bit");
@@ -1005,47 +1446,254 @@ builtin_menu(nil: ref Context, nil: Sh, argv: list of ref Listnode): string
 	}
 	primary := (hd tl argv).word;
 	argv = tl tl argv;
-
-	if (n == 3) {
-		w := word(hd argv);
-		if (len w == 0)
-			cmd(tbtop, ".m insert 0 separator");
-		else
-			cmd(tbtop, ".m insert 0 command -label " + tk->quote(primary) +
-				" -command {send exec " + w + "}");
-	} else {
-		secondary := (hd argv).word;
+	secondary := "";
+	if (n == 4) {
+		secondary = (hd argv).word;
 		argv = tl argv;
-
-		mpath := menupath(primary);
-		e := tk->cmd(tbtop, mpath+" cget -width");
-		if(e[0] == '!') {
-			cmd(tbtop, "menu "+mpath);
-			cmd(tbtop, ".m insert 0 cascade -label "+tk->quote(primary)+" -menu "+mpath);
-		}
-		w := word(hd argv);
-		if (len w == 0)
-			cmd(tbtop, mpath + " insert 0 separator");
-		else
-			cmd(tbtop, mpath+" insert 0 command -label "+tk->quote(secondary)+
-				" -command {send exec "+w+"}");
 	}
+	command := word(hd argv);
+	lockmenu();
+	addentry(primary, secondary, command);
+	rebuildmenu();
+	unlockmenu();
 	return nil;
 }
 
-builtin_delmenu(nil: ref Context, nil: Sh, nil: list of ref Listnode): string
+# delmenu                   -> forget every menu item
+# delmenu primary           -> drop a top-level item or an entire cascade
+# delmenu primary secondary -> drop a single submenu item
+builtin_delmenu(nil: ref Context, nil: Sh, argv: list of ref Listnode): string
+{
+	args := tl argv;	# skip the "delmenu" word
+	lockmenu();
+	if (args == nil)
+		mentries = nil;
+	else {
+		primary := (hd args).word;
+		secondary := "";
+		if (tl args != nil)
+			secondary = (hd tl args).word;
+		delentry(primary, secondary);
+	}
+	rebuildmenu();
+	unlockmenu();
+	return nil;
+}
+
+# --- the launcher-menu model ---
+
+lockmenu()	{ menulock <-= 0; }
+unlockmenu()	{ <-menulock; }
+
+cascadeexists(menu: string): int
+{
+	for (l := mentries; l != nil; l = tl l)
+		if ((hd l).label != "" && (hd l).menu == menu)
+			return 1;
+	return 0;
+}
+
+# Insert an entry exactly as the legacy `menu` builtin did: a top-level item
+# goes to the very top of the menu; a submenu item goes to the top of its
+# cascade, creating the cascade at the top of the menu if it does not exist yet.
+# Caller holds menulock.
+addentry(menu, label, command: string)
+{
+	e := ref Mentry(menu, label, command);
+	if (label == "" || !cascadeexists(menu)) {
+		mentries = e :: mentries;
+		return;
+	}
+	res: list of ref Mentry;
+	inserted := 0;
+	for (l := mentries; l != nil; l = tl l) {
+		h := hd l;
+		if (!inserted && h.label != "" && h.menu == menu) {
+			res = e :: res;
+			inserted = 1;
+		}
+		res = h :: res;
+	}
+	mentries = revmentries(res);
+}
+
+# delentry(menu, "")    drops the whole top-level slot named `menu`;
+# delentry(menu, label) drops one submenu item.  Caller holds menulock.
+delentry(menu, label: string)
+{
+	res: list of ref Mentry;
+	for (l := mentries; l != nil; l = tl l) {
+		h := hd l;
+		drop := 0;
+		if (label == "")
+			drop = h.menu == menu;
+		else
+			drop = h.label != "" && h.menu == menu && h.label == label;
+		if (!drop)
+			res = h :: res;
+	}
+	mentries = revmentries(res);
+}
+
+revmentries(l: list of ref Mentry): list of ref Mentry
+{
+	r: list of ref Mentry;
+	for (; l != nil; l = tl l)
+		r = hd l :: r;
+	return r;
+}
+
+# Gather each cascade's items at the cascade's first appearance, leaving
+# top-level items where they sit.  Keeps the model contiguous per cascade so a
+# free reorder in the editor can't scatter a submenu, and so the serialised
+# script round-trips.  Caller holds menulock.
+canonicalize()
+{
+	res: list of ref Mentry;	# built reversed
+	placed: list of string;
+	for (l := mentries; l != nil; l = tl l) {
+		e := hd l;
+		if (e.label == "") {
+			res = e :: res;
+			continue;
+		}
+		if (inlist(e.menu, placed))
+			continue;
+		placed = e.menu :: placed;
+		for (m := mentries; m != nil; m = tl m) {
+			f := hd m;
+			if (f.label != "" && f.menu == e.menu)
+				res = f :: res;
+		}
+	}
+	mentries = revmentries(res);
+}
+
+# Tear down the Apps menu and rebuild it from the model.  A full rebuild (rather
+# than incremental Tk insert/delete) is simpler and immune to index drift; the
+# menu is small and this only runs on edits, not in any hot path.  Caller holds
+# menulock.
+rebuildmenu()
 {
 	delmenu(".m");
 	cmd(tbtop, "menu .m");
-	return nil;
+	built: list of string;
+	for (l := mentries; l != nil; l = tl l) {
+		e := hd l;
+		if (e.label == "") {
+			if (e.command == "")
+				cmd(tbtop, ".m add separator");
+			else
+				cmd(tbtop, ".m add command -label " + tk->quote(e.menu) +
+					" -command {send exec " + e.command + "}");
+		} else {
+			mpath := menupath(e.menu);
+			if (!inlist(e.menu, built)) {
+				cmd(tbtop, "menu " + mpath);
+				cmd(tbtop, ".m add cascade -label " + tk->quote(e.menu) +
+					" -menu " + mpath);
+				built = e.menu :: built;
+			}
+			if (e.command == "")
+				cmd(tbtop, mpath + " add separator");
+			else
+				cmd(tbtop, mpath + " add command -label " + tk->quote(e.label) +
+					" -command {send exec " + e.command + "}");
+		}
+	}
+	if (extrasadded)
+		addlaunchermenu();
+	cmd(tbtop, "update");
 }
 
+# Serialise the model as a script that recreates it: a leading `delmenu` to
+# clear whatever defaults preceded it, then one `menu` line per entry.  Because
+# the `menu` builtin inserts at the top, lines are emitted in reverse display
+# order so replaying them reproduces the on-screen order.  This is what the
+# editor writes to $home/lib/menu and what `cat /chan/wmmenu` returns.
+menudump(): string
+{
+	s := "delmenu\n";
+	for (l := revmentries(mentries); l != nil; l = tl l) {
+		e := hd l;
+		c := e.command;
+		if (c == "")
+			c = "''";		# an empty word: a separator
+		if (e.label == "")
+			s += "menu " + shquote(e.menu) + " " + c + "\n";
+		else
+			s += "menu " + shquote(e.menu) + " " + shquote(e.label) + " " + c + "\n";
+	}
+	return s;
+}
+
+# Only the `menu`/`delmenu` verbs are honoured from the control file, and the
+# whole line is handed to the toolbar's shell wrapped in a block so its
+# arguments (quoting, the {..} command) parse exactly as they do in
+# /lib/wmsetup.  Rejecting other verbs keeps /chan/wmmenu from being a way to
+# run arbitrary shell.
+runmenuline(line: string)
+{
+	(n, toks) := sys->tokenize(line, " \t");
+	if (n == 0)
+		return;
+	case hd toks {
+	"menu" or
+	"delmenu" =>
+		{
+			shctxt.run(ref Listnode(nil, "{" + line + "}") :: nil, 0);
+		} exception {
+		"fail:*" =>	;
+		}
+	}
+}
+
+revstrlist(l: list of string): list of string
+{
+	r: list of string;
+	for (; l != nil; l = tl l)
+		r = hd l :: r;
+	return r;
+}
+
+# Shell single-quote a word for the persisted script: wrap and double interior
+# quotes only when the word holds characters the shell would otherwise act on.
+shquote(s: string): string
+{
+	if (s == "")
+		return "''";
+	q := 0;
+	for (i := 0; i < len s; i++) {
+		c := s[i];
+		if (c==' '||c=='\t'||c=='\n'||c=='\''||c=='"'||c=='{'||c=='}'||
+		   c=='('||c==')'||c=='$'||c=='`'||c==';'||c=='&'||c=='|'||
+		   c=='^'||c=='#'||c=='='||c=='<'||c=='>') {
+			q = 1;
+			break;
+		}
+	}
+	if (!q)
+		return s;
+	r := "'";
+	for (i = 0; i < len s; i++) {
+		if (s[i] == '\'')
+			r += "''";
+		else
+			r[len r] = s[i];
+	}
+	return r + "'";
+}
+
+# Tear down a menu and its cascades.  Probes with raw tk->cmd rather than the
+# error-printing cmd() wrapper: rebuildmenu calls this on a freshly created,
+# still-empty .m, where `type 0` legitimately reports a bad index — not an error
+# worth logging.
 delmenu(m: string)
 {
-	for (i := int cmd(tbtop, m + " index end"); i >= 0; i--)
-		if (cmd(tbtop, m + " type " + string i) == "cascade")
-			delmenu(cmd(tbtop, m + " entrycget " + string i + " -menu"));
-	cmd(tbtop, "destroy " + m);
+	for (i := int tk->cmd(tbtop, m + " index end"); i >= 0; i--)
+		if (tk->cmd(tbtop, m + " type " + string i) == "cascade")
+			delmenu(tk->cmd(tbtop, m + " entrycget " + string i + " -menu"));
+	tk->cmd(tbtop, "destroy " + m);
 }
 
 getself(): Shellbuiltin

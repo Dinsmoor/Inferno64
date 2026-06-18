@@ -52,7 +52,9 @@ struct Btail
 
 #define B2LIMIT(b)	((Bhdr*)((uchar*)b + b->csize))
 
-#define BHDRSIZE	((int)(((Bhdr*)0)->u.data)+sizeof(Btail))
+/* offsetof(Bhdr,u.data) via a base-0 pointer: a small compile-time constant.
+ * The uintptr bridge keeps the pointer->int narrowing deliberate (ILP32/LP64). */
+#define BHDRSIZE	((int)(uintptr)(((Bhdr*)0)->u.data)+sizeof(Btail))
 
 extern	void	(*poolfault)(void *, char *, ulong);
 extern	void	poolinit(void);

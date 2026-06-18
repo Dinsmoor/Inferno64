@@ -413,7 +413,7 @@ tkgencget(TkOptab *ft, char *arg, char **val, TkTop *t)
 	case OPTfrac:
 	case OPTnnfrac:
 		v = &OPTION(ft->ptr, int, o->offset);
-		n = (int)o->aux;
+		n = AUXI(o->aux);
 		if(n == 0)
 			n = 1;
 		fmt = "%s";
@@ -1007,7 +1007,7 @@ pfrac(TkTop *t, TkOption *o, void *place, char **str, char *buf, char *ebuf)
 	*str = tkword(t, *str, buf, ebuf, nil);
 
 	v = &OPTION(place, int, o->offset);
-	n = (int)o->aux;
+	n = AUXI(o->aux);
 	if(n == 0)
 		n = 1;
 	p = buf;

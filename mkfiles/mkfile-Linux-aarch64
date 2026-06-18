@@ -38,6 +38,7 @@ ASFLAGS=
 CC=		gcc -c -march=armv8-a
 CFLAGS=		-g $OLEVEL\
 		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
+		-Werror=implicit-function-declaration -Werror=implicit-int\
 		-I$ROOT/Linux/aarch64/include\
 		-I$ROOT/include\
 		-DLINUX_AARCH64\

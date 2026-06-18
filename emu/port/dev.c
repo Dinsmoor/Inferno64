@@ -1,3 +1,4 @@
+#include	<time.h>	/* time(2) for db->atime; modern gcc errors on implicit decl */
 #include	"dat.h"
 #include	"fns.h"
 #include	"error.h"
