@@ -661,7 +661,7 @@ tkbuttoninvoke(Tk *tk, char *arg, char **val)
 		return nil;
 	e = buttoninvoke(tk, val);
 	if (e == nil && tk->type == TKbutton && !(tk->flag & Tkactivated)) {
-		tkrepeat(tk, cancelinvoke, (void*)(tk->flag&Tkactive), InvokePause, 0);
+		tkrepeat(tk, cancelinvoke, IAUX(tk->flag&Tkactive), InvokePause, 0);
 		tk->flag |= Tkactivated | Tkactive;
 		tksettransparent(tk, istransparent(tk));
 		tk->dirty = tkrect(tk, 1);

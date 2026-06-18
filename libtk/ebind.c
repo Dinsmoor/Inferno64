@@ -261,7 +261,7 @@ tkcmdbind(Tk *tk, int event, char *s, void *data)
 			else if((event & (TkEmouse|TkEnter)))
 				c += snprint(c, len, "%d", m->b);
 			else if((event & TkFocusin))
-				c += snprint(c, len, "%d", (int)data);
+				c += snprint(c, len, "%d", AUXI(data));
 			else
 				goto def;
 			break;
@@ -565,7 +565,7 @@ tksetkeyfocus(TkTop *top, Tk *new, int dir)
 		focusdirty(old);
 	}
 	if(new != nil && new != top->root){
-		tkdeliver(new, TkFocusin, (void*)dir);
+		tkdeliver(new, TkFocusin, IAUX(dir));
 		focusdirty(new);
 	}
 }

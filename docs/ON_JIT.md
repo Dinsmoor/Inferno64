@@ -693,8 +693,17 @@ fixed-point `IMULX*`/`ICVTXX*`/`ICVTFX`/`ICVTXF` family, `IEXP*`, and `IADDC`.
   32 bits in the module's WORD jump tables, so `jitcode()` maps the arena below
   2GB: `MAP_32BIT` on a native amd64 host, with a `MAP_FIXED_NOREPLACE` low-hint
   fallback for hosts (notably **qemu-user**) that silently ignore `MAP_32BIT` and
-  return a high address. `jitlo`/`jithi` bound the single native-PC dispatch
-  range in `xec()`.
+  return a high address (total failure → `jitcode()` returns nil → that and later
+  modules run interpreted, no crash). `jitlo`/`jithi` bound the single native-PC
+  dispatch range in `xec()`. The stored address is read back **sign**-extended
+  (`(Inst*)d`, `d` a signed `WORD`), so the resulting `-Wpointer-to-int-cast` /
+  `-Wint-to-pointer-cast` warnings in `xec.c` (ICASE/ICASEL) and
+  `emu/port/{devprog,devprof}.c` (frame PC) are deliberate. Do **not** silence
+  them by bridging through unsigned `uintptr` (as the benign int-cookie casts in
+  libtk/pool/freetype were) — that zero-extends and breaks the
+  low-2GB contract; a *signed* pointer-width cast is the only safe annotation.
+  These are intentionally the only such warnings left, so a new one flags a real
+  pointer truncation.
 - `das-amd64.c` is a real (subset) x86-64 disassembler — `emu -c5` lists every
   native instruction the back-end emits, address + raw bytes + Intel-syntax
   mnemonic. It decodes exactly the forms `comp-amd64.c` produces; the property

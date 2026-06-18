@@ -1954,7 +1954,7 @@ tkhaskeyfocus(Tk *tk)
 static int
 rptactive(void *v)
 {
-	int id = (int)v;
+	int id = AUXI(v);
 	if (id == rptid)
 		return 1;
 	return 0;
@@ -1963,7 +1963,7 @@ rptactive(void *v)
 static int
 ckrpt(void *v, int interval)
 {
-	int id = (int)v;
+	int id = AUXI(v);
 	if (id != rptid)
 		return -1;
 	if (interval < rptto)
@@ -1974,7 +1974,7 @@ ckrpt(void *v, int interval)
 static void
 dorpt(void *v)
 {
-	int id = (int)v;
+	int id = AUXI(v);
 
 	if (id == rptid) {
 		rptto = rptint;
@@ -2010,9 +2010,9 @@ tkrepeat(Tk *tk, void (*callback)(Tk*, void*, int), void *note, int pause, int i
 	rptto = pause;
 	rptint = interval;
 	if (!autorpt)
-		autorpt = rptproc("autorepeat", TkRptclick, (void*)rptid, rptactive, ckrpt, dorpt);
+		autorpt = rptproc("autorepeat", TkRptclick, IAUX(rptid), rptactive, ckrpt, dorpt);
 	else
-		rptwakeup((void*)rptid, autorpt);
+		rptwakeup(IAUX(rptid), autorpt);
 }
 
 static int

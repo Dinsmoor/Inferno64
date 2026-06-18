@@ -135,8 +135,13 @@ enum
 #define TKI2F(i)	((i)*Tkfpscalar)
 extern	int TKF2I(int);
 /*#define TKF2I(f)	(((f) + Tkfpscalar/2)/Tkfpscalar)*/
-#define IAUX(i)		((void*)i)
-#define AUXI(i)		((int)i)
+/* Stash a small int (a handle/id, never a real pointer) in a void* slot and
+ * recover it, width-safe on ILP32 and LP64.  The uintptr bridge makes the
+ * pointer<->int conversion deliberate, so it neither warns nor truncates a
+ * value that genuinely fits in an int.  Contract: the slot only ever holds
+ * such an int -- never a host pointer (which AUXI WOULD truncate). */
+#define IAUX(i)		((void*)(uintptr)(i))
+#define AUXI(i)		((int)(uintptr)(i))
 #define TKKEY(i)	((i)&0xFFFF)
 
 typedef struct Tk Tk;
