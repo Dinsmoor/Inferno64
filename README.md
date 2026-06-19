@@ -7,7 +7,16 @@ that Inferno itself, its emu and the Dis VM can run anywhere, Limbo and userspac
 should run the same, no matter where you run them (with the exception of
 userspace programs that need more addressing space than 32 bits can provide.)
 
-Also in this release is some kick-ass userspace improvements.
+Also in this release is some kick-ass userspace improvements:
+- wm theming & updated Tk implementation (ttk, styling, actual cursors)
+- Raylib vendored for 3D (spinning teapots! (sotware renderer only for now))
+- mbedTLS for modern crypto
+- Charon browser has a (real!) crappy CSS and js engine and a DOM
+- Better shell experience
+- Fediverse client (wm/pleromussy)
+- Bible reader (wm/bible)
+- Workspaces (multiple desktops)
+- More tbd
 
 Something to be noted, another project (also named Inferno64) is inferior as it
 uses an ILP64 ABI model instead of an LP64 one, which means the size of an int
