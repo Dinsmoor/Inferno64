@@ -792,6 +792,24 @@ controller (e.g. a GICv3 redistributor per core); **audit every lock** for the
 SMP memory-ordering assumptions a uniprocessor build lets slide; and teach the
 scheduler to balance the runqueue across cores.
 
+**Will it ever be done? Almost certainly not — and that's the right call.** SMP is
+*possible* (the seams above are real), but it is unlikely to ever be implemented
+for the native hardware kernel, for a reason that is architectural rather than
+about effort: **the native kernel is not the centre of gravity of this fork, and
+was never the centre of gravity of Inferno.** Per Inferno's own design papers, the
+native kernel was meant for *many cheap, often single-core, MMU-less client
+terminals* — with the heavy computation done elsewhere, on the *hosted* side
+running as a user process under a real OS (Linux/BSD/Windows), where you already
+get that host's SMP, drivers, and scheduler for free (see the README's "What is
+Inferno Originally Useful/Designed For?" and [`bltj.ms`](ref/sources/bltj.ms)). So
+if you want parallel throughput, you run **hosted emu on an SMP host OS** — that is
+the designed answer, and it works today. Pouring the (substantial, lock-auditing,
+per-arch) effort into native SMP would be optimising the one deployment mode that
+was always intended to be the lightweight client, to chase parallelism the hosted
+mode already provides. The native kernel earns its keep as "boots on real/small
+hardware and serves its resources over the network," not as a parallel compute
+host — so it stays uniprocessor by choice, not just by current state.
+
 ---
 
 ## Synchronization Primitives

@@ -15,14 +15,73 @@ because in the hosted cross-development model you just compile the C builtin in.
 It has **no 64-bit backend** and is **not** a path to loading Linux kernel
 drivers.
 
+**What it's actually *for* (the one durable use case):** loading **trusted native
+modules — chiefly hardware device drivers — at runtime on the native `os/` kernel
+on real hardware.** That is the one scenario where every property DLM provides is
+the right property: a driver *must* be trusted native code (it touches hardware
+and the kernel API; sandboxing it would defeat its purpose), and loading it at
+runtime — rather than baking every driver into one monolithic kernel image — is
+the Plan 9 "bind a device when you need it" model. Outside that case DLM is hard
+to justify: on hosted emu you just recompile (below), and it is emphatically **not**
+a sandbox — a DLM'd module runs at the *same trust level* as a builtin compiled
+into the kernel/emu, so it is the wrong tool for running **untrusted** third-party
+C. Keep that split clear: DLM = *trusted, privileged, native, hot-loaded* (drivers);
+running *untrusted* C safely is a different mechanism entirely (see the note below).
+
+**If what you actually want is to run *untrusted* third-party C with crash
+isolation: there is no such mechanism in Inferno, and adding one is deliberately
+rejected.** This question recurs (it's the natural follow-on to "I vendored
+FFmpeg and a bad clip can panic emu"), so the reasoning is recorded here once.
+
+The honest menu, and why every option fails Inferno's own constraints:
+
+- **Out-of-process over Styx** ([ON_C_AT_RUNTIME.md](ON_C_AT_RUNTIME.md)) is the
+  established idiom **on hosted emu** — but only because "separate process" there
+  means a separate *host OS* process, and Linux/BSD/Windows donates the
+  address-space boundary. That isolation **does not survive the port to the native
+  `os/` kernel**: native Inferno runs everything in one identity-mapped privileged
+  address space (no EL0/user mode — see the [uniprocessor / single-space kernel
+  notes](ON_KERNEL.md#native-kernel-os-notes)), so a *native-C* Styx server has no
+  wall around it on bare metal. Hosted-only isolation isn't a portable answer.
+- **A bytecode sandbox (WASM-interp, a C-interpreter, eBPF)** runs the untrusted C
+  under a software interpreter. It's portable and MMU-independent — but it lands at
+  *interpreter speed*, i.e. Limbo's speed or worse, while costing a whole second
+  runtime stacked on Dis. If you'll accept interpreter speed you should just write
+  Limbo; the sandboxed-C machinery buys nothing.
+- **Hardware MMU isolation (re-add EL0 + per-process page tables)** would give
+  native speed *and* a wall — but it requires *removing the founding axiom of
+  Inferno*. The design papers brag that Inferno "does not require memory-mapping
+  hardware" and that "Limbo programs run safely on a machine without
+  memory-protection hardware" ([bltj.ms](ref/sources/bltj.ms)); software isolation
+  *instead of* an MMU is the feature that let Inferno target cheap, MMU-less
+  appliance hardware in the first place. Bolting a hardware kernel/user barrier
+  onto each arch would also deprecate the weakest targets and turn the system into
+  "Plan 9 with a Dis userspace." That's not extending Inferno; it's un-Inferno-ing
+  it.
+- **SFI (compile C to native with bounds-masking instructions)** is the only
+  "native speed + software wall + no MMU" point — but it needs a trusted per-arch
+  codegen backend, the very wall that strands DLM itself (this tree has no native
+  Inferno C compiler for amd64 or aarch64). The only realistic form is a host-side
+  wasm2c-style toolchain, which re-introduces a heavy build-time dependency.
+
+The conclusion the project has settled on: **trust is a build-time, per-library
+decision, and that is the correct expression of Inferno's design, not a
+compromise.** A vendored library is *either* compiled into emu/kernel as trusted
+native code (you accept the trust and mitigate defensively — see
+[ON_C_IN_INFERNO.md](ON_C_IN_INFERNO.md) "What out-of-memory actually does"), *or*
+its work is done remotely over the network on a host you do trust (the original
+client/server split — cheap native client, heavy hosted server). There is no free
+lunch that is simultaneously native-C-fast, memory-safe, MMU-free, and portable to
+the native kernel, because Inferno's founders already chose: safety-via-Dis-VM over
+fast-untrusted-native-C. `$Ffmpeg`-as-a-builtin is the deliberate trusted-fast end
+of that fork, exactly as a kernel driver is. (Background: the primary-source design
+intent is summarised in the repo README, "What is Inferno Originally Useful/Designed
+For?", drawn from [bltj.ms](ref/sources/bltj.ms).)
+
 See also: [ON_DIS.md](ON_DIS.md) (why C kernels exist at all),
 [ON_EMU.md](ON_EMU.md) (hosted emu = a userspace process),
 [ON_C_IN_DIS.md](ON_C_IN_DIS.md) (the LP64 story that the 32-bit format
 collides with), [ON_AARCH64_PORT.md](ON_AARCH64_PORT.md).
-**If what you actually want is to use a third-party C library at runtime with
-crash isolation, you do not want DLM at all** — see
-[ON_C_AT_RUNTIME.md](ON_C_AT_RUNTIME.md) (out-of-process native service over
-Styx), which is the established Inferno idiom for that.
 
 ---
 
