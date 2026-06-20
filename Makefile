@@ -102,8 +102,19 @@ export ROOT
 # headless/router profile drops the graphics/media/TLS ones -- so the actually
 # built + content-cached subset is derived from the chosen CONF below (see the
 # EMUDIRS block).  CACHED_LIBS therefore can't list a lib the CONF doesn't build.
-VENDORED_ALL := libfreetype libmbedtls libstb libwebp
+VENDORED_ALL := libfreetype libmbedtls libstb libwebp libffmpeg
 LIBCACHE     := $(ROOT)/mkfiles/libcache.sh
+
+# libffmpeg is vendored as a TARBALL that its mkfile unpacks + configures +
+# builds at C-build time (libffmpeg/buildffmpeg.sh), so its dir holds a 100 MB+
+# unpacked tree and thousands of objects after one build -- which the content-
+# signature cache (libcache.sh, a recursive find + sha256 of every source file)
+# must not descend.  Instead libffmpeg self-guards: buildffmpeg.sh recompiles
+# only when the tarball is newer than the built libs, and its mkfile's nuke is
+# deliberately non-destructive, so the standard (uncached) nuke->install path is
+# already cheap on a no-op rebuild.  Hence it is CONF-scoped (VENDORED_ALL) but
+# excluded from the libcache slot machinery.
+LIBCACHE_EXCLUDE := libffmpeg
 
 # Build order.  Derived (not hand-copied) from the top-level mkfile's EMUDIRS
 # block so `mk` and this wrapper can never disagree about what gets built -- a
@@ -132,8 +143,10 @@ $(error could not read the lib section of emu/$(SYSTARG)/$(CONF) -- is CONF=$(CO
 endif
 EMUDIRS := $(foreach d,$(EMUDIRS_ALL),$(if $(filter $d,$(VENDORED_ALL)),$(if $(filter $(patsubst lib%,%,$d),$(CONF_LIBS)),$d,),$d))
 
-# Content-cache exactly the vendored libs this CONF builds (NOCACHE=1 disables).
-CACHED_LIBS := $(filter $(VENDORED_ALL),$(EMUDIRS))
+# Content-cache exactly the vendored libs this CONF builds (NOCACHE=1 disables),
+# minus the ones that self-guard and must not be fed to the recursive content
+# hash (LIBCACHE_EXCLUDE -- see libffmpeg above).
+CACHED_LIBS := $(filter-out $(LIBCACHE_EXCLUDE),$(filter $(VENDORED_ALL),$(EMUDIRS)))
 ifneq ($(NOCACHE),)
 CACHED_LIBS :=
 endif

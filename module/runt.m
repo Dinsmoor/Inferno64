@@ -11,3 +11,4 @@ include "loader.m";
 include "freetype.m";
 include "raster3.m";
 include "imageio.m";
+include "ffmpeg.m";

@@ -20,6 +20,10 @@ include "json.m";			# for masto.m's JSON->JValue reference
 include "imageio.m";
 	imageio: Imageio;
 
+include "ffmpeg.m";
+	ffmpeg: Ffmpeg;
+	Vid: import ffmpeg;
+
 include "tk.m";
 	tk: Tk;
 
@@ -289,9 +293,32 @@ viewcfg := array[] of {
 	"pack .p -side bottom -fill both -expand 1",
 };
 
+# video viewer: a frame of controls over the picture panel.  The buttons send
+# named commands down the "v" channel, same mechanism as the still viewer's Save.
+vidcfg := array[] of {
+	"frame .top",
+	"label .top.l -text {video} -anchor w -width 10",
+	"button .top.play -text {Pause} -command {send v playpause}",
+	"button .top.replay -text {Replay} -command {send v replay}",
+	"button .top.save -text {Save} -command {send v save}",
+	"pack .top.save -side right",
+	"pack .top.replay -side right",
+	"pack .top.play -side right",
+	"pack .top.l -side left -fill x -expand 1 -padx 4",
+	"pack .top -fill x",
+	"panel .p",
+	"pack .p -side bottom -fill both -expand 1",
+};
+
 # cap the on-screen size of a media image; larger images are downscaled to fit
 MAXIMGW:	con 900;
 MAXIMGH:	con 700;
+
+# cap the decoded video frame size (done in C, so native-resolution RGBA never
+# reaches the Dis heap -- a 1080p frame would otherwise be ~8 MB of the ~32 MB
+# arena).  A fitted frame this size is ~2.5 MB.
+MAXVIDW:	con 800;
+MAXVIDH:	con 600;
 
 # vendored twemoji PNGs, and the on-screen pixel size of an inline emoji
 EMOJIDIR:	con "/icons/emoji";
@@ -308,7 +335,8 @@ init(actxt: ref Draw->Context, argv: list of string)
 	tk = load Tk Tk->PATH;
 	tkclient = load Tkclient Tkclient->PATH;
 	masto = load Masto Masto->PATH;
-	imageio = load Imageio Imageio->PATH;	# optional: media viewing
+	imageio = load Imageio Imageio->PATH;	# optional: still-image viewing
+	ffmpeg = load Ffmpeg Ffmpeg->PATH;	# optional: video playback
 	popup = load Popup Popup->PATH;		# optional: right-click context menus
 	if(popup != nil)
 		popup->init();
@@ -1308,6 +1336,224 @@ loadmedia(url: string, out: chan of (ref Image, array of byte, string))
 	out <-= (img, data, ierr);
 }
 
+# Video viewer in its own toplevel + event loop.  Mirrors mediaviewer, but plays
+# the stream: the bytes are downloaded off-thread, opened with the native FFmpeg
+# decoder (scaled to MAXVIDW x MAXVIDH in C), and frames are drawn into one reused
+# Draw image, paced by a ticker proc at the stream's frame rate.  Controls (sent
+# down the "v" channel by the Tk buttons): playpause, replay (seek to 0), save.
+videoviewer(m: ref Attachment)
+{
+	(vw, vwc) := tkclient->toplevel(ctxt, nil, "Pleromussy: video", Tkclient->Appl);
+	v := chan of string;
+	tk->namechan(vw, v, "v");
+	for(i := 0; i < len vidcfg; i++)
+		tkcmd(vw, vidcfg[i]);
+	desc := m.atype;
+	if(m.description != "")
+		desc = m.atype + " — " + m.description;
+	tkcmd(vw, ".top.l configure -text " + tk->quote("loading: " + desc));
+	tkcmd(vw, ". configure -width 460 -height 90");
+	tkclient->onscreen(vw, nil);
+	tkclient->startinput(vw, "kbd" :: "ptr" :: nil);
+
+	# The video is streamed to a file in the Inferno namespace (NOT the host fs,
+	# and never held in the Dis heap), then decoded straight from there with
+	# openstream -- so an arbitrarily large clip costs only one fitted frame of
+	# heap.  loadvideo does the download off this UI thread and reports the
+	# namespace path (or an error).  Buffered so it can deliver even if the
+	# viewer was closed mid-download.
+	tmppath := vidtmppath(m.url);
+	loaded := chan[1] of (string, string);		# (path, err)
+	spawn loadvideo(m.url, tmppath, loaded);
+
+	vid: ref Vid;			# the open decoder (nil until loaded)
+	img: ref Image;			# reused frame buffer, vid.w x vid.h
+	vidpath := "";			# the downloaded namespace file (for Save)
+	playing := 0;			# 1 once a stream is open and not paused
+
+	# ticker -> UI: one tick per frame period.  Both buffered size 1 so neither
+	# the ticker nor the stop signal can ever block the other.
+	tickc := chan[1] of int;
+	stopc := chan[1] of int;
+	tickerrunning := 0;
+
+	for(;;) alt {
+	k := <-vw.ctxt.kbd =>
+		tk->keyboard(vw, k);
+	p := <-vw.ctxt.ptr =>
+		tk->pointer(vw, *p);
+	c := <-vw.ctxt.ctl or
+	c = <-vw.wreq or
+	c = <-vwc =>
+		if(c == "exit"){
+			if(tickerrunning)
+				stopc <-= 1;	# let the ticker proc exit
+			if(vid != nil)
+				vid.close();	# release the decoder (and its kept-open fd)
+			if(vidpath != "")
+				sys->remove(vidpath);	# drop the temp file
+			return;
+		}
+		tkclient->wmctl(vw, c);
+	(path, lerr) := <-loaded =>
+		if(path == ""){
+			tkcmd(vw, ".top.l configure -text " + tk->quote("failed: " + lerr) + "; update");
+		} else {
+			vidpath = path;
+			(nv, oerr) := ffmpeg->openstream(path, MAXVIDW, MAXVIDH);
+			if(nv == nil){
+				tkcmd(vw, ".top.l configure -text " + tk->quote("decode failed: " + oerr) + "; update");
+			} else {
+				vid = nv;
+				img = ctxt.display.newimage(Rect(Point(0,0), Point(vid.w, vid.h)),
+					draw->ABGR32, 0, draw->Black);
+				if(img == nil){
+					tkcmd(vw, ".top.l configure -text {newimage failed}; update");
+					vid.close();
+					vid = nil;
+				} else {
+					tk->putimage(vw, ".p", img, nil);
+					imconfig(vw, img);
+					tkcmd(vw, ".top.l configure -text " + tk->quote(desc));
+					w := img.r.dx();
+					h := img.r.dy() + 34;
+					tkcmd(vw, ". configure -width " + string w + " -height " + string h + "; update");
+					period := 40;	# default ~25fps if the stream rate is unknown
+					if(vid.fpsmilli > 0)
+						period = 1000000 / vid.fpsmilli;
+					if(period < 10)
+						period = 10;
+					spawn vidticker(period, tickc, stopc);
+					tickerrunning = 1;
+					playing = 1;
+				}
+			}
+		}
+	<-tickc =>
+		if(playing && vid != nil)
+			if(!nextframe(vw, vid, img))
+				vid.seek(0);	# loop at end of stream
+	cmd := <-v =>
+		case cmd {
+		"playpause" =>
+			if(vid != nil){
+				playing = !playing;
+				lbl := "Pause";
+				if(!playing)
+					lbl = "Play";
+				tkcmd(vw, ".top.play configure -text " + lbl + "; update");
+			}
+		"replay" =>
+			if(vid != nil){
+				vid.seek(0);
+				playing = 1;
+				tkcmd(vw, ".top.play configure -text Pause; update");
+			}
+		"save" =>
+			if(vidpath != ""){
+				(ok, path) := savevideo(m.url, vidpath);
+				if(ok)
+					tkcmd(vw, ".top.l configure -text " + tk->quote("saved: " + path) + "; update");
+				else
+					tkcmd(vw, ".top.l configure -text {save failed}; update");
+			}
+		}
+	}
+}
+
+# a per-viewer temp path in the Inferno namespace (not the host fs).  The pid
+# keeps concurrent viewers from colliding; the basename keeps it recognisable.
+vidtmppath(url: string): string
+{
+	sys->create("/tmp", Sys->OREAD, Sys->DMDIR | 8r700);
+	base := urlbasename(url);
+	if(base == "")
+		base = "video";
+	return "/tmp/plvid." + string sys->pctl(0, nil) + "." + base;
+}
+
+# copy the already-downloaded namespace file to the save dir (the bytes are on
+# disk, so this never pulls the whole video back into the heap)
+savevideo(url, srcpath: string): (int, string)
+{
+	dir := "/tmp/pleromussy";
+	sys->create(dir, Sys->OREAD, Sys->DMDIR | 8r700);
+	base := urlbasename(url);
+	if(base == "")
+		base = "video";
+	dst := dir + "/" + base;
+	in := sys->open(srcpath, Sys->OREAD);
+	if(in == nil)
+		return (0, "");
+	out := sys->create(dst, Sys->OWRITE, 8r600);
+	if(out == nil)
+		return (0, "");
+	buf := array[32*1024] of byte;
+	for(;;){
+		n := sys->read(in, buf, len buf);
+		if(n < 0)
+			return (0, "");
+		if(n == 0)
+			break;
+		if(sys->write(out, buf, n) != n)
+			return (0, "");
+	}
+	return (1, dst);
+}
+
+# download the video off the viewer's UI thread, streaming it into the namespace
+# file at path (small buffer, never the whole clip in the heap).  Decoding stays
+# on the UI thread, which owns the Vid handle and Draw image.
+loadvideo(url, path: string, out: chan of (string, string))
+{
+	ensurecs();
+	fd := sys->create(path, Sys->OWRITE, 8r600);
+	if(fd == nil){
+		out <-= ("", sys->sprint("create %s: %r", path));
+		return;
+	}
+	err := masto->fetchtofd(url, fd);
+	fd = nil;			# flush/close before the decoder opens it
+	if(err != nil){
+		sys->remove(path);
+		out <-= ("", err);
+		return;
+	}
+	out <-= (path, nil);
+}
+
+# decode the next frame and blit it into img.  Returns 1 if a frame was drawn,
+# 0 at end of stream (or on a decode error, which we treat as end so playback
+# loops rather than wedging).
+nextframe(vw: ref Tk->Toplevel, vid: ref Vid, img: ref Image): int
+{
+	(nil, rgba, ferr) := vid.frame();
+	if(ferr != nil || rgba == nil)
+		return 0;
+	img.writepixels(img.r, rgba);
+	tk->putimage(vw, ".p", img, nil);
+	tkcmd(vw, "update");
+	return 1;
+}
+
+# frame-pacing ticker: emit one tick every `period` ms until told to stop.  The
+# sleep is raced against stopc so a closed viewer stops it within one period
+# rather than leaking the proc.
+vidticker(period: int, tickc: chan of int, stopc: chan of int)
+{
+	for(;;){
+		sys->sleep(period);
+		alt {
+		<-stopc =>
+			return;
+		tickc <-= 1 =>
+			;
+		* =>
+			;	# UI busy this period; drop the tick, try again next
+		}
+	}
+}
+
 # decode encoded image bytes into a Draw image.  decodefit downscales a large
 # source to MAXIMGW x MAXIMGH *in C*, so the full-resolution RGBA never has to
 # fit in the Dis heap (a big fedi photo is tens of MB and would overflow the
@@ -2237,11 +2483,22 @@ openmedia(spec: string)
 		settitle(titlefor("(attachment has no url)"));
 		return;
 	}
+	# video/gifv play through the native FFmpeg decoder; everything else is
+	# treated as a still image via imageio.
+	if(m.atype == "video" || m.atype == "gifv"){
+		if(ffmpeg == nil){
+			settitle(titlefor("(no video decoder available)"));
+			return;
+		}
+		settitle(titlefor("(loading video…)"));
+		spawn videoviewer(m);
+		return;
+	}
 	if(imageio == nil){
 		settitle(titlefor("(no image decoder available)"));
 		return;
 	}
-	# only still images decode; video/audio would download huge blobs
+	# audio (or any other non-image, non-video kind) isn't viewable here
 	if(m.atype != "image" && m.atype != "unknown" && m.atype != ""){
 		settitle(titlefor("(" + m.atype + " not viewable: " + m.url + ")"));
 		return;

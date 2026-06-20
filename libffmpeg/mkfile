@@ -1,0 +1,91 @@
+<../mkconfig
+
+# Vendored FFmpeg (LGPL v2.1+), built as one static lib for emu.  Unlike the
+# other vendored C deps (libstb/libwebp single-header amalgamations, the
+# libfreetype source drop), FFmpeg is far too large and interdependent to commit
+# unpacked or amalgamate, so we track only the upstream *tarball*
+# (ffmpeg-<ver>.tar.xz) and unpack + configure + build it here at C-build time.
+#
+# buildffmpeg.sh does the heavy lifting: it unpacks the tarball and runs a lean,
+# fully portable DECODE-only configure (no SIMD/asm, no network, no host file
+# probing -- the same "generic C" philosophy as the other vendorings), builds
+# the libav*/libsw* static archives, and explodes them into one flat,
+# per-archive-prefixed object dir (libffmpeg/obj/*.o).  This mkfile then folds
+# those objects together with the Inferno glue (ffwrap.o) into a single
+# libffmpeg.a -- one archive, so ld resolves the libav* inter-library references
+# internally and the emu link needn't care about their order.
+#
+# ffwrap.c is the ONLY translation unit that mixes with the FFmpeg headers and,
+# like stbwrap.c / webpwrap.c, it is plain ISO C: it must NOT include Inferno's
+# lib9.h.  The Limbo side (libinterp/ffmpeg.c) declares the ffwrap_* prototypes
+# itself, so the two header worlds never share a translation unit.
+
+LIB=libffmpeg.a
+LIBDIR=$ROOT/$OBJDIR/lib
+LIBRARY=$LIBDIR/$LIB
+
+# The vendored upstream tarball (version-pinned; bump this on an FFmpeg update).
+# mk does not glob prerequisites, so name it concretely.
+TARBALL=ffmpeg-8.1.2.tar.xz
+
+# CC in the arch mkfile is e.g. "gcc -c -m64"; FFmpeg's configure wants a
+# compiler it can both compile AND link with.  buildffmpeg.sh parses $CC: it
+# takes the program word as the compiler and carries any -m* ABI flag through to
+# --extra-cflags (configure supplies the rest of its own portable flags).  We
+# pass the whole $CC string so the script needn't reach back into the mkfile.
+FFCC=$CC
+
+# Inferno-side CFLAGS for ffwrap.c: the stock build flags plus the FFmpeg
+# include path so it can see avcodec/avformat/swscale headers.  buildffmpeg.sh
+# drops a version-independent `ffmpeg` symlink to the unpacked tree, so -Iffmpeg
+# resolves <libavcodec/avcodec.h> etc.  ffwrap.c sees libc + FFmpeg only (never
+# lib9.h), exactly like stbwrap.c / webpwrap.c.
+FFCFLAGS=$CFLAGS -Iffmpeg
+
+default:V:	all
+
+all install:V:	$LIBRARY
+
+# The whole archive depends on the glue object and the marker the build script
+# drops once the FFmpeg objects exist.  buildffmpeg.sh is idempotent (it skips
+# the slow configure+make when the archives are already newer than the tarball),
+# so this is cheap on a no-op rebuild.
+$LIBRARY:	ffwrap.$O ffalloc.$O ffmpeg.built
+	rm -f $target
+	$AR $ARFLAGS $target ffwrap.$O ffalloc.$O obj/*.o
+
+# Run the unpack+configure+build.  Touch a marker so mk has a concrete file to
+# depend on (the real outputs are obj/*.o, a glob mk can't name as a target).
+ffmpeg.built:	buildffmpeg.sh $TARBALL
+	FFCC=$FFCC AR=$AR sh buildffmpeg.sh
+	touch ffmpeg.built
+
+# ffwrap.c needs the FFmpeg headers, which only exist after the unpack (the
+# `ffmpeg` symlink buildffmpeg.sh drops), so depend on the build marker.
+ffwrap.$O:	ffwrap.c ffmpeg.built
+	$CC $FFCFLAGS -o $target ffwrap.c
+
+# ffalloc.c is the FFmpeg<->emu allocator bridge (see the file head).  It pulls
+# in no FFmpeg headers -- only emu's malloc/free, declared inline -- so it builds
+# with the plain stock CFLAGS and needn't wait on the FFmpeg unpack.
+ffalloc.$O:	ffalloc.c
+	$CC $CFLAGS -o $target ffalloc.c
+
+# clean/nuke deliberately DO NOT remove the unpacked tree (ffmpeg-*/), the
+# extracted objects (obj/), or the build marker: re-extracting + reconfiguring +
+# recompiling FFmpeg from the tarball is the expensive step this vendoring exists
+# to avoid repeating.  The top Makefile runs `mk nuke` before each vendored-lib
+# build, so a destructive nuke here would mean a full FFmpeg rebuild every
+# `make all`.  buildffmpeg.sh already rebuilds whenever the tarball is newer than
+# the libs, which is the only thing that should trigger one.  Use `mk distclean`
+# (or delete libffmpeg/ffmpeg*/) to force a from-scratch FFmpeg rebuild.
+clean:V:
+	rm -f ffwrap.$O ffalloc.$O obj.out
+	rm -f $LIBRARY
+
+nuke:V:	clean
+
+# Full teardown of the unpacked + built FFmpeg, forcing the next build to
+# re-extract and recompile from the tarball.
+distclean:V:	clean
+	rm -rf obj ffmpeg-*/ ffmpeg ffmpeg.built

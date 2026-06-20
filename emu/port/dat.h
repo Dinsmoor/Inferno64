@@ -427,6 +427,7 @@ enum
 	KPDUPFDG	= (1<<1),
 	KPDUPENVG	= (1<<2),
 	KPX11		= (1<<8),		/* needs silly amount of stack */
+	KPBIGSTACK	= (1<<9),		/* runs native builtins (e.g. ffmpeg) that need a deep C stack */
 	KPDUP		= (KPDUPPG|KPDUPFDG|KPDUPENVG)
 };
 

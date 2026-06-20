@@ -38,6 +38,7 @@ EMUDIRS=\
 	libmbedtls\
 	libstb\
 	libwebp\
+	libffmpeg\
 	libmemdraw\
 	libmemlayer\
 	utils/data2c\

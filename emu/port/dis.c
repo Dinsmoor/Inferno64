@@ -924,7 +924,7 @@ release(void)
 		isched.creating = 1;
 		unlock(&isched.l);
 		if(f == 0)
-			kproc("dis", vmachine, nil, 0);
+			kproc("dis", vmachine, nil, KPBIGSTACK);
 		return;
 	}
 	p = *pq;

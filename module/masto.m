@@ -208,6 +208,14 @@ Masto: module
 	# images, hand the bytes to $Imageio/Imageload.  err is set on failure.
 	fetchurl:	fn(url: string): (array of byte, string);
 
+	# fetchtofd is fetchurl for large bodies (e.g. video): it streams the HTTP
+	# body straight into fd as it arrives, holding only a small buffer in memory
+	# rather than the whole response -- so it has no size cap and won't exhaust
+	# the heap.  fd is an open, writable file (typically in the Inferno
+	# namespace, e.g. under /tmp).  Returns nil on success or an error string;
+	# unlike fetchurl it does NOT retry (a partial write may already be in fd).
+	fetchtofd:	fn(url: string, fd: ref Sys->FD): string;
+
 	# Parsers (exposed for reuse/testing).
 	mkaccount:	fn(jv: ref JSON->JValue): ref Account;
 	mkstatus:	fn(jv: ref JSON->JValue): ref Status;

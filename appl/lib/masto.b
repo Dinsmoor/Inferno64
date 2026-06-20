@@ -599,6 +599,144 @@ retryable(err: string): int
 	return 1;
 }
 
+# Streaming fetch: GET url and write the body to fd as it arrives, holding only
+# a small buffer in memory.  Follows redirects like fetchonce, but never builds
+# the whole body in the heap, so it has no size cap.  Returns nil or an error.
+fetchtofd(url: string, fd: ref Sys->FD): string
+{
+	for(redir := 0; redir < MAXREDIR; redir++){
+		(scheme, host, port, path, perr) := parseurl(url);
+		if(perr != nil)
+			return perr;
+		addr := "tcp!" + host + "!" + port;
+		cfd: ref Sys->FD;
+		ctlfd: ref Sys->FD;
+		if(scheme == "https"){
+			(conn, cf, derr) := dial->dialtls(addr, nil, host);
+			if(conn == nil)
+				return "dialtls " + addr + ": " + derr;
+			cfd = conn.dfd;
+			ctlfd = cf;
+		} else {
+			conn := dial->dial(addr, nil);
+			if(conn == nil)
+				return sys->sprint("dial %s: %r", addr);
+			cfd = conn.dfd;
+		}
+		(code, loc, herr) := httpfetchtofd(cfd, host, path, fd);
+		if(ctlfd == nil)
+			{}			# keep ctlfd alive across the transfer
+		if(herr != nil)
+			return herr;
+		if(code >= 200 && code < 300)
+			return nil;
+		if((code==301||code==302||code==303||code==307||code==308) && loc != ""){
+			url = resolveloc(scheme, host, port, loc);
+			continue;
+		}
+		return sys->sprint("http %d", code);
+	}
+	return "too many redirects";
+}
+
+# one GET, body streamed to outfd.  Returns (status code, Location, error).
+httpfetchtofd(fd: ref Sys->FD, host, path: string, outfd: ref Sys->FD): (int, string, string)
+{
+	req := "GET " + path + " HTTP/1.1\r\n" +
+		"Host: " + host + "\r\n" +
+		"User-Agent: pleromussy/0.1 (Inferno)\r\n" +
+		"Accept: */*\r\n" +
+		"Connection: close\r\n\r\n";
+	rb := array of byte req;
+	if(sys->write(fd, rb, len rb) != len rb)
+		return (-1, "", "write request failed");
+	b := bufio->fopen(fd, Bufio->OREAD);
+	if(b == nil)
+		return (-1, "", "fopen response");
+	code := parsestatus(b.gets('\n'));
+	if(code < 0)
+		return (-1, "", "bad/empty status line");
+	clen := -1;
+	chunked := 0;
+	loc := "";
+	for(;;){
+		h := trimcrlf(b.gets('\n'));
+		if(h == "")
+			break;
+		(key, val) := splitheader(h);
+		case str->tolower(key) {
+		"content-length" =>	clen = int val;
+		"transfer-encoding" =>	if(strindex(str->tolower(val), "chunked") >= 0) chunked = 1;
+		"location" =>		loc = val;
+		}
+	}
+	# a redirect (3xx) carries no body we care about -- return now and let the
+	# caller follow Location; only stream the body on a final response.
+	if(code >= 300 && code < 400 && loc != "")
+		return (code, loc, nil);
+	if(chunked){
+		if((e := streamchunked(b, outfd)) != nil)
+			return (code, loc, e);
+	} else if(clen >= 0){
+		if((e := streamn(b, outfd, clen)) != nil)
+			return (code, loc, e);
+	} else {
+		if((e := streamall(b, outfd)) != nil)
+			return (code, loc, e);
+	}
+	return (code, loc, nil);
+}
+
+# copy exactly n body bytes from b to outfd in fixed-size chunks
+streamn(b: ref Iobuf, outfd: ref Sys->FD, n: int): string
+{
+	buf := array[32*1024] of byte;
+	got := 0;
+	while(got < n){
+		want := len buf;
+		if(n - got < want)
+			want = n - got;
+		m := b.read(buf, want);
+		if(m <= 0)
+			return sys->sprint("short read: %d of %d bytes", got, n);
+		if(sys->write(outfd, buf, m) != m)
+			return "write failed";
+		got += m;
+	}
+	return nil;
+}
+
+# copy body to outfd until EOF (no Content-Length, non-chunked)
+streamall(b: ref Iobuf, outfd: ref Sys->FD): string
+{
+	buf := array[32*1024] of byte;
+	for(;;){
+		m := b.read(buf, len buf);
+		if(m < 0)
+			return "read error";
+		if(m == 0)
+			break;
+		if(sys->write(outfd, buf, m) != m)
+			return "write failed";
+	}
+	return nil;
+}
+
+# copy a chunked-transfer-encoded body to outfd, chunk by chunk
+streamchunked(b: ref Iobuf, outfd: ref Sys->FD): string
+{
+	for(;;){
+		(sz, nil) := str->splitl(trimcrlf(b.gets('\n')), ";");
+		n := hextoint(sz);
+		if(n <= 0)
+			break;
+		if((e := streamn(b, outfd, n)) != nil)
+			return e;
+		b.gets('\n');			# trailing CRLF after chunk data
+	}
+	return nil;
+}
+
 fetchonce(url: string): (array of byte, string)
 {
 	for(redir := 0; redir < MAXREDIR; redir++){

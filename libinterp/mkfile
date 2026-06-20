@@ -25,6 +25,7 @@ OFILES=\
 	raise.$O\
 	raster3.$O\
 	imageio.$O\
+	ffmpeg.$O\
 	readmod.$O\
 	runt.$O\
 	sign.$O\
@@ -54,6 +55,7 @@ MODULES=\
 	../module/freetype.m\
 	../module/raster3.m\
 	../module/imageio.m\
+	../module/ffmpeg.m\
 	../module/ipints.m\
 	../module/crypt.m\
 	keyringif.m\
@@ -67,7 +69,7 @@ MODULES=\
 # Remove them on clean/nuke so a full rebuild always regenerates them with the
 # current-ABI limbo (the top-level Makefile nukes this dir before rebuilding).
 GENHFILES=runt.h sysmod.h keyring.h keyringif.h drawmod.h prefabmod.h tkmod.h\
-	mathmod.h loadermod.h freetypemod.h raster3mod.h imageiomod.h ipintsmod.h benchmod.h bench.h cryptmod.h
+	mathmod.h loadermod.h freetypemod.h raster3mod.h imageiomod.h ffmpegmod.h ipintsmod.h benchmod.h bench.h cryptmod.h
 
 clean:V:	cleangenh
 nuke:V:		cleangenh
@@ -108,6 +110,9 @@ raster3mod.h:D: $MODULES
 imageiomod.h:D: $MODULES
 	rm -f $target && limbo -t Imageio -I../module ../module/runt.m > $target
 
+ffmpegmod.h:D: $MODULES
+	rm -f $target && limbo -t Ffmpeg -I../module ../module/runt.m > $target
+
 ipintsmod.h:D:	$MODULES
 	rm -f $target && limbo -t IPints -I../module ../module/ipints.m > $target
 
@@ -142,6 +147,7 @@ loader.$O:	loadermod.h
 freetype.$O:	freetypemod.h $ROOT/include/freetype.h
 raster3.$O:	raster3mod.h
 imageio.$O:	imageiomod.h
+ffmpeg.$O:	ffmpegmod.h
 math.$O:	$ROOT/include/mathi.h
 
 das-spim.c:N:	das-mips.c
@@ -154,4 +160,4 @@ comp-spim.c:N:	comp-mips.c
 #	it works only on UNIX and Plan 9.
 
 nuke:EV:	nuke-std
-	rm -f runt.h sysmod.h drawmod.h prefabmod.h tkmod.h mathmod.h keyring.h readimagemod.h loadermod.h freetypemod.h raster3mod.h imageiomod.h cryptmod.h keyringif.h ipintsmod.h
+	rm -f runt.h sysmod.h drawmod.h prefabmod.h tkmod.h mathmod.h keyring.h readimagemod.h loadermod.h freetypemod.h raster3mod.h imageiomod.h ffmpegmod.h cryptmod.h keyringif.h ipintsmod.h

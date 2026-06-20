@@ -166,6 +166,8 @@ kproc(char *name, void (*func)(void*), void *arg, int flags)
 		panic("pthread_attr_init failed");
 	if(flags & KPX11)
 		pthread_attr_setstacksize(&attr, 512*1024);	/* could be a parameter */
+	else if(flags & KPBIGSTACK)
+		pthread_attr_setstacksize(&attr, 8*1024*1024);	/* Dis threads that call deep native builtins (ffmpeg) */
 	else if(KSTACK > 0)
 		pthread_attr_setstacksize(&attr, (KSTACK < PTHREAD_STACK_MIN? PTHREAD_STACK_MIN: KSTACK)+1024);
 	pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);

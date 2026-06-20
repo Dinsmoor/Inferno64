@@ -123,7 +123,7 @@ DISBIN=$ROOT/dis/wm
 # it must rebuild when either .m changes, or a stale hash fails the load typecheck.
 # (Keep this comment ABOVE the rules: a comment directly after a "target: deps"
 # line is taken as that target's empty recipe and suppresses the %.dis build.)
-pleromussy.dis: $MODDIR/masto.m $MODDIR/json.m $MODDIR/imageio.m
+pleromussy.dis: $MODDIR/masto.m $MODDIR/json.m $MODDIR/imageio.m $MODDIR/ffmpeg.m
 gifview.dis: $MODDIR/imageanim.m $MODDIR/imageio.m
 chrometest.dis: $MODDIR/titletex.m $MODDIR/tkclient.m
 tkwdemo.dis: $MODDIR/tkwidgets.m $MODDIR/tkclient.m

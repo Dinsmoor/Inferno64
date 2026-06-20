@@ -342,7 +342,7 @@ emuinit(void *imod)
 		free(wdir);
 	}
 
-	kproc("main", disinit, imod, KPDUPFDG|KPDUPPG|KPDUPENVG);
+	kproc("main", disinit, imod, KPDUPFDG|KPDUPPG|KPDUPENVG|KPBIGSTACK);
 
 	for(;;)
 		ospause(); 

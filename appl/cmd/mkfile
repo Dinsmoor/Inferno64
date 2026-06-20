@@ -175,6 +175,7 @@ TARG=\
 	vacfs.dis\
 	vacget.dis\
 	vacput.dis\
+	vidtest.dis\
 	wav2iaf.dis\
 	wc.dis\
 	webgrab.dis\
@@ -238,6 +239,7 @@ dbfs.dis: $MODDIR/styxservers.m
 fedifs.dis: $MODDIR/styxservers.m $MODDIR/masto.m $MODDIR/json.m
 animtest.dis: $MODDIR/imageio.m
 webptest.dis: $MODDIR/imageio.m
+vidtest.dis: $MODDIR/ffmpeg.m
 mastotest.dis: $MODDIR/masto.m $MODDIR/json.m
 mastologin.dis: $MODDIR/masto.m $MODDIR/json.m
 mastoextra.dis: $MODDIR/masto.m $MODDIR/json.m
