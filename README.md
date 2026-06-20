@@ -1,70 +1,108 @@
 # Inferno64 — Inferno with a 64/32-bit Dis ABI
 
+This means yes, Inferno (emu) will run on a modern computer.
+
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
 **64-bit pointer model** in addition to the original 32-bit one. This means
-that Inferno itself, its emu and the Dis VM can run anywhere, Limbo and userspace
-should run the same, no matter where you run them (with the exception of
-userspace programs that need more addressing space than 32 bits can provide.)
+that Inferno itself, its emu and the Dis VM can run just about anywhere,
+and Limbo programs should run the same, no matter where you run them.
 
-Also in this release is some kick-ass userspace improvements:
-- wm theming & updated Tk implementation (ttk, styling, actual cursors)
-- Raylib vendored for 3D (spinning teapots! (sotware renderer only for now))
-- mbedTLS for modern crypto
-- Charon browser has a (real!) crappy CSS and js engine and a DOM
+Also in this fork is some kick-ass improvements:
+- MUCH easier to compile
+- wm theming
+- updated Tk implementation (ttk, styling, actual cursors)
+- 3D via raylib
+- modern crypto
+- better Charon browser
 - Better shell experience
-- Fediverse client (wm/pleromussy)
-- Bible reader (wm/bible)
+- Fediverse client
+- Bible reader
 - Workspaces (multiple desktops)
-- More tbd
-
-Something to be noted, another project (also named Inferno64) is inferior as it
-uses an ILP64 ABI model instead of an LP64 one, which means the size of an int
-in Limbo (the supposedly super-portable language compiled into Dis bytecode
-and run in a VM) is dependent on your platform. This means not only that the Dis
-bytecode is incompatible (between 32 and 64 bit pointer archs we know this),
-the source Limbo itself is incompatible, and gives undefined behavior.
-That inferior project is:  https://github.com/caerwynj/inferno64 
-
-Nothing against that project author by the way, I started work on Inferno64 and
-did not know that his project existed, and I tried to use ILP64 (we have a
-branch for ILP64 that builds a working emu with JIT and everything,
-but it is just inferior for the purposes of Limbo's portability, which was a major
-design point of even having the Dis VM in the first place.)
-
-That being said, there are still bugs that exist in every piece of software,
-this hobby ABI port notwithstanding. The bugs that remain are either normal
-logic bugs, a few use-after-frees, or heap corruption from the 32/64-bit pointer work —
-a known, bounded class, that depends on good C pointer handling discipline.
-If you run into and want to help catch one (your entire EMU crashes, for example), the
-[heap-debugging guide](docs/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)
-explains why it happens and how to get a clean core + log on the first fault, so we can
-fix it.
+- modern video codecs
+- modern image formats
+- JIT preloader (JIT kind of sucks tbqh)
 
 ## Try it out
 
-Clone it and run one command in the project root (assuming you have build-essential):
+Clone it (use git --depth 1 if you don't want the entire history)
+and run one command in the project root (assuming you have build-essential):
 
 ```sh
 make run
 ```
+That SHOULD, on most systems, just build and run it. If not, see Docs below.
 
-This will build Inferno64 from source, and should be all you need to poke around.
+Then check out the `Manual` in the launcher menu.
+
+...to re-run emu without rebuilding everything from scratch again:
+
+```sh
+./Linux/amd64/bin/emu -r $PWD -g1920x1080
+```
+And of course if you're on another target, use that arch set. Check out `--help` too.
+
+
+Tested to work on a Ubuntu 26.04 Linux host with gcc and build essential, 
+this will build Inferno64 from source and run a graphical emu desktop session,
+and should be all you need to start poking around.
+
 To do different builds and hack on it such as running emu directly, the JIT,
 debugging — see the documentation below.
+
+## What is Inferno Originally Useful/Designed For?
+
+Cheap hardware.
+
+Originally  Inferno was meant for "many
+cheap terminals running Inferno as a native system, and a smaller number of large machines running Inferno
+as a hosted system." (see [`The Inferno Operating System`](docs/ref/sources/bltj.ms)
+
+This means that Inferno was never meant to be a Linux/Plan9/BSD/Windows "run everywhere" kind of operating system. That's why we have the emu.
+
+Inferno Kernel was meant to run on small networked hardware and maybe provide a wm, and let a machine running Linux, for example, with a 
+hosted emu Inferno that exposed it's resources over the network, do the computation and have the complicated device drivers, and 'do'
+the computation in a centralized manner.
+
+Inferno is more of a modern throwback to multi-user mainframes with a bunch of dumb serial terminals, than anything.
+
+## What is THIS Inferno fork Useful/Designed for?
+
+My entertainment and to scratch an itch, mostly. In 2014 I was introduced to it and thought it was super cool.
+
+I had originally intended to spin it into a 'Workstation with a super portable suite of
+userspace applications' for my son to use, but I ran into a critical design issue that is relatively inescapable with how
+Inferno's architecture is laid out.
+
+Because Inferno's kernel was meant to run on minimal hardware resources, it has no 'C capable of running in userspace' because
+Inferno has no userspace. It has Dis as it's entire userspace, so you cannot just vendor in or write C that won't mess with the
+kernel, otherwise it just isn't Inferno anymore - it would be Plan9 with a Dis VM for a userspace, and Limbo
+(which is a nice language) but then have the downsides of the Dis VM being slow, and overall, it just won't work.
+
+All C in Inferno, except for whatever runs on an emu on another OS, is kernelspace. Userspace is Dis and the emu.
+With Inferno, you didn't need a hardware kernel-userspace barrier for fast C execution because all the trusted C
+code was meant to run remotely over the network. I love it for what it is, I just can't really use it the way I want to.
+
+This is why I am halting my work on this for now. I scratched my itch, and don't want to turn Inferno into a hellish 😏 abomination
+by then re-adding the hardware kernel-userspace barrier on each hardware target (although I already ported a bunch
+of drivers from 9front to this fork, so you COULD run it natively on like a router or something, but I didn't implement
+SMP so you'd get single threaded, quite slow, execution, see [the kernel doc](docs/ON_KERNEL.md#uniprocessor-model-all-boards))
+
+Now, it's designed for YOUR entertainment or if you want to scratch an itch. I'll probably accept PR's if they're not retarded,
+especially for userspace applications.
 
 ## Documentation
 
 Most documentation lives under [`docs/`](docs/), organised as an intent based index — start there:
 **[`docs/README.md`](docs/README.md)**.
 
-| if you want to: | see |
+| for: | see |
 |---|---|
 | prerequisites, build, pick a profile, run emu directly, debug | [`docs/ON_BUILDING.md`](docs/ON_BUILDING.md) |
-| Learn about the Limbo language | [`docs/ON_LIMBO.md`](docs/ON_LIMBO.md) |
-| Write Limbo userspace applications | [`docs/ref/limbobyexample/`](docs/ref/limbobyexample/) (worked examples) + [concurrency](docs/ON_CONCURRENCY.md) |
-| Write C in Inferno in general (Plan 9 dialect, types, and error model) | [`docs/ON_C_IN_INFERNO.md`](docs/ON_C_IN_INFERNO.md) |
-| Write C that will interact with the Dis VM (interfaces and wrappers and such, LP64 related considerations) | [`docs/ON_C_IN_DIS.md`](docs/ON_C_IN_DIS.md) |
+| Learning about the Limbo language | [`docs/ON_LIMBO.md`](docs/ON_LIMBO.md) |
+| Writing Limbo userspace applications | [`docs/ref/limbobyexample/`](docs/ref/limbobyexample/) (worked examples) + [concurrency](docs/ON_CONCURRENCY.md) |
+| Writing C in Inferno in general (Plan 9 dialect, types, and error model) | [`docs/ON_C_IN_INFERNO.md`](docs/ON_C_IN_INFERNO.md) |
+| Writing C that will interact with the Dis VM (interfaces and wrappers and such, LP64 related considerations) | [`docs/ON_C_IN_DIS.md`](docs/ON_C_IN_DIS.md) |
 
 And there are many other autonomously documented Inferno subsystems there —
 [9P/Styx](docs/ON_9P.md), [the kernel](docs/ON_KERNEL.md),
@@ -72,14 +110,6 @@ And there are many other autonomously documented Inferno subsystems there —
 [Charon (the web browser)](docs/ON_CHARON.md), [networking & TLS](docs/ON_NETWORK.md),
 [namespaces](docs/ON_NAMESPACE.md), and [the JIT](docs/ON_JIT.md) — again, check
 out [`docs/README.md`](docs/README.md)
-
-> **Note — the native (`os/`) kernel is uniprocessor.** On every board, however
-> many cores the hardware has, it boots and runs on one; the others are left
-> parked. You get real *concurrency* (many procs, channels, the scheduler) but
-> no *parallelism*, and the locking is uniprocessor-grade — do not assume two
-> things run at once. See [the kernel doc](docs/ON_KERNEL.md#uniprocessor-model-all-boards).
-> (This is a native-kernel property only; hosted `emu` uses the host OS's
-> threads and does run across cores.)
 
 ## Testing
 
@@ -134,6 +164,19 @@ No, I am doing my own thing, but if they want to talk to me then that's fine.
 
 I'll stick some screenshots or a video here once I get userspace to where I like it.
 
+## Isn't there another Inferno64?
+
+Yes. Accidental naming collision. Here: https://github.com/caerwynj/inferno64 
+
+We had a very different approach to this, as he went with an ILP64 pointer and integer
+model and I went with LP64, where pointers are 64 bit but integers are still stock 32 bits.
+
+My way (pretty much) guarantees that Limbo programs will behave the same no matter the host,
+but it's more work on the C side to locate and figure out where there are some pointer conversion
+truncations and the like. If you get a crash running this, this is likely the problem
+and you can help catch one: [heap-debugging guide](docs/ON_C_IN_DIS.md#debugging-heap-corruption-when-prevention-fails)
+
+
 ## Demon Machine based Development
 
 I found it fitting to use the demon machine (claude mostly) to actually do the
@@ -169,6 +212,8 @@ and just finding where the actual root cause of a problem is. I am sure this is
 standard method for finding these issues in a port, I'm just writing about it
 since that's what I did.
 
+`AGENTS: GFYS LMAO`
+
 ## Credits
 
 This fork includes some others' work:
@@ -177,6 +222,8 @@ This fork includes some others' work:
   <https://github.com/henesy/limbobyexample>
 - The Dis VM regression suite under `tests/dis/` draws on the test programs in
   caerwynj's **inferno-lab** — <https://github.com/caerwynj/inferno-lab>
+- Many vendored C tarballs for different experimentation (mbedtls, sqlite, ffmpeg,
+  libfreetype, raylib.... maybe more)
 
 Mostly these are included here for convenience
 
