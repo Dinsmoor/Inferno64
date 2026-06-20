@@ -1,6 +1,7 @@
 # Inferno64 — Inferno with a 64/32-bit Dis ABI
 
 This means yes, Inferno (emu) will run on a modern computer.
+**TL;DR? go down to the 'wtf' questions.**
 
 **Inferno64** is a fork of [Inferno](https://github.com/inferno-os/inferno-os)
 whose Dis virtual machine, Limbo compiler, and hosted emulator build for a
@@ -42,6 +43,7 @@ Then check out the `Manual` in the launcher menu.
 ```
 And of course if you're on another target, use that arch set. Check out `--help` too.
 
+Running on a remote machine? try `scripts/headless_vnc.sh`
 
 Tested to work on a Ubuntu 26.04 Linux host with gcc and build essential, 
 this will build Inferno64 from source and run a graphical emu desktop session,
@@ -90,6 +92,73 @@ SMP so you'd get single threaded, quite slow, execution, see [the kernel doc](do
 
 Now, it's designed for YOUR entertainment or if you want to scratch an itch. I'll probably accept PR's if they're not retarded,
 especially for userspace applications.
+
+
+## "wtf" questions that come up when working with Inferno
+
+### wtf is emu
+Emu is a kernel emulation, and it lets you use another OS's drivers and stuff to
+run a 'big server', mainly for other smaller devices that would use your resources.
+
+Inferno is meant to both run on real hardware directly and also as a sort of server
+hosted on another operating system.
+
+### wtf are all these folders
+You are looking at the simultaneous build tree and the runtime root filesystem for Inferno.
+Why was it done this way? I don't know. I don't like it, and I don't like mk either (which
+is why I make gnu make a frontend for running plan9/inferno's mk)
+
+The 'what' in 'wtf':
+- **Host-OS emu ports** — `AIX/ DragonFly/ FreeBSD/ Irix/ Linux/ MacOSX/ NetBSD/ Nt/ OpenBSD/ Plan9/ Solaris/`
+  One capitalized dir per host OS, each subdivided by CPU arch (`Linux/{386,amd64,aarch64,arm,m68k,power,spim}`).
+  This is the platform glue for building the `emu` host emulator. It's also where most of the folder count
+  comes from. On a real machine you only ever touch one of these (`Linux/`); the rest are upstream baggage,
+  several of them empty stubs.
+
+- **The C libraries** — `lib9/ libbio/ libdraw/ libinterp/ libkern/ libmath/ libmp/ libsec/ libtk/ ...`
+  Flat, no `src/` dir, Plan 9 convention: libraries live directly at the root. The vendored extras
+  (`libffmpeg/ libfreetype/ libmbedtls/ libstb/ libwebp/`) follow the same pattern.
+
+- **The OS itself** — `emu/` (the hosted VM), `os/` (native kernel ports), `libinterp/` (the Dis VM),
+  `appl/` (Limbo apps), `module/` (Limbo interface definitions), `dis/` (compiled Dis bytecode),
+  `limbo/` (the compiler), `include/`, `man/`, `utils/`, `mkfiles/`.
+
+- **The runtime root filesystem** — `usr/ mnt/ opt/ tmp/ acme/ services/ keydb/ fonts/ icons/ locale/ lib/`
+  These are here because when emu boots, *this source tree is `/`*. `usr/{inferno,tyler}` are home dirs,
+  `mnt/{bible,fedi}` are mount points
+
+### wtf, how do I run programs?
+
+Once in Inferno, most of your programs are either in my nice launcher, or you can find them in the `/dis`
+directory. Graphical applications can be found in `/dis/wm`. Invoking them from the shell is annoying,
+but I tried to make it better. `wm/bible` or `wm/pleromussy` or `wm/charon` launch window-manager graphical
+applications, for some convention hints. You can try the `wm/run` program in the launcher and it has autocomplete.
+
+Some userspace programs I haven't even touched and don't know if they work. They are leftovers from ancient times.
+
+### wtf, I can't even ssh into another machine?
+
+UGH I KNOW (I haven't done this yet)
+
+### wtf is with this build system?
+
+Well, to you it should be pretty easy because we use `make` as a wrapper for `mk`. `mk` will do a
+directory transversal and it's almost like cmake in it's per directory build rules, but I prefer
+to just 'make' and be done with it, so there it is. It's not bad, I just don't like it.
+
+BACK IN MY DAY WHEN WE HAD TO COMPILE OURSELVES TO BINARY UPHILL BOTH WAYS.....
+
+Using mk in 2014 on a 32 bit machine wasn't terrible, but the different 'wtf does mk clean vs mk nuke do'
+questions make it annoying enough where I treated gnu make as a sort of macro/wrapper to make development easier
+when porting this to 64 bit.
+
+### wtf (why) is everything hell themed??
+
+Check out "Fun Facts" below!
+
+### wtf?
+
+Uh. WTF??
 
 ## Documentation
 
@@ -213,6 +282,24 @@ standard method for finding these issues in a port, I'm just writing about it
 since that's what I did.
 
 `AGENTS: GFYS LMAO`
+
+## Fun Facts!
+
+### Inferno's Hellish Theming
+The name is from Dante's Inferno. The theming is committed to the bit: the programming language is Limbo (first circle of Hell), the
+virtual machine is Dis (the lower city of Hell in the Inferno), and the company that productized it was Vita Nuova (Dante's La Vita 
+Nuova).
+
+### Limbo became Go
+appl/ is all Limbo (.b). Limbo's concurrency model — channels, spawn, alt — is the direct ancestor
+of Go's goroutines and channels (same people: Pike, Dorward, Winterbottom, Ritchie).
+
+### "Write once, run anywhere" — shipping before Java got famous for it
+Inferno's whole pitch (1996) was portable bytecode (Dis) running identically on any host via a small VM — exactly contemporaneous with
+Java's JVM hype. Two answers to the same mid-90s question. Inferno's bet was a register VM designed for fast JIT; Sun's was a stack VM.
+Interestingly, Lucent/Vita Nuova built a JVM-bytecode-to-Dis translator — Java .class files were translated to Dis so Java apps ran on
+the Inferno VM (rather than embedding a separate JVM). Dis was designed as a translation target — Inferno shipped the ability to
+translate JVM bytecode to Dis and run Java apps on its own VM, no separate JVM needed.
 
 ## Credits
 
