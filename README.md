@@ -26,28 +26,61 @@ Also in this fork is some kick-ass improvements:
 
 ## Try it out
 
-Clone it (use git --depth 1 if you don't want the entire history)
-and run one command in the project root (assuming you have build-essential):
+Clone it (use `git clone --depth 1` if you don't want the entire history) and
+run one command in the project root (assuming you have build-essential):
 
 ```sh
-make run
+./inferno.sh
 ```
-That SHOULD, on most systems, just build and run it. If not, see Docs below.
 
-Then check out the `Manual` in the launcher menu.
+On a fresh clone that builds the whole system first (it bootstraps `mk` with
+the host `gcc`, then builds the C side and the Dis tree), then opens a
+graphical desktop session. Subsequent runs skip the build and start straight
+away. Then check out the `Manual` in the launcher menu.
 
-...to re-run emu without rebuilding everything from scratch again:
+`./inferno.sh` also runs a single program by bare name -- no path needed:
 
 ```sh
-./Linux/amd64/bin/emu -r $PWD -g1920x1080
+./inferno.sh pleromussy     # the Fediverse client, in a managed window
+./inferno.sh acme           # the editor
+./inferno.sh tetris
 ```
-And of course if you're on another target, use that arch set. Check out `--help` too.
 
-Running on a remote machine? try `scripts/headless_vnc.sh`
+Names are resolved against `dis/wm` first, then `dis` and its subdirectories,
+so `sh` gets you `wm/sh` (a shell in a window) rather than the raw
+`/dis/sh.dis`. The program runs as a client *of* the window manager, so it gets
+a normal resizable window. Some other options:
 
-Tested to work on a Ubuntu 26.04 Linux host with gcc and build essential, 
-this will build Inferno64 from source and run a graphical emu desktop session,
-and should be all you need to start poking around.
+```sh
+./inferno.sh -g1920x1080    # window size (default 1024x768)
+./inferno.sh -H2            # HiDPI: integer-scale the host window 2x
+./inferno.sh -c             # plain text shell, no window manager
+./inferno.sh --build        # rebuild first, then start
+./inferno.sh /dis/sh.dis    # an explicit path still works
+```
+
+Anything else is passed straight through to `emu`. Shut a session down with
+`^\` (Ctrl-\) at the console it was started from, or `Power` in the start menu.
+
+Running on a remote machine? Try `scripts/headless_vnc.sh`.
+
+To add an **Inferno** entry (with icon) to your desktop's applications menu:
+
+```sh
+./inferno.sh --install-desktop
+```
+
+That writes `~/.local/share/applications/inferno.desktop` and installs the
+Vita Nuova tree icon into the per-user hicolor theme. Nothing is installed
+system-wide, and the tree stays relocatable -- `inferno.sh` points `emu` at
+whichever directory the script itself lives in, so `mkconfig`'s `ROOT` does not
+have to match where you cloned it.
+
+`make run` still works and does the same build-then-launch, and the full set of
+build profiles (`make all PROFILE=release`, headless, cross targets) is in the
+documentation below.
+
+Tested to work on a Ubuntu 26.04 Linux host with gcc and build essential.
 
 To do different builds and hack on it such as running emu directly, the JIT,
 debugging — see the documentation below.
