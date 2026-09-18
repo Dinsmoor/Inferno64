@@ -60,6 +60,12 @@ fakekbdin: chan of string;
 buttons := 0;
 panictimes: list of int;	# ms timestamps of recent panic-key presses
 
+# Host-window resize.  The graphics backend rebuilds the framebuffer when the
+# host window changes size and wakes every /dev/draw refresh reader; hostresize
+# watches that and pokes the main loop, which re-reads the screen geometry and
+# calls reshaped() to rescale the desktop and every child window.
+hostresized: chan of int;
+
 # Pick-window (debugger): when armed via /chan/wmpick, the next button-press
 # anywhere is consumed (not routed to the app) and resolved to the owning pid
 # of the window under the pointer, which is returned to the held read.
@@ -306,6 +312,12 @@ init(ctxt: ref Draw->Context, argv: list of string)
 	applycursorpath(defcurpath);		# show the default cursor at login
 	curtheme = readline(themefile());	# saved theme, pushed to clients on join
 
+	# Watch for host-window resizes (see hostresizeproc).
+	hostresized = chan of int;
+	respid := chan of int;
+	spawn hostresizeproc(respid, hostresized);
+	<-respid;
+
 	sync := chan of string;
 	argv = tl argv;
 	if(argv == nil)
@@ -316,6 +328,21 @@ init(ctxt: ref Draw->Context, argv: list of string)
 
 	fakekbd = chan of string;
 	for(;;) alt {
+	<-hostresized =>
+		# The host window changed size: re-read the screen geometry from the
+		# draw device and, if the root image really did change, rescale the
+		# desktop.  getwindow() refreshes display.image.r in place; reshaped()
+		# then reallocates the screen and every child window proportionally.
+		# getwindow() refreshes display.image.r in place from the draw
+		# device; compare against the screen we are currently driving.
+		#
+		# Pass display.image back in rather than nil: with nil, getwindow
+		# wraps the screen image in a fresh Draw_Image every poll, and when
+		# that temporary is collected its destructor frees image id 0 --
+		# the screen image itself -- leaving every layer on a freed screen.
+		(nil, nil) = display.getwindow("/dev/winname", nil, display.image, Draw->Refnone);
+		if(!screen.image.r.eq(display.image.r))
+			hostreshaped(win);
 	c := <-win.ctl or
 	c = <-wmctxt.ctl =>
 		# XXX could implement "pleaseexit" in order that
@@ -623,6 +650,34 @@ inintlist(x: int, l: list of int): int
 	return 0;
 }
 
+# Watch for host-window resizes.  /dev/draw/<n>/refresh blocks until the draw
+# device has something to report; the graphics backend marks every client on a
+# host resize, so a successful read here means the screen image may have been
+# rebuilt at a new size.  We only signal -- the main loop does the work, since
+# reshaped() touches wm state that must not be handled from a second proc.
+hostresizeproc(pidc: chan of int, c: chan of int)
+{
+	pidc <-= sys->pctl(0, nil);
+	fd := sys->open("/dev/draw/new", Sys->OREAD);
+	if(fd == nil)
+		return;
+	buf := array[12*12] of byte;
+	n := sys->read(fd, buf, len buf);
+	if(n < 12)
+		return;
+	# field 0 of the ctl string is our client number
+	dirno := int string buf[0:12];
+	rfd := sys->open("/dev/draw/" + string dirno + "/refresh", Sys->OREAD);
+	if(rfd == nil)
+		return;
+	rbuf := array[5*4] of byte;
+	for(;;){
+		if(sys->read(rfd, rbuf, len rbuf) < 0)
+			return;
+		c <-= 1;
+	}
+}
+
 # Force a full repaint, reclaiming any pixels a rogue program drew straight onto
 # the screen.  Geometry is unchanged: rebuild the screen and each window image
 # (repainting the desktop fill) and ask every client to redraw -- the same
@@ -912,6 +967,31 @@ handlerequest(win: ref Wmclient->Window, wmctxt: ref Wmcontext, c: ref Client, r
 	return nil;
 }
 
+# The host window changed size.  wmclient's Window.reshape() cannot help here:
+# for the root window (no parent wm) its putimage() short-circuits when handed
+# the same display.image object it already holds, so the root Window's image is
+# rebuilt directly over the resized display image.  reshaped() then does the
+# real work -- new screen, every child window rescaled proportionally.
+hostreshaped(win: ref Wmclient->Window)
+{
+	i := display.image;
+	if(i == nil)
+		return;
+
+	# Rebuild the root Window's own layer over the resized display image.
+	# wmclient's putimage() short-circuits when handed the image the window
+	# already holds, and after a host resize that is exactly the case: the
+	# screen image is mutated in place, so the object is unchanged while its
+	# rectangle has grown.  Dropping win.screen defeats the short-circuit, so
+	# a new layer is built at the new size; without this the root layer keeps
+	# the old rectangle and paints stale fill over the new desktop.
+	win.image = nil;
+	win.screen = nil;
+	wmclient->putimage(win, i);
+	win.r = i.r;
+	reshaped(win);
+}
+
 Fix: con 1000;
 # the window manager window has been reshaped;
 # allocate a new screen, and move all the 
@@ -925,11 +1005,19 @@ reshaped(win: ref Wmclient->Window)
 	my := Fix;
 	if(oldr.dy() > 0)
 		my = newr.dy() * Fix / oldr.dy();
+	# Drop every window image FIRST.  Each one is a layer on the current
+	# screen and holds a reference to that screen's Memscreen; replacing
+	# `screen` below releases the old Screen, and devdraw's drawfreedscreen()
+	# frees the Memscreen outright.  Any layer still alive at that moment is
+	# left pointing at freed memory, and the next draw through it faults.
+	for(z0 := wmsrv->top(); z0 != nil; z0 = z0.znext)
+		for(wl0 := z0.wins; wl0 != nil; wl0 = tl wl0)
+			(hd wl0).img = nil;
+
 	screen = makescreen(win.image);
 	for(z := wmsrv->top(); z != nil; z = z.znext){
 		for(wl := z.wins; wl != nil; wl = tl wl){
 			w := hd wl;
-			w.img = nil;
 			nr := w.r.subpt(oldr.min);
 			nr.min.x = nr.min.x * mx / Fix;
 			nr.min.y = nr.min.y * my / Fix;
@@ -1423,8 +1511,16 @@ setfocus(nil: ref Wmclient->Window, new: ref Client)
 
 makescreen(img: ref Image): ref Screen
 {
-	screen = Screen.allocate(img, img.display.color(Background), 0);
-	img.draw(img.r, screen.fill, nil, screen.fill.r.min);
+	# Keep fill in a local and check both allocations: during a host resize
+	# these can transiently fail, and screen.fill is dereferenced below.
+	fill := img.display.color(Background);
+	if(fill == nil)
+		return screen;
+	ns := Screen.allocate(img, fill, 0);
+	if(ns == nil)
+		return screen;
+	screen = ns;
+	img.draw(img.r, fill, nil, fill.r.min);
 	return screen;
 }
 

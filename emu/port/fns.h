@@ -61,6 +61,8 @@ void		disinit(void*);
 int		domount(Chan**, Mhead**);
 void	drawqlock(void);
 void	drawqunlock(void);
+/* rebuild the screen image after a host-window resize (drawqlock held) */
+int	resetscreenimage(void);
 Fgrp*	dupfgrp(Fgrp*);
 void		egrpcpy(Egrp*, Egrp*);
 int		emptystr(char*);

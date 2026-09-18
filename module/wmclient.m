@@ -13,6 +13,9 @@ Wmclient: module
 	init:		fn();
 	makedrawcontext: fn(): ref Draw->Context;
 	window:		fn(ctxt: ref Draw->Context, title: string, buts: int): ref Window;
+	# rebuild a window's layer over a (possibly resized) image;
+	# used by wm/wm to follow a host-window resize
+	putimage:	fn(w: ref Window, i: ref Draw->Image);
 	snarfput:		fn(buf: string);
 	snarfget:		fn(): string;
 	cursorspec:	fn(img: ref Draw->Image): string;

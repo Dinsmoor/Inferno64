@@ -89,6 +89,14 @@ enum
 static uchar*	gscreendata;
 static uchar*	xscreendata;
 
+/*
+ * Live resize (ConfigureNotify) needs to tear the framebuffer down and build
+ * it again at the new size, so the pieces makesharedfb() used to leak are
+ * tracked here: the shm segment must be XShmDetach'd and shmdt'd before the
+ * XImage holding it is destroyed.  nil shminfo means the non-shm path.
+ */
+static XShmSegmentInfo*	shminfo;
+
 XColor	map[256];	/* Inferno colormap array */
 XColor	mapr[256];	/* Inferno red colormap array */
 XColor	mapg[256];	/* Inferno green colormap array */
@@ -113,6 +121,8 @@ static int 		infernobtox11[256]; /* Values for mapping between */
 static int		triedscreen;
 static XDrawable		xdrawable;
 static void		xexpose(XEvent*);
+static void		xconfigure(XEvent*);
+void			flushmemscreen(Rectangle);
 static void		xmouse(XEvent*);
 static void		xkeyboard(XEvent*);
 static void		xsetcursor(XEvent*);
@@ -174,8 +184,6 @@ clean_errhandlers(void)
 static int
 makesharedfb(void)
 {
-	XShmSegmentInfo *shminfo;
-
 	shminfo = malloc(sizeof(XShmSegmentInfo));
 	if(shminfo == nil) {
 		fprint(2, "emu: cannot allocate XShmSegmentInfo\n");
@@ -197,7 +205,7 @@ makesharedfb(void)
 	/* did we get an X11 error? if so then try without shm */
 	if(shm_got_x_error) {
 		free(shminfo);
-		shminfo = NULL;
+		shminfo = nil;
 		clean_errhandlers();
 		return 0;
 	}
@@ -229,9 +237,10 @@ makesharedfb(void)
 	/* did we get an X11 error? if so then try without shm */
 	if(shm_got_x_error) {
 		XDestroyImage(img);
+		img = nil;
 		XSync(xdisplay, 0);
 		free(shminfo);
-		shminfo = NULL;
+		shminfo = nil;
 		clean_errhandlers();
 		return 0;
 	}
@@ -288,9 +297,13 @@ attachscreen(Rectangle *r, ulong *chan, int *d, int *width, int *softscreen)
 	displaychan = *chan;
 	displaydepth = *d;
 
-	/* check for X Shared Memory Extension */
+	/*
+	 * check for X Shared Memory Extension.
+	 * On a resize this runs again (freescreenbuffers() has already released
+	 * the previous framebuffer), so nothing here may assume first-time state.
+	 */
 	is_shm = XShmQueryExtension(xdisplay);
-	
+
 	if(!is_shm || !makesharedfb()){
 		is_shm = 0;
 		depth = xscreendepth;
@@ -331,6 +344,116 @@ attachscreen(Rectangle *r, ulong *chan, int *d, int *width, int *softscreen)
 	}
 
 	return gscreendata;
+}
+
+/*
+ * Tear the framebuffer down: the XImage, the shm segment (if any) and the
+ * software buffers.  Leaves gscreendata/xscreendata/img nil so a failed
+ * rebuild cannot leave a dangling pointer behind.  Caller holds drawqlock.
+ */
+static void
+freescreenbuffers(void)
+{
+	if(is_shm && shminfo != nil){
+		XShmDetach(xdisplay, shminfo);
+		if(img != nil){
+			XDestroyImage(img);	/* frees img->data == shmaddr's XImage shell */
+			img = nil;
+		}
+		shmdt(shminfo->shmaddr);
+		free(shminfo);
+		shminfo = nil;
+		/* under shm at 1x, xscreendata aliases img->data; do not free twice */
+		if(scale > 1)
+			free(xscreendata);
+		xscreendata = nil;
+		free(gscreendata);
+		gscreendata = nil;
+		return;
+	}
+	/*
+	 * Non-shm: XDestroyImage frees img->data, which is the buffer we handed
+	 * it (the upscale buffer when scaling, else xscreendata itself).
+	 */
+	if(img != nil){
+		if(scale > 1)
+			free(xscreendata);	/* separate from img->data */
+		XDestroyImage(img);		/* frees img->data */
+		img = nil;
+		xscreendata = nil;
+	}else{
+		free(xscreendata);
+		xscreendata = nil;
+	}
+	free(gscreendata);
+	gscreendata = nil;
+}
+
+/*
+ * The host window changed size: rebuild the framebuffer at the new dimensions
+ * and hand devdraw a fresh screen image.  devdraw then publishes the new
+ * rectangle through /dev/draw, which is what lets wm/wm's existing reshaped()
+ * (appl/wm/wm.b) reallocate its screen and rescale every child window.
+ *
+ * Runs on the xproc kproc, which holds no draw lock of its own, so we take
+ * drawqlock around the whole swap: flushmemscreen and the copy* routines read
+ * Xsize/Ysize and the buffer pointers, and must not see them half-updated.
+ */
+void
+xresizescreen(int w, int h)
+{
+	int ow, oh;
+
+	w &= ~0x3;			/* attachscreen's invariant: multiple of 4 */
+	if(w < 64)
+		w = 64;
+	if(h < 64)
+		h = 64;
+	if(w == Xsize && h == Ysize)
+		return;
+
+	/*
+	 * drawqlock is devdraw's sdraw.q -- the same lock every /dev/draw read
+	 * and write takes -- so holding it here serializes the swap against
+	 * every draw operation the Dis interpreter can issue.
+	 */
+	drawqlock();
+	ow = Xsize;
+	oh = Ysize;
+	/*
+	 * Drop the old buffers, then let devdraw re-point the screen image:
+	 * resetscreenimage() calls attachscreen(), which allocates the
+	 * framebuffer at the new Xsize/Ysize and hands back gscreendata.
+	 */
+	freescreenbuffers();
+	Xsize = w;
+	Ysize = h;
+	if(!resetscreenimage()){
+		/* put it back the way it was; a failed resize must not kill the session */
+		freescreenbuffers();
+		Xsize = ow;
+		Ysize = oh;
+		if(!resetscreenimage()){
+			drawqunlock();
+			fprint(2, "emu: cannot rebuild screen buffer after resize\n");
+			cleanexit(0);
+		}
+		drawqunlock();
+		return;
+	}
+
+	/*
+	 * The new framebuffer starts out empty and no Expose follows a
+	 * programmatic resize, so paint what is now in it.  wm/wm repaints the
+	 * desktop itself once it processes the resize, but without this the
+	 * window shows stale/blank pixels until something else damages it.
+	 *
+	 * flushmemscreen is called with the lock still held: xexpose does the
+	 * same, and the copy* routines read Xsize/Ysize and the buffer
+	 * pointers, which must not change underneath them.
+	 */
+	flushmemscreen(Rect(0, 0, Xsize, Ysize));
+	drawqunlock();
 }
 
 static void
@@ -665,6 +788,7 @@ xproc(void *arg)
 		xselect(&event, xd);
 		xmouse(&event);
 		xexpose(&event);
+		xconfigure(&event);
 		xdestroy(&event);
 	}
 }
@@ -1184,10 +1308,22 @@ xinitscreen(int xsize, int ysize, ulong reqchan, ulong *chan, int *d)
 	name.format = 8;
 	name.nitems = strlen((char*)name.value);
 
+	/*
+	 * The window is resizable: advertise only the initial size and a floor,
+	 * not a maximum.  (It used to pin max_width/max_height to the initial
+	 * size, which told the window manager the window could never grow.)
+	 * ConfigureNotify then drives xresizescreen(), and wm/wm's reshaped()
+	 * rescales the desktop to match.  PResizeInc keeps width a multiple of
+	 * 4 * scale, which is attachscreen()'s Xsize &= ~3 invariant.
+	 */
 	memset(&normalhints, 0, sizeof(normalhints));
-	normalhints.flags = USSize|PMaxSize;
-	normalhints.max_width = normalhints.width = xsize;
-	normalhints.max_height = normalhints.height = ysize;
+	normalhints.flags = USSize|PMinSize|PResizeInc;
+	normalhints.width = xsize;
+	normalhints.height = ysize;
+	normalhints.min_width = 64 * scale;
+	normalhints.min_height = 64 * scale;
+	normalhints.width_inc = 4 * scale;
+	normalhints.height_inc = 1 * scale;
 	hints.flags = InputHint|StateHint;
 	hints.input = 1;
 	hints.initial_state = NormalState;
@@ -1431,6 +1567,27 @@ xexpose(XEvent *e)
 	drawqlock();
 	flushmemscreen(r);
 	drawqunlock();
+}
+
+/*
+ * The host window changed size.  X sends a ConfigureNotify for moves as well
+ * as resizes, and sends a run of them during an interactive drag, so compare
+ * against the current size and do nothing unless it actually changed.
+ *
+ * The event is in physical pixels; the Inferno screen is in logical ones, so
+ * divide by the HiDPI scale.
+ */
+static void
+xconfigure(XEvent *e)
+{
+	XConfigureEvent *xe;
+
+	if(e->type != ConfigureNotify)
+		return;
+	xe = (XConfigureEvent*)e;
+	if(xe->window != xdrawable)
+		return;
+	xresizescreen(xe->width / scale, xe->height / scale);
 }
 
 static void

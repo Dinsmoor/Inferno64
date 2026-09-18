@@ -144,7 +144,20 @@ putimage(w: ref Window, i: ref Image)
 {
 	if(w.screen != nil && i == w.screen.image)
 		return;
-	w.screen = Screen.allocate(i, w.display.color(Draw->White), 0);
+	# Drop the layers allocated on the previous screen before releasing the
+	# screen itself.  Replacing w.screen frees the old Screen, and devdraw
+	# frees its Memscreen with it; a layer that outlives it is left pointing
+	# at freed memory.  Matters on a host-window resize, where the wm hands
+	# every client a new image and this runs with the old layers still live.
+	w.image = nil;
+	w.screen = nil;
+
+	fill := w.display.color(Draw->White);
+	if(fill == nil)
+		return;
+	w.screen = Screen.allocate(i, fill, 0);
+	if(w.screen == nil)
+		return;
 	ir := i.r.inset(w.bd);
 	if(ir.dx() < 0)
 		ir.max.x = ir.min.x;

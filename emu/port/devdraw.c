@@ -880,6 +880,104 @@ initscreenimage(void)
 	return 1;
 }
 
+/*
+ * The host window was resized: the backend has already rebuilt its
+ * framebuffer, so re-point the screen image at the new buffer and new
+ * geometry.
+ *
+ * The Memimage is updated IN PLACE rather than freed and reallocated,
+ * because its address is cached in several places that this code cannot
+ * reach: every client's image id 0 (drawinstall(cl, 0, screenimage, 0) at
+ * open), and, more importantly, Memscreen->image for every DScreen
+ * allocated over the display (drawinstallscreen copies dimage->image into
+ * s->image).  wm/wm holds such a screen for the whole session, and its
+ * layers reach the framebuffer through l->layer->screen->image.  Freeing
+ * the Memimage leaves all of those dangling, which is what made resizing
+ * fault inside Screen.allocate.
+ *
+ * screendata is a static Memdata with ref==1 held by screenimage, so only
+ * bdata changes; the ref count and the identity of the Memdata are
+ * deliberately left alone.
+ *
+ * Called from the graphics backend with drawqlock held.
+ */
+int
+resetscreenimage(void)
+{
+	int i, width, depth;
+	ulong chan;
+	Rectangle r;
+	Client *cl;
+	DScreen *ds;
+	Memimage *l;
+
+	if(screenimage == nil)
+		return initscreenimage();
+
+	screendata.base = nil;
+	screendata.bdata = attachscreen(&r, &chan, &depth, &width, &sdraw.softscreen);
+	if(screendata.bdata == nil)
+		return 0;
+
+	/*
+	 * Recompute the fields allocmemimaged() would have derived from r.
+	 * r.min is 0 for the screen, so zero is 0, but do it properly anyway.
+	 */
+	screenimage->r = r;
+	screenimage->clipr = r;
+	screenimage->width = width;
+	screenimage->zero = sizeof(u32int)*width*r.min.y;
+	if(r.min.x >= 0)
+		screenimage->zero += (r.min.x*depth)/8;
+	else
+		screenimage->zero -= (-r.min.x*depth+7)/8;
+	screenimage->zero = -screenimage->zero;
+
+	/*
+	 * Clip every layer that lives on the display to the new screen
+	 * rectangle.  A layer allocated against the old size keeps its old
+	 * screenr, and memldelete() repaints that rectangle with the screen
+	 * fill when the layer is finally collected -- which happens after the
+	 * resize, so a shrunk-then-grown desktop would get a block of stale
+	 * fill painted straight into the new framebuffer.  Clipping bounds
+	 * that repaint to pixels that actually exist.
+	 */
+	for(ds = dscreen; ds != nil; ds = ds->next){
+		if(ds->screen == nil || ds->screen->image != screenimage)
+			continue;
+		/*
+		 * Stop this screen repainting stale rectangles into the new
+		 * framebuffer.  Its layers were allocated against the old
+		 * geometry, and memldelete() fills a deleted layer's rectangle
+		 * with s->fill -- which runs whenever the Limbo side finally
+		 * collects the old windows, i.e. after the resize.  Clearing
+		 * fill makes that a no-op; the client repaints the desktop
+		 * itself once it processes the new size.
+		 */
+		ds->screen->fill = nil;
+		for(l = ds->screen->frontmost; l != nil; l = l->layer->rear){
+			rectclip(&l->layer->screenr, r);
+			rectclip(&l->r, r);
+			rectclip(&l->clipr, r);
+		}
+	}
+
+	/*
+	 * Wake every client blocked reading its refresh file: they re-read
+	 * /dev/draw/n/ctl (which reports the new screenimage->r) and redraw.
+	 * For wm/wm that is what drives reshaped(), and so the rescale of
+	 * every child window.
+	 */
+	for(i = 0; i < sdraw.nclient; i++){
+		cl = sdraw.client[i];
+		if(cl == nil)
+			continue;
+		cl->refreshme = 1;
+		Wakeup(&cl->refrend);
+	}
+	return 1;
+}
+
 void
 deletescreenimage(void)
 {

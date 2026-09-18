@@ -415,6 +415,20 @@ Display_getwindow(void *fp)
 		/* TO DO: eliminate f->image and f->screen's references to Image and Screen */
 		goto Return;
 	}
+	/*
+	 * Under emu there is no /dev/winname, so gengetwindow just re-read the
+	 * screen geometry into disp->image (the host window may have been
+	 * resized).  The Display's own Draw_Image caches that rectangle, so
+	 * refresh it here: this is what makes display.image.r report the new
+	 * size to Limbo after a host resize.
+	 */
+	if(disp->image != nil && f->d != H){
+		DImage *ddi = (DImage*)((DDisplay*)f->d)->drawdisplay.image;
+		if(ddi != (DImage*)H && ddi != nil){
+			R2R(ddi->drawimage.r, disp->image->r);
+			R2R(ddi->drawimage.clipr, disp->image->clipr);
+		}
+	}
 	if(screen != nil){
 		if(f->screen != H){
 			f->ret->t0 = f->screen;

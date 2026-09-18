@@ -9,6 +9,49 @@ enum {
 	CHECKLOCKING = 0
 };
 
+#define	NINFO	12*12
+
+/*
+ * Re-read the screen image's geometry from the draw device's ctl file and
+ * update d->image in place.  Used when the host window may have been resized:
+ * devdraw reports screenimage->r, which the graphics backend rebuilds on a
+ * host resize, so this is how a client learns the new size.
+ *
+ * Best-effort: on any error the cached rectangle is left alone.
+ */
+void
+_getdisplaysize(Display *d)
+{
+	char info[NINFO+1];
+	uchar id[4];
+
+	if(d == nil || d->image == nil || d->ctlchan == nil)
+		return;
+	/*
+	 * A ctl read reports whichever image was last selected by a 4-byte
+	 * write of its id, and the read consumes that selection.  Image id 0
+	 * is the screen image, so select it, then read its geometry back.
+	 *
+	 * The Display's own ctl channel is used rather than reopening the file:
+	 * /dev/draw/<n>/ctl can only be opened by the client that owns slot n,
+	 * so a fresh open fails.
+	 */
+	memset(id, 0, sizeof id);
+	if(kchanio(d->ctlchan, id, sizeof id, OWRITE) != sizeof id)
+		return;
+	if(kchanio(d->ctlchan, info, NINFO, OREAD) != NINFO)
+		return;
+	info[NINFO] = '\0';
+	d->image->r.min.x = atoi(info+4*12);
+	d->image->r.min.y = atoi(info+5*12);
+	d->image->r.max.x = atoi(info+6*12);
+	d->image->r.max.y = atoi(info+7*12);
+	d->image->clipr.min.x = atoi(info+8*12);
+	d->image->clipr.min.y = atoi(info+9*12);
+	d->image->clipr.max.x = atoi(info+10*12);
+	d->image->clipr.max.y = atoi(info+11*12);
+}
+
 /*
  * Attach, or possibly reattach, to window.
  * If reattaching, maintain value of screen pointer.
@@ -22,6 +65,14 @@ gengetwindow(Display *d, char *winname, Image **winp, Screen **scrp, int ref)
 
 	fd = libopen(winname, OREAD);
 	if(fd<0 || (n=libread(fd, buf, sizeof buf-1))<=0){
+		/*
+		 * No /dev/winname: this is emu drawing straight to the host
+		 * window, so there is only one image to get.  Its rectangle is
+		 * not fixed -- the host window can be resized -- so re-read the
+		 * screen geometry from the draw device rather than trusting the
+		 * values cached when the Display was first opened.
+		 */
+		_getdisplaysize(d);
 		*winp = d->image;
 		assert(*winp && (*winp)->chan != 0);
 		return 1;
@@ -53,8 +104,6 @@ gengetwindow(Display *d, char *winname, Image **winp, Screen **scrp, int ref)
 	assert((*winp)->chan != 0);
 	return 1;
 }
-
-#define	NINFO	12*12
 
 Display*
 initdisplay(char *dev, char *win, void(*error)(Display*, char*))

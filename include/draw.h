@@ -351,6 +351,7 @@ extern int	loadimage(Image*, Rectangle, uchar*, int);
 extern int	cloadimage(Image*, Rectangle, uchar*, int);
 extern int	getwindow(Display*, int);
 extern int	gengetwindow(Display*, char*, Image**, Screen**, int);
+extern void	_getdisplaysize(Display*);
 extern Image* readimage(Display*, int, int);
 extern Image* creadimage(Display*, int, int);
 extern int	unloadimage(Image*, Rectangle, uchar*, int);
