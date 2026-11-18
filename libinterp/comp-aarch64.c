@@ -86,8 +86,8 @@ extern void	pthread_jit_write_protect_np(int);
 #else
 #define	MAP_ANONYMOUS	0x20
 #define	JITMAPFLAGS	(MAP_PRIVATE|MAP_ANONYMOUS)
-#define	JITLOWHINT	((void*)0x20000000UL)
-#define	JITLOWLIMIT	0x80000000UL		/* keep code below 2GB */
+#define	JITLOWHINT	((void*)0x20000000UL)	/* low code is faster, not required (TABPC) */
+#define	JITLOWLIMIT	0x80000000UL		/* extra arenas must stay low: see jitcode */
 #define	jitwritable(on)
 #endif
 
@@ -126,7 +126,14 @@ jitcode(ulong n)
 			JITMAPFLAGS, -1, 0);
 		if(p == MAP_FAILED)
 			return nil;
-		if((uintptr_t)p + sz > JITLOWLIMIT) {	/* landed too high */
+		/*
+		 * Jump tables hold offsets from m->prog (TABPC), so code may live
+		 * anywhere: the first arena is kept wherever mmap put it, even if
+		 * the low hint was not honoured.  Code below 4GB is still the fast
+		 * case, hence the hint.  A further arena must stay low, so that a
+		 * high one never puts heap inside [jitlo, jithi).
+		 */
+		if(jitarena != nil && (uintptr_t)p + sz > JITLOWLIMIT) {	/* extra arena landed too high */
 			munmap(p, sz);
 			return nil;
 		}
