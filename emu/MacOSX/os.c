@@ -1,131 +1,536 @@
-/*
- * Loosely based on FreeBSD/os.c and Solaris/os.c
- * Copyright © 1998, 1999 Lucent Technologies Inc.  All rights reserved.
- * Revisions Copyright © 1999, 2000 Vita Nuova Limited.  All rights reserved.
- * Revisions Copyright © 2002, 2003 Corpus Callosum Corporation.  All rights reserved.
- */
+#include	<sys/types.h>
+#include	<time.h>
+#include	<termios.h>
+#include	<signal.h>
+#include 	<pwd.h>
+#include	<grp.h>
+#include	<sched.h>
+#include	<sys/resource.h>
+#include	<sys/wait.h>
+#include	<sys/time.h>
+
+#include	<stdint.h>
+#include	<unistd.h>
+#include	<fcntl.h>
+#include	<sys/mman.h>
 
 #include	"dat.h"
 #include	"fns.h"
 #include	"error.h"
+#include	"interp.h"
 
-#include <raise.h>
+#include <semaphore.h>
 
-#undef _POSIX_C_SOURCE 
-#undef getwd
+#include	<raise.h>
 
-#include	<unistd.h>
-#include        <pthread.h>
-#include	<time.h>
-#include	<termios.h>
-#include	<signal.h>
-#include	<pwd.h>
-#include	<sys/resource.h>
-#include	<sys/time.h>
-
-#include 	<sys/socket.h>
-#include	<sched.h>
-#include	<errno.h>
-#include        <sys/ucontext.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <mach/mach_init.h>
-#include <mach/task.h>
-#include <mach/vm_map.h>
-
-#if defined(__ppc__)
-#include <architecture/ppc/cframe.h>
-#endif
 
 enum
 {
-    DELETE = 0x7F
+	DELETE	= 0x7f,
+	CTRLC	= 'C'-'@',
+	CTRLBS	= '\\'-'@',	/* ^\ : force-quit emu (the old ^C behaviour) */
+	NSTACKSPERALLOC = 16,
+	X11STACK=	256*1024
 };
 char *hosttype = "MacOSX";
-char *cputype = OBJTYPE;
 
-typedef struct Sem Sem;
-struct Sem {
-	pthread_cond_t	c;
-	pthread_mutex_t	m;
-	int	v;
-};
-
-static pthread_key_t  prdakey;
 
 extern int dflag;
-void (*coherence)(void) = nofence;
 
-Proc*
-getup(void)
+/*
+ * Memory-ordering barrier used by unlock() (emu/port/lock.c) as the release
+ * fence between a critical section's stores and clearing the lock word.
+ *
+ * aarch64 is weakly ordered, so this MUST be a real barrier: without it the
+ * next thread's _tas() can observe the lock free (its own dmb is only an
+ * acquire fence) while the writes the lock protected are not yet visible,
+ * leaving it to act on stale shared state -- e.g. the pool free-tree root/links
+ * (emu/port/alloc.c), which surfaces as rare, flaky, layout-dependent heap
+ * corruption.  __sync_synchronize() emits `dmb ish`.  On x86 (TSO) the store
+ * ordering unlock needs is free, so nofence remains correct there.
+ */
+#if defined(LINUX_AARCH64) || defined(MACOSX_AARCH64)
+static void
+fencecoherence(void)
 {
-	return pthread_getspecific(prdakey);
+	__sync_synchronize();
+}
+void (*coherence)(void) = fencecoherence;
+#else
+void (*coherence)(void) = nofence;
+#endif
+
+int	gidnobody = -1;
+int	uidnobody = -1;
+static struct 	termios tinit;
+
+/*
+ * ------------------------------------------------------------------
+ * LP64 observability (see ref/AGENTS_DEBUGGING.md and the lp64 plan).
+ *
+ * A wide value truncated to 32 bits surfaces as a wild pointer that
+ * faults far from its cause, or as a hang.  These routines turn both
+ * into something readable: an async-signal-safe Dis backtrace printed
+ * to the host's stderr (fd 2), optionally followed by a real core.
+ *
+ * Everything reachable from a signal handler here is async-signal-safe:
+ * only write(2), no malloc/free, no locks, no stdio, no fmt.  Pointers
+ * coming off a possibly-corrupt stack are validated with faultprobe()
+ * before being dereferenced, and every walk is depth-bounded.
+ * ------------------------------------------------------------------
+ */
+
+int	faultcrash;		/* EMUCRASH: wild-address fault -> dump + core */
+int	faultmonsec;		/* EMUWATCHDOG: hang threshold (s), 0 disables */
+int	niltrace;		/* EMUNILTRACE: dump Dis backtrace on every nil-deref */
+
+static int faultnullfd = -1;	/* writable /dev/null, for faultprobe() */
+static int hanglogfd = -1;	/* EMUHANGLOG: durable host-side copy of dumps */
+
+static char *disstate[] = {	/* must track enum ProgState in interp.h */
+	"alt", "send", "recv", "debug", "ready", "release", "exiting", "broken",
+};
+
+/* write the whole buffer; safe from a signal handler */
+static void
+aw(char *s, int n)
+{
+	long r;
+	int left;
+
+	/*
+	 * Durable copy of every fault/hang dump.  These reports are async-safe
+	 * writes to fd 2 (the console) precisely because they fire when the VM
+	 * can't be trusted, so they cannot be routed through Dis channels live;
+	 * a host file is the one sink something else can read back afterwards
+	 * (e.g. tailed into the GUI proc log for a recoverable hang).
+	 */
+	if(hanglogfd >= 0)
+		write(hanglogfd, s, n);		/* best-effort; no retry in signal ctx */
+
+	left = n;
+	while(left > 0){
+		r = write(2, s, left);
+		if(r <= 0)
+			break;
+		s += r;
+		left -= r;
+	}
+}
+
+static void
+aws(char *s)
+{
+	int n;
+
+	if(s == nil){
+		aws("<nil>");
+		return;
+	}
+	for(n = 0; n < 4096 && s[n] != 0; n++)
+		;
+	aw(s, n);
+}
+
+static void
+awu(uvlong v)
+{
+	char b[24];
+	int i;
+
+	i = sizeof(b);
+	if(v == 0){
+		aws("0");
+		return;
+	}
+	while(v != 0 && i > 0){
+		b[--i] = '0' + (int)(v % 10);
+		v /= 10;
+	}
+	aw(b + i, sizeof(b) - i);
+}
+
+static void
+awx(uvlong v)
+{
+	char b[16];
+	int i;
+
+	aws("0x");
+	i = sizeof(b);
+	if(v == 0){
+		aws("0");
+		return;
+	}
+	while(v != 0 && i > 0){
+		b[--i] = "0123456789abcdef"[v & 0xf];
+		v >>= 4;
+	}
+	aw(b + i, sizeof(b) - i);
+}
+
+/*
+ * Is the n-byte range at p readable without faulting?  Ask the kernel by
+ * trying to write it to /dev/null: a bad pointer fails with EFAULT rather
+ * than crashing us.  Async-signal-safe.  Without /dev/null, fall back to a
+ * cheap heuristic and rely on the depth cap.
+ */
+int
+faultprobe(void *p, int n)
+{
+	if(p == nil)
+		return 0;
+	if(faultnullfd < 0)
+		return (uintptr_t)p >= 4096;
+	return write(faultnullfd, p, n) == n;
+}
+
+/*
+ * Walk a Dis frame chain (REGLINK/REGFP/REGMOD, see struct Frame) emitting
+ * module/pc/op per frame.  Mirrors the unwinding in libinterp/xec and
+ * exception.c, but takes no locks and validates every pointer first, so it
+ * is safe to run from a fault or from an arbitrary thread on USR2.
+ */
+void
+disbacktrace(REG *r)
+{
+	Frame *f;
+	uchar *fp;
+	Modlink *m;
+	Module *mm;
+	Inst *pc;
+	int depth;
+
+	if(r == nil || !faultprobe(r, sizeof(REG))){
+		aws("\t<no register set>\n");
+		return;
+	}
+	m = r->M;
+	pc = r->PC;
+	fp = r->FP;
+	for(depth = 0; depth < 64; depth++){
+		mm = nil;
+		if(m != H && faultprobe(m, sizeof(Modlink)))
+			mm = m->m;
+		aws("\t");
+		if(mm != nil && faultprobe(mm, sizeof(Module)) && mm->name != nil)
+			aws(mm->name);
+		else
+			aws("?");
+		aws(" pc=");
+		if(mm != nil && !m->compiled && pc != nil && m->prog != nil)
+			awu((uvlong)(pc - m->prog));
+		else
+			awx((uvlong)(uintptr_t)pc);
+		aws(" op=");
+		if(pc != nil && faultprobe(pc, sizeof(Inst)))
+			awu((uvlong)pc->op);
+		else
+			aws("?");
+		aws("\n");
+
+		if(fp == nil || !faultprobe(fp, sizeof(Frame)))
+			break;
+		f = (Frame*)fp;
+		pc = f->lr;
+		if(f->mr != nil)
+			m = f->mr;
+		if((uchar*)f->fp == fp)		/* no progress: stop */
+			break;
+		fp = f->fp;
+	}
+}
+
+/*
+ * Dump every Dis prog: pid, scheduler state, and a backtrace.  The running
+ * prog's live registers are in the global R; blocked progs carry their own
+ * saved R.  Uses the public progn()/nprog() accessors and bounds the walk so
+ * a corrupt run list can't loop us.
+ */
+void
+dumpallprogs(char *why)
+{
+	Prog *p, *run;
+	REG *r;
+	int i, n;
+
+	aws("\n=== Dis proc dump");
+	if(why != nil){
+		aws(" (");
+		aws(why);
+		aws(")");
+	}
+	aws(" ===\n");
+
+	run = currun();
+	n = nprog();
+	if(n < 0 || n > 100000)
+		n = 100000;
+	for(i = 0; i < n; i++){
+		p = progn(i);
+		if(p == nil || !faultprobe(p, sizeof(Prog)))
+			break;
+		aws("prog ");
+		awu((uvlong)(ulong)p->pid);
+		aws(" [");
+		if((int)p->state >= 0 && (int)p->state < 8)
+			aws(disstate[p->state]);
+		else
+			aws("?");
+		aws("]\n");
+		r = (p == run) ? &R : &p->R;
+		disbacktrace(r);
+	}
+	aws("=== end dump ===\n");
+}
+
+/*
+ * Hang watchdog.  The scheduler bumps schedprogress every time it runs a
+ * prog.  If progress stops advancing while a prog is still on the run queue,
+ * a prog entered the interpreter and never returned (a C-level infinite loop
+ * or a lock cycle) -- a genuine hang, distinct from a system idle on I/O
+ * (run queue empty).  Report it, and in crash mode abort() for a core.
+ */
+void
+faultmon(void *a)
+{
+	uvlong last, cur;
+	int tick, stalled;
+
+	USED(a);
+
+	tick = faultmonsec / 6;		/* sample several times per threshold */
+	if(tick < 1)
+		tick = 1;
+	last = schedprogress;
+	stalled = 0;
+	for(;;){
+		osmillisleep(tick * 1000);
+		cur = schedprogress;
+		if(cur == last && schedbusy()){
+			stalled += tick;
+			if(stalled >= faultmonsec){
+				iprint("\nHANG: no VM progress for %ds with work queued; "
+					"dumping all Dis procs (kill -USR2 %d to repeat)\n",
+					stalled, (int)getpid());
+				dumpallprogs("hang");
+				if(faultcrash)
+					abort();	/* core for offline analysis */
+				stalled = 0;	/* dumped; keep watching */
+			}
+		}else
+			stalled = 0;
+		last = cur;
+	}
+}
+
+/*
+ * On-demand thread dump: kill -USR2 <emu>.  (SIGUSR1 is reserved for
+ * unblocking interruptible host I/O, so the dump uses USR2.)  Best-effort:
+ * other threads keep running, but every pointer is validated before use.
+ */
+static void
+trapUSR2(int signo)
+{
+	USED(signo);
+	dumpallprogs("SIGUSR2");
+}
+
+/*
+ * LIMBRUL electric-fence quarantine allocator (debug; Linux host).
+ *
+ * Routes one pool size class (LIMBRULFENCEMEMSIZE = the rounded pool block size,
+ * e.g. 128) through a reserved-VA arena instead of the shared pool: each block
+ * gets its own page(s), placed END-flush against a trailing PROT_NONE guard page
+ * (a write past the block faults), and on free the block's pages are
+ * mprotect(PROT_NONE)'d -- quarantine, so a use-after-free read/write faults
+ * SYNCHRONOUSLY at the offending instruction (run under gdb for the writer's
+ * stack). Unlike the lazy EMUPOOLPARANOID audit this needs no bit-36 arming: it
+ * traps the bad access itself, so a deterministic ASLR-off run suffices.
+ * Off unless LIMBRULFENCEMEMSIZE is set; zero behaviour change otherwise.
+ */
+ulong	poolfencesize;
+
+static struct {
+	Lock	l;
+	uchar	*lo;
+	uchar	*hi;
+	uchar	*next;
+	long	ps;
+} efence;
+
+void
+poolfenceinit(void)
+{
+	char *e;
+	uvlong arena;
+
+	e = getenv("LIMBRULFENCEMEMSIZE");
+	if(e == nil)
+		return;
+	poolfencesize = atoi(e);
+	if(poolfencesize == 0)
+		return;
+	efence.ps = sysconf(_SC_PAGESIZE);
+	arena = (uvlong)16*1024*1024*1024;		/* 16 GiB reserved VA (PROT_NONE) */
+	efence.lo = mmap(nil, arena, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if(efence.lo == MAP_FAILED){
+		print("LIMBRUL: arena reserve failed; fence disabled\n");
+		poolfencesize = 0;
+		return;
+	}
+	efence.hi = efence.lo + arena;
+	efence.next = efence.lo;
+	print("LIMBRUL: electric-fence on size-%lud blocks (arena %#p..%#p)\n",
+		poolfencesize, efence.lo, efence.hi);
+}
+
+int
+poolfenceowns(void *v)
+{
+	return poolfencesize && (uchar*)v >= efence.lo && (uchar*)v < efence.hi;
+}
+
+Bhdr*
+poolfencealloc(ulong blocksize)
+{
+	uchar *base, *guard;
+	uvlong datalen, total;
+	Bhdr *b;
+
+	datalen = (blocksize + efence.ps - 1) & ~((uvlong)efence.ps - 1);
+	total = datalen + efence.ps;			/* + trailing guard page */
+	lock(&efence.l);
+	if(efence.next + total > efence.hi){		/* arena exhausted */
+		unlock(&efence.l);
+		return nil;
+	}
+	base = efence.next;
+	efence.next += total;
+	unlock(&efence.l);
+	if(mprotect(base, datalen, PROT_READ|PROT_WRITE) != 0)
+		return nil;
+	guard = base + datalen;				/* stays PROT_NONE from the reserve */
+	b = (Bhdr*)(guard - blocksize);			/* block END flush to the guard */
+	b->magic = MAGIC_A;
+	b->size = blocksize;
+	B2T(b)->hdr = b;
+	return b;
 }
 
 void
-pexit(char *msg, int t)
+poolfencefree(Bhdr *b)
 {
-	Osenv *e;
-	Proc *p;
-	Sem *sem;
+	uchar *guard, *base;
+	uvlong datalen;
 
-	USED(t);
-	USED(msg);
-
-	lock(&procs.l);
-	p = up;
-	if(p->prev)
-		p->prev->next = p->next;
-	else
-		procs.head = p->next;
-
-	if(p->next)
-		p->next->prev = p->prev;
-	else
-		procs.tail = p->prev;
-	unlock(&procs.l);
-
-	if(0)
-		print("pexit: %s: %s\n", p->text, msg);
-
-	e = p->env;
-	if(e != nil) {
-		closefgrp(e->fgrp);
-		closepgrp(e->pgrp);
-		closeegrp(e->egrp);
-		closesigs(e->sigs);
-		free(e->user);
-	}
-	free(p->prog);
-	sem = p->os;
-	if(sem != nil){
-		pthread_cond_destroy(&sem->c);
-		pthread_mutex_destroy(&sem->m);
-	}
-	free(p->os);
-	free(p);
-	pthread_exit(0);
+	guard = (uchar*)b + b->size;			/* page-aligned (block was flush) */
+	datalen = (b->size + efence.ps - 1) & ~((uvlong)efence.ps - 1);
+	base = guard - datalen;
+	mprotect(base, datalen, PROT_NONE);		/* quarantine: UAF access -> SIGSEGV */
 }
 
+/*
+ * Wire up the observability features from the environment.  Called from
+ * libinit before any Dis runs.
+ *   EMUCRASH       wild-address faults dump then drop a core; hang -> abort.
+ *                  Off by default in release builds; ON by default in debug
+ *                  builds (-DEMU_DEBUG_DEFAULTS), where EMUCRASH=0 opts out.
+ *   EMUWATCHDOG=N  hang threshold in seconds (default 60; 0 disables)
+ */
+static void
+faultmoninit(void)
+{
+	struct sigaction act;
+	char *e;
 
+	faultnullfd = open("/dev/null", O_WRONLY);
+
+	e = getenv("EMUHANGLOG");	/* durable host copy of fault/hang dumps */
+	if(e != nil && *e != 0)
+		hanglogfd = open(e, O_WRONLY|O_CREAT|O_APPEND, 0644);
+
+	e = getenv("EMUCRASH");
+	faultcrash = e != nil;
+#ifdef EMU_DEBUG_DEFAULTS
+	/* debug build: crash-dump + core on by default; EMUCRASH=0 opts out. */
+	if(e == nil)
+		faultcrash = 1;
+	else if(strcmp(e, "0") == 0)
+		faultcrash = 0;
+#endif
+
+	faultmonsec = 60;
+	e = getenv("EMUWATCHDOG");
+	if(e != nil)
+		faultmonsec = atoi(e);
+
+	e = getenv("EMUNILTRACE");	/* dump faulting Dis module/pc/op on every nil-deref */
+	if(e != nil)
+		niltrace = atoi(e);
+
+	e = getenv("EMUPOOLCHECK");	/* free-tree audit cadence (GCs); 0 disables */
+	if(e != nil)
+		poolcheckfreq = atoi(e);
+
+	e = getenv("EMUPOOLPARANOID");	/* free-tree audit on EVERY alloc/free op */
+	if(e != nil)
+		poolparanoid = atoi(e);
+
+	poolfenceinit();		/* LIMBRULFENCEMEMSIZE electric-fence (debug) */
+
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = trapUSR2;
+	sigaction(SIGUSR2, &act, nil);
+}
 
 static void
 sysfault(char *what, void *addr)
 {
 	char buf[64];
+	char mbuf[128];
+	ulong pc;
 
+	pc = modstatus(&R, mbuf, sizeof(mbuf));
+	print("LP64 fault: %s%#p in %s pc=%lud op=%d\n", what, addr, mbuf, pc,
+		R.PC ? R.PC->op : -1);
 	snprint(buf, sizeof(buf), "sys: %s%#p", what, addr);
 	disfault(nil, buf);
+}
+
+/*
+ * Crash-hard path for a wild-address fault under EMUCRASH.  Emit the one-line
+ * diagnostic and a full Dis backtrace of every prog, then restore the default
+ * disposition and return: the faulting instruction re-executes and the OS
+ * drops a core at the exact C site, so `gdb emu core` shows the truncating op
+ * handler.  Async-signal-safe (no print/snprint).
+ */
+static void
+syscrash(int signo, char *what, void *addr)
+{
+	struct sigaction act;
+
+	aws("\nLP64 fault: ");
+	aws(what);
+	awx((uvlong)(uintptr_t)addr);
+	aws("\n");
+	dumpallprogs("fault");
+	aws("re-raising for core...\n");
+
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = SIG_DFL;
+	sigaction(signo, &act, nil);
+	/* return: faulting instruction re-executes -> core dumped */
 }
 
 static void
 trapILL(int signo, siginfo_t *si, void *a)
 {
-	USED(signo);
 	USED(a);
-	sysfault("illegal instruction pc=", si->si_addr);
+	if(faultcrash)
+		syscrash(signo, "illegal instruction pc=", si->si_addr);
+	else
+		sysfault("illegal instruction pc=", si->si_addr);
 }
 
 static int
@@ -138,12 +543,26 @@ static void
 trapmemref(int signo, siginfo_t *si, void *a)
 {
 	USED(a);	/* ucontext_t*, could fetch pc in machine-dependent way */
-	if(isnilref(si))
-		disfault(nil, exNilref);
-	else if(signo == SIGBUS)
-		sysfault("bad address addr=", si->si_addr);	/* eg, misaligned */
-	else
-		sysfault("segmentation violation addr=", si->si_addr);
+	if(isnilref(si)){
+		if(niltrace){
+			aws("\nNILREF: addr=");
+			awx((uvlong)(uintptr_t)(si ? si->si_addr : nil));
+			aws("\n");
+			disbacktrace(&R);	/* top frame = the Dis op that derefed nil */
+		}
+		disfault(nil, exNilref);	/* ordinary Limbo nil deref: stays an exception */
+	}
+	else if(signo == SIGBUS){
+		if(faultcrash)
+			syscrash(signo, "bad address addr=", si->si_addr);
+		else
+			sysfault("bad address addr=", si->si_addr);	/* eg, misaligned */
+	}else{
+		if(faultcrash)
+			syscrash(signo, "segmentation violation addr=", si->si_addr);
+		else
+			sysfault("segmentation violation addr=", si->si_addr);
+	}
 }
 
 static void
@@ -157,197 +576,21 @@ trapFPE(int signo, siginfo_t *si, void *a)
 	disfault(nil, buf);
 }
 
-void
+static void
 trapUSR1(int signo)
 {
-    USED(signo);
-    
-    if(up->type != Interp)      /* Used to unblock pending I/O */
-        return;
-    if(up->intwait == 0)        /* Not posted so its a sync error */
-        disfault(nil, Eintr);	/* Should never happen */
-    
-    up->intwait = 0;		/* Clear it so the proc can continue */
-}
+	int intwait;
 
-/* from geoff collyer's port */
-void
-printILL(int sig, siginfo_t *si, void *v)
-{
-	USED(sig);
-	USED(v);
-	panic("illegal instruction with code=%d at address=%p, opcode=%#x\n",
-		si->si_code, si->si_addr, *(uchar*)si->si_addr);
-}
+	USED(signo);
 
-static void
-setsigs(void)
-{
-	struct sigaction act;
+	intwait = up->intwait;
+	up->intwait = 0;	/* clear it to let proc continue in osleave */
 
-	memset(&act, 0 , sizeof(act));
+	if(up->type != Interp)		/* Used to unblock pending I/O */
+		return;
 
-	/*
-	  * For the correct functioning of devcmd in the
-	 * face of exiting slaves
-	 */
-	signal(SIGPIPE, SIG_IGN);
-	if(signal(SIGTERM, SIG_IGN) != SIG_IGN)
-		signal(SIGTERM, cleanexit);
-
-	act.sa_handler = trapUSR1;
-	sigaction(SIGUSR1, &act, nil);
-
-	if(sflag == 0) {
-		act.sa_flags = SA_SIGINFO;
-		act.sa_sigaction = trapILL;
-		sigaction(SIGILL, &act, nil);
-		act.sa_sigaction = trapFPE;
-		sigaction(SIGFPE, &act, nil);
-		act.sa_sigaction = trapmemref;
-		sigaction(SIGBUS, &act, nil);
-		sigaction(SIGSEGV, &act, nil);
-		if(signal(SIGINT, SIG_IGN) != SIG_IGN)
-			signal(SIGINT, cleanexit);
-	} else {
-		act.sa_sigaction = printILL;
-		act.sa_flags = SA_SIGINFO;
-		sigaction(SIGILL, &act, nil);
-	}
-}
-
-
-
-
-void *
-tramp(void *arg)
-{
-	Proc *p = arg;
-	p->sigid = (int)pthread_self();
-	if(pthread_setspecific(prdakey, arg)) {
-		print("set specific data failed in tramp\n");
-		pthread_exit(0);
-	}
-	p->func(p->arg);
-	pexit("{Tramp}", 0);
-	return NULL;
-}
-
-void
-kproc(char *name, void (*func)(void*), void *arg, int flags)
-{
-	pthread_t thread;
-	Proc *p;
-	Pgrp *pg;
-	Fgrp *fg;
-	Egrp *eg;
-	pthread_attr_t attr;
-	Sem *sem;
-
-	p = newproc();
-	if(p == nil)
-		panic("kproc: no memory");
-	sem = malloc(sizeof(*sem));
-	if(sem == nil)
-		panic("can't allocate semaphore");
-	pthread_cond_init(&sem->c, NULL);
-	pthread_mutex_init(&sem->m, NULL);
-	sem->v = 0;
-	p->os = sem;
-
-	if(flags & KPDUPPG) {
-		pg = up->env->pgrp;
-		incref(&pg->r);
-		p->env->pgrp = pg;
-	}
-	if(flags & KPDUPFDG) {
-		fg = up->env->fgrp;
-		incref(&fg->r);
-		p->env->fgrp = fg;
-	}
-	if(flags & KPDUPENVG) {
-		eg = up->env->egrp;
-		incref(&eg->r);
-		p->env->egrp = eg;
-	}
-
-	p->env->uid = up->env->uid;
-	p->env->gid = up->env->gid;
-	kstrdup(&p->env->user, up->env->user);
-
-	strcpy(p->text, name);
-
-	p->func = func;
-	p->arg = arg;
-
-	lock(&procs.l);
-	if(procs.tail != nil) {
-		p->prev = procs.tail;
-		procs.tail->next = p;
-	} else {
-		procs.head = p;
-		p->prev = nil;
-	}
-	procs.tail = p;
-	unlock(&procs.l);
-
-	if(pthread_attr_init(&attr) == -1)
-		panic("pthread_attr_init failed");
-
-	pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
-	pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-	if(pthread_create(&thread, &attr, tramp, p))
-		panic("thr_create failed\n");
-	pthread_attr_destroy(&attr);
-}
-
-int
-segflush(void *va, ulong len)
-{
-	kern_return_t   err;
-	vm_machine_attribute_val_t value = MATTR_VAL_ICACHE_FLUSH;
-
-	err = vm_machine_attribute( (vm_map_t)mach_task_self(),
-		(vm_address_t)va,
-		(vm_size_t)len,
-		MATTR_CACHE,
-		&value);
-	if(err != KERN_SUCCESS)
-		print("segflush: failure (%d) address %lud\n", err, va);
-	return (int)err;
-}
-
-void
-oshostintr(Proc *p)
-{
-	pthread_kill((pthread_t)p->sigid, SIGUSR1);
-}
-
-void
-osblock(void)
-{
-	Sem *sem;
-
-	sem = up->os;
-	pthread_mutex_lock(&sem->m);
-	while(sem->v == 0)
-		pthread_cond_wait(&sem->c, &sem->m);
-	sem->v--;
-	pthread_mutex_unlock(&sem->m);
-}
-
-void
-osready(Proc *p)
-{
-	Sem *sem;
-
-	sem = p->os;
-	pthread_mutex_lock(&sem->m);
-	sem->v++;
-	pthread_cond_signal(&sem->c);
-	pthread_mutex_unlock(&sem->m);
+	if(intwait == 0)		/* Not posted so it's a sync error */
+		disfault(nil, Eintr);	/* Should never happen */
 }
 
 void
@@ -357,8 +600,6 @@ oslongjmp(void *regs, osjmpbuf env, int val)
 	siglongjmp(env, val);
 }
 
-struct termios tinit;
-
 static void
 termset(void)
 {
@@ -366,7 +607,7 @@ termset(void)
 
 	tcgetattr(0, &t);
 	tinit = t;
-	t.c_lflag &= ~(ICANON | ECHO | ISIG);
+	t.c_lflag &= ~(ICANON|ECHO|ISIG);
 	t.c_cc[VMIN] = 1;
 	t.c_cc[VTIME] = 0;
 	tcsetattr(0, TCSANOW, &t);
@@ -377,7 +618,6 @@ termrestore(void)
 {
 	tcsetattr(0, TCSANOW, &tinit);
 }
-
 
 void
 cleanexit(int x)
@@ -392,10 +632,9 @@ cleanexit(int x)
 	if(dflag == 0)
 		termrestore();
 
+	kill(0, SIGKILL);
 	exit(0);
 }
-
-
 
 void
 osreboot(char *file, char **argv)
@@ -403,49 +642,156 @@ osreboot(char *file, char **argv)
 	if(dflag == 0)
 		termrestore();
 	execvp(file, argv);
-	panic("reboot failure");
+	error("reboot failure");
 }
 
-
-
-int gidnobody= -1, uidnobody= -1;
-
-void
-getnobody()
+/*
+ * NSS-free user/group lookups.
+ *
+ * emu interposes the C malloc/free symbols with its own pool allocator.  That
+ * is incompatible with glibc's own allocator (its tcache and _int_malloc/free
+ * assume the glibc chunk layout), and the standard getpwXXX/getgrXXX entry
+ * points drag that allocator in: getpwnam(3) dlopens NSS service modules
+ * (libnss_systemd and friends) that allocate and free across the boundary,
+ * which corrupts our pool and crashes during startup.
+ *
+ * Inferno only needs a login name and the numeric uid/gid for file ownership,
+ * so we shadow the lookups with self-contained versions that never touch NSS.
+ * Names come from the environment when available; ids come from the kernel via
+ * getuid()/getgid().  Host file owners therefore appear as the invoking user
+ * or as numeric ids, which is sufficient for hosted Inferno.
+ */
+static struct passwd*
+synth_passwd(const char *name, uid_t uid, gid_t gid)
 {
-	struct passwd *pwd;
+	static struct passwd pw;
+	static char namebuf[64];
 
-	if((pwd = getpwnam("nobody"))) {
-		uidnobody = pwd->pw_uid;
-		gidnobody = pwd->pw_gid;
+	if(name == nil || *name == 0){
+		name = getenv("USER");
+		if(name == nil || *name == 0)
+			name = getenv("LOGNAME");
+		if(name == nil || *name == 0)
+			name = "inferno";
 	}
+	strncpy(namebuf, name, sizeof(namebuf)-1);
+	namebuf[sizeof(namebuf)-1] = 0;
+	memset(&pw, 0, sizeof(pw));
+	pw.pw_name = namebuf;
+	pw.pw_passwd = "";
+	pw.pw_uid = uid;
+	pw.pw_gid = gid;
+	pw.pw_dir = "/";
+	pw.pw_shell = "";
+	return &pw;
+}
+
+struct passwd*
+getpwnam(const char *name)
+{
+	if(name != nil && strcmp(name, "nobody") == 0)
+		return nil;	/* leave uidnobody/gidnobody unset, as before */
+	return synth_passwd(name, getuid(), getgid());
+}
+
+struct passwd*
+getpwuid(uid_t uid)
+{
+	return synth_passwd(nil, uid, getgid());
+}
+
+static struct group*
+synth_group(const char *name, gid_t gid)
+{
+	static struct group gr;
+	static char gnamebuf[64];
+	static char *nomembers[] = { nil };
+
+	if(name == nil || *name == 0)
+		name = "inferno";
+	strncpy(gnamebuf, name, sizeof(gnamebuf)-1);
+	gnamebuf[sizeof(gnamebuf)-1] = 0;
+	memset(&gr, 0, sizeof(gr));
+	gr.gr_name = gnamebuf;
+	gr.gr_passwd = "";
+	gr.gr_gid = gid;
+	gr.gr_mem = nomembers;
+	return &gr;
+}
+
+struct group*
+getgrgid(gid_t gid)
+{
+	return synth_group(nil, gid);
+}
+
+struct group*
+getgrnam(const char *name)
+{
+	return synth_group(name, getgid());
 }
 
 void
 libinit(char *imod)
 {
+	struct sigaction act;
 	struct passwd *pw;
 	Proc *p;
-	char	sys[64];
+	char sys[64];
 
 	setsid();
 
-	// setup personality
 	gethostname(sys, sizeof(sys));
 	kstrdup(&ossysname, sys);
-	getnobody();
+	pw = getpwnam("nobody");
+	if(pw != nil) {
+		uidnobody = pw->pw_uid;
+		gidnobody = pw->pw_gid;
+	}
 
-	if(dflag == 0)
+	if(dflag == 0) {
 		termset();
+		/*
+		 * ^C is passed through to Inferno as a normal byte, so it is not
+		 * a host kill; tell the user the escape hatch (^\, CTRLBS) that
+		 * tears emu down from this console.
+		 */
+		fprint(2, "emu: to shut down, type ^\\ (Ctrl-\\) at this console\n");
+	}
 
-	setsigs();
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = trapUSR1;
+	sigaction(SIGUSR1, &act, nil);
 
-	if(pthread_key_create(&prdakey, NULL))
-		print("key_create failed\n");
+	act.sa_handler = SIG_IGN;
+	sigaction(SIGCHLD, &act, nil);
+
+	/*
+	 * For the correct functioning of devcmd in the
+	 * face of exiting slaves
+	 */
+	signal(SIGPIPE, SIG_IGN);
+	if(signal(SIGTERM, SIG_IGN) != SIG_IGN)
+		signal(SIGTERM, cleanexit);
+	if(signal(SIGINT, SIG_IGN) != SIG_IGN)
+		signal(SIGINT, cleanexit);
+
+	if(sflag == 0) {
+		act.sa_flags = SA_SIGINFO;
+		act.sa_sigaction = trapILL;
+		sigaction(SIGILL, &act, nil);
+		act.sa_sigaction = trapFPE;
+		sigaction(SIGFPE, &act, nil);
+		act.sa_sigaction = trapmemref;
+		sigaction(SIGBUS, &act, nil);
+		sigaction(SIGSEGV, &act, nil);
+		act.sa_flags &= ~SA_SIGINFO;
+	}
+
+	faultmoninit();
 
 	p = newproc();
-	if(pthread_setspecific(prdakey, p))
-		panic("set specific thread data failed\n");
+	kprocinit(p);
 
 	pw = getpwuid(getuid());
 	if(pw != nil)
@@ -453,19 +799,17 @@ libinit(char *imod)
 	else
 		print("cannot getpwuid\n");
 
-	up->env->uid = getuid();
-	up->env->gid = getgid();
+	p->env->uid = getuid();
+	p->env->gid = getgid();
 
 	emuinit(imod);
 }
 
-
-
 int
 readkbd(void)
 {
-	int	n;
-	char	buf[1];
+	int n;
+	char buf[1];
 
 	n = read(0, buf, sizeof(buf));
 	if(n < 0)
@@ -478,8 +822,18 @@ readkbd(void)
 		buf[0] = '\n';
 		break;
 	case DELETE:
+		buf[0] = 'H' - '@';
+		break;
+	case CTRLBS:
+		/* hard kill of the whole emu, the escape hatch that ^C used
+		 * to provide. */
 		cleanexit(0);
 		break;
+	/*
+	 * ^C is intentionally NOT a hard kill any more: it is passed through
+	 * as a normal byte so the interactive shell/line-editor can treat it
+	 * like bash does (cancel the current input line).
+	 */
 	}
 	return buf[0];
 }
@@ -490,16 +844,17 @@ readkbd(void)
 long
 osmillisec(void)
 {
-	static long	sec0 = 0, usec0;
+	static long sec0 = 0, usec0;
 	struct timeval t;
 
-	if(gettimeofday(&t, NULL) < 0)
-		return(0);
+	if(gettimeofday(&t,(struct timezone*)0)<0)
+		return 0;
+
 	if(sec0 == 0) {
 		sec0 = t.tv_sec;
 		usec0 = t.tv_usec;
 	}
-	return((t.tv_sec - sec0) * 1000 + (t.tv_usec - usec0 + 500) / 1000);
+	return (t.tv_sec-sec0)*1000+(t.tv_usec-usec0+500)/1000;
 }
 
 /*
@@ -519,17 +874,19 @@ vlong
 osusectime(void)
 {
 	struct timeval t;
-
+ 
 	gettimeofday(&t, nil);
 	return (vlong)t.tv_sec * 1000000 + t.tv_usec;
 }
+
 int
 osmillisleep(ulong milsec)
 {
-	struct timespec time;
-	time.tv_sec = milsec / 1000;
-	time.tv_nsec = (milsec % 1000) * 1000000;
-	nanosleep(&time, nil);
+	struct  timespec time;
+
+	time.tv_sec = milsec/1000;
+	time.tv_nsec= (milsec%1000)*1000000;
+	nanosleep(&time, NULL);
 	return 0;
 }
 
@@ -537,39 +894,4 @@ int
 limbosleep(ulong milsec)
 {
 	return osmillisleep(milsec);
-}
-
-void
-osyield(void)
-{
-	pthread_yield_np();
-}
-
-void
-ospause(void)
-{
-	for(;;)
-		pause();
-}
-
-void
-oslopri(void)
-{
-//	pthread_setschedparam(pthread_t thread,  int policy, const struct sched_param *param);
-	setpriority(PRIO_PROCESS, 0, getpriority(PRIO_PROCESS,0)+4);
-}
-
-__typeof__(sbrk(0))
-sbrk(int size)
-{
-	void *brk;
-	kern_return_t   err;
-    
-	err = vm_allocate( (vm_map_t) mach_task_self(),
-                       (vm_address_t *)&brk,
-                       size,
-                       VM_FLAGS_ANYWHERE);
-	if(err != KERN_SUCCESS)
-		brk = (void*)-1;
-	return brk;
 }

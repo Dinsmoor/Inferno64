@@ -2,54 +2,47 @@ SYSTARG=MacOSX
 <../../mkconfig
 SYSTARG=MacOSX
 
-#Configurable parameters
+# Headless emu for macOS (Apple Silicon: OBJTYPE=aarch64).
+# Modelled on emu/Linux/mkfile; build with `mk -f mkfile-g MKFLAGS= install`.
 
-CONF=emu-g			#default configuration
-CONFLIST=emu
+CONF=emu-g
+CONFLIST=emu-g
 CLEANCONFLIST=
 
-INSTALLDIR=$ROOT/$SYSTARG/$OBJTYPE/bin	#path of directory where kernel is installed
+INSTALLDIR=$ROOT/$SYSTARG/$OBJTYPE/bin
 
-#end configurable parameters
-
-<$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE	#set vars based on target system
+<$ROOT/mkfiles/mkfile-$SYSTARG-$OBJTYPE
 
 <| $SHELLNAME ../port/mkdevlist $CONF	#sets $IP, $DEVS, $PORT, $LIBS
 
 OBJ=\
 	asm-$OBJTYPE.$O\
+	$OBJTYPE-tas.$O\
 	os.$O\
+	kproc-pthreads.$O\
+	segflush-$OBJTYPE.$O\
 	$CONF.root.$O\
 	lock.$O\
 	$DEVS\
 	$PORT\
 
+LIBNAMES=${LIBS:%=lib%.a}
+
 HFILES=\
 
-CFLAGS='-DROOT="'$ROOT'"'\
-	'-DOBJTYPE="'$OBJTYPE'"'\
-	-DEMU -I. -I../port\
-	-I$ROOT/$SYSTARG/$OBJTYPE/include\
-	-I$ROOT/include -I$ROOT/libinterp\
-	$CTHREADFLAGS $CFLAGS $EMUOPTIONS\
-
+CFLAGS='-DROOT="'$ROOT'"' -DEMU -I. -I../port -I$ROOT/$SYSTARG/$OBJTYPE/include -I$ROOT/include -I$ROOT/libinterp -I$ROOT/libmbedtls/mbedtls/include $CTHREADFLAGS $CFLAGS $EMUOPTIONS
+SYSLIBS= -lm -lpthread -framework CoreFoundation -framework IOKit	# IOKit/CF: deveia.c
 KERNDATE=`{$NDATE}
-
-SYSLIBS= \
-	-lm\
-	-lpthread\
-	-framework CoreFoundation\
-	-framework IOKit\
 
 default:V:	$O.$CONF
 
-<../port/portmkfile
-
-$O.$CONF:	$OBJ $CONF.c $CONF.root.h $LIBFILES
+$O.$CONF:	$OBJ $CONF.c $CONF.root.h $LIBNAMES
 	$CC $CFLAGS '-DKERNDATE='$KERNDATE $CONF.c
 	$LD $LDFLAGS -o $target $OBJ $CONF.$O $LIBFILES $SYSLIBS
 
 install:V: $O.$CONF
 	cp $O.$CONF $INSTALLDIR/$CONF
 
-devfs.c:N:	../port/devfs-posix.c
+<../port/portmkfile
+
+devfs.$O:	../port/devfs-posix.c

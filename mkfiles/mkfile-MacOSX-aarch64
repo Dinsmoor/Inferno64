@@ -1,0 +1,35 @@
+TARGMODEL=	Posix
+TARGSHTYPE=	sh
+CPUS=		aarch64
+
+O=		o
+OS=		o
+
+AR=		ar
+ARFLAGS=	ruvs
+
+# macOS arm64 (Apple Silicon) host, clang.  Same profile knobs as
+# mkfile-Linux-aarch64; DBGFLAGS defaults empty here (the debug
+# instrumentation leans on Linux-only fault handling).
+OLEVEL=		-O2
+DBGFLAGS=
+AS=		cc -arch arm64 -c
+ASFLAGS=
+CC=		cc -arch arm64 -c
+CFLAGS=		-g $OLEVEL\
+		-Wuninitialized -Wunused-variable -Wreturn-type -Wimplicit\
+		-Wno-deprecated-declarations -Wno-microsoft-anon-tag -fms-extensions\
+		-Werror=implicit-function-declaration -Werror=implicit-int\
+		-I$ROOT/MacOSX/aarch64/include\
+		-I$ROOT/include\
+		-DMACOSX_AARCH64\
+		$DBGFLAGS
+
+ANSICPP=
+LD=		cc -arch arm64
+LDFLAGS=
+
+SYSLIBS=
+
+YACC=		iyacc
+YFLAGS=		-d
