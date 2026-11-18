@@ -13,6 +13,23 @@
 #include	<semaphore.h>
 #include	<sched.h>
 
+#ifdef __APPLE__
+/*
+ * Darwin does not implement unnamed POSIX semaphores (sem_init fails with
+ * ENOSYS), so map the three calls used here onto Mach semaphores.
+ * semaphore_wait returns non-zero (KERN_ABORTED) if interrupted, which the
+ * retry loop in osblock already handles.
+ */
+#include	<mach/mach_init.h>	/* not mach/mach.h: it declares panic() */
+#include	<mach/task.h>
+#include	<mach/semaphore.h>
+#define	sem_t	semaphore_t
+#define	sem_init(s, p, v)	semaphore_create(mach_task_self(), (s), SYNC_POLICY_FIFO, (v))
+#define	sem_destroy(s)	semaphore_destroy(mach_task_self(), *(s))
+#define	sem_wait(s)	semaphore_wait(*(s))
+#define	sem_post(s)	semaphore_signal(*(s))
+#endif
+
 #ifdef __NetBSD__
 #define PTHREAD_STACK_MIN ((size_t)sysconf(_SC_THREAD_STACK_MIN))
 #endif

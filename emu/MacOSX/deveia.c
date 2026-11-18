@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#define panic mach_panic	/* mach.h declares panic(const char*, ...) */
 #include <mach/mach.h>
 
 #include <CoreFoundation/CFNumber.h>
@@ -21,6 +22,7 @@
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/serial/IOSerialKeys.h>
 #include <IOKit/IOBSD.h>
+#undef panic
 
 #include <sys/ioctl.h>
 #include <sys/ttycom.h>

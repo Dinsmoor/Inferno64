@@ -67,16 +67,39 @@ extern int	munmap(void*, unsigned long);
 #define	PROT_WRITE	0x2
 #define	PROT_EXEC	0x4
 #define	MAP_PRIVATE	0x2
-#define	MAP_ANONYMOUS	0x20
 #define	MAP_FAILED	((void*)-1)
+#ifdef __APPLE__
+/*
+ * macOS arm64: RWX pages must come from mmap(MAP_JIT), are W^X per thread
+ * (pthread_jit_write_protect_np), and can never be below 4GB (the kernel
+ * enforces a 4GB __PAGEZERO on arm64).  Jump tables therefore hold offsets
+ * from m->prog rather than absolute addresses (see TABPC), so the arena may
+ * live anywhere.
+ */
+#define	MAP_ANONYMOUS	0x1000		/* Darwin MAP_ANON */
+#define	MAP_JIT		0x800
+#define	JITMAPFLAGS	(MAP_PRIVATE|MAP_ANONYMOUS|MAP_JIT)
+#define	JITLOWHINT	nil
+#define	JITLOWLIMIT	(~0UL)
+extern void	pthread_jit_write_protect_np(int);
+#define	jitwritable(on)	pthread_jit_write_protect_np(!(on))
+#else
+#define	MAP_ANONYMOUS	0x20
+#define	JITMAPFLAGS	(MAP_PRIVATE|MAP_ANONYMOUS)
 #define	JITLOWHINT	((void*)0x20000000UL)
 #define	JITLOWLIMIT	0x80000000UL		/* keep code below 2GB */
+#define	jitwritable(on)
+#endif
 
 static uchar*	jitarena;
 extern uchar*	jitlo;		/* native-code bounds, used by xec() dispatch */
 extern uchar*	jithi;
 ulong	jitarenasize = 64*1024*1024;	/* native kernel shrinks this (256MB RAM) */
+#ifdef __APPLE__
+int	jitsinglearena = 1;		/* MAP_JIT arenas need not be adjacent: keep [jitlo,jithi) one region */
+#else
 int	jitsinglearena;			/* never open a second arena (native kernel) */
+#endif
 
 static void*
 jitcode(ulong n)
@@ -100,7 +123,7 @@ jitcode(ulong n)
 		if(n > sz)
 			sz = (n + 0xFFF) & ~0xFFFUL;
 		p = mmap(JITLOWHINT, sz, PROT_READ|PROT_WRITE|PROT_EXEC,
-			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+			JITMAPFLAGS, -1, 0);
 		if(p == MAP_FAILED)
 			return nil;
 		if((uintptr_t)p + sz > JITLOWLIMIT) {	/* landed too high */
@@ -343,6 +366,8 @@ con(u64 o, int r)
 }
 
 #define RELPC(pc)	((u64)(base + (pc)))
+/* jump-table slot: byte offset of native pc from the module code base (m->prog); see xec.c */
+#define TABPC(pc)	((WORD)(RELPC(pc) - (u64)base))
 
 /* patch a previously-emitted forward branch/b.cond at loc to target `code`. */
 static void
@@ -752,7 +777,7 @@ comgoto(Inst *i)
 	e = t + t[-1];
 	t[-1] = 0;
 	while(t < e) {
-		t[0] = (WORD)RELPC(patch[t[0]]);
+		t[0] = TABPC(patch[t[0]]);
 		t++;
 	}
 }
@@ -775,10 +800,10 @@ comcase(Inst *i)
 	t[-1] = -l-1;					/* restore count */
 	e = t + t[-1]*3;
 	while(t < e) {
-		t[2] = (WORD)RELPC(patch[t[2]]);
+		t[2] = TABPC(patch[t[2]]);
 		t += 3;
 	}
-	t[0] = (WORD)RELPC(patch[t[0]]);		/* default */
+	t[0] = TABPC(patch[t[0]]);		/* default */
 }
 
 static void
@@ -799,10 +824,10 @@ comcasel(Inst *i)
 	t[-2] = -l-1;
 	e = t + t[-2]*6;
 	while(t < e) {
-		t[4] = (WORD)RELPC(patch[t[4]]);
+		t[4] = TABPC(patch[t[4]]);
 		t += 6;
 	}
-	t[0] = (WORD)RELPC(patch[t[0]]);
+	t[0] = TABPC(patch[t[0]]);
 }
 
 /*
@@ -835,10 +860,10 @@ comcasec(Inst *i)
 	t = (WORD*)(mod->origmp + i->d.ind + IBY2PTR);	/* entries, 6 WORDs each */
 	e = t + n*6;
 	while(t < e) {
-		t[4] = (WORD)RELPC(patch[t[4]]);	/* dst at byte 2*IBY2PTR */
+		t[4] = TABPC(patch[t[4]]);	/* dst at byte 2*IBY2PTR */
 		t += 6;
 	}
-	t[0] = (WORD)RELPC(patch[t[0]]);		/* wild dest */
+	t[0] = TABPC(patch[t[0]]);		/* wild dest */
 }
 
 /*
@@ -1497,8 +1522,26 @@ patchex(Module *m, ulong *p)
 /* ---------------------------------------------------------------------- *
  *  Two-pass compile driver.
  * ---------------------------------------------------------------------- */
+static int compile0(Module*, int, Modlink*);
+
+/*
+ * W^X: on macOS the MAP_JIT arena is writable only while this thread has
+ * JIT write protection off; all code-arena stores happen inside compile0
+ * (preamble included), so bracket it.  No-op elsewhere.
+ */
 int
 compile(Module *m, int size, Modlink *ml)
+{
+	int r;
+
+	jitwritable(1);
+	r = compile0(m, size, ml);
+	jitwritable(0);
+	return r;
+}
+
+static int
+compile0(Module *m, int size, Modlink *ml)
 {
 	Link *l;
 	Modl *e;

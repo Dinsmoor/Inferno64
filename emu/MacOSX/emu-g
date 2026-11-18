@@ -14,7 +14,7 @@ dev
 	cmd	cmd
 	indir
 
-	ip	ipif-posix ipaux
+	ip	ipif6-posix ipaux
 	eia
 #	audio	audio
 	mem
@@ -25,6 +25,8 @@ lib
 	keyring
 	sec
 	mp
+	stb
+	webp
 
 	9
 
@@ -38,6 +40,7 @@ mod
 	crypt
 	ipints
 	loader
+	imageio
 
 port
 	alloc
@@ -67,12 +70,11 @@ port
 	uqid
 
 code
-	int	dontcompile = 1;
-	int macjit = 1;
 	void setpointer(int x, int y){USED(x); USED(y);}
 	ulong strtochan(char *s){USED(s); return ~0;}
 	int tkstylus;
 	char* tkfont;
+	char* gkscanid;		/* raw scan format name; nil => disabled (no GUI) */
 
 init
 	emuinit

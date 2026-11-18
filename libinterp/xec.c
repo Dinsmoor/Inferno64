@@ -7,6 +7,18 @@
 REG	R;			/* Virtual Machine registers */
 uchar*	jitlo;			/* bounds of JIT-generated native code (0 = no JIT) */
 uchar*	jithi;
+
+/*
+ * Compiled-module jump tables (goto/case/casel/casec): the aarch64 JIT stores
+ * each destination as a byte offset from the native code base (m->prog), so
+ * the code arena may live above 4GB (macOS arm64 cannot map below it).  Other
+ * back-ends store absolute native addresses.
+ */
+#if defined(__aarch64__) || defined(__arm64__)
+#define	COMPPC(d)	((Inst*)((uchar*)R.M->prog + (UWORD)(d)))
+#else
+#define	COMPPC(d)	((Inst*)(d))
+#endif
 String	snil;			/* String known to be zero length */
 
 /*
@@ -550,7 +562,7 @@ OP(icase)
 		break;
 	}
 	if(R.M->compiled) {
-		R.PC = (Inst*)d;
+		R.PC = COMPPC(d);
 		return;
 	}
 	R.PC = R.M->prog + d;
@@ -581,7 +593,7 @@ OP(casel)
 		break;
 	}
 	if(R.M->compiled) {
-		R.PC = (Inst*)d;
+		R.PC = COMPPC(d);
 		return;
 	}
 	R.PC = R.M->prog + d;
@@ -646,7 +658,7 @@ OP(casec)
 		}
 	}
 	if(R.M->compiled) {
-		R.PC = (Inst*)*dest;
+		R.PC = COMPPC(*dest);
 		return;
 	}
 	R.PC = R.M->prog + *dest;
@@ -657,7 +669,7 @@ OP(igoto)
 
 	t = (WORD*)((uchar*)R.d + (W(s) * IBY2WD));	/* goto table: word PC entries */
 	if(R.M->compiled) {
-		R.PC = (Inst*)t[0];
+		R.PC = COMPPC(t[0]);
 		return;
 	}
 	R.PC = R.M->prog + t[0];
